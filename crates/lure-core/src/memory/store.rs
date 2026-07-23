@@ -6,14 +6,16 @@
 //! - `read_unprocessed_history` 按 cursor 过滤；prompt 历史按 session 过滤。
 //! - `.dream_cursor` 记录已整合进度。
 //!
-//! Phase 6 不做：GitStore 版本化、legacy HISTORY.md 迁移、unified session 内部会话
-//! 过滤、compact 的完整策略（见 upstream-test-ledger）。
+//! Phase 6 不做：GitStore 版本化、unified session 内部会话过滤、compact 的完整策略
+//! （见 upstream-test-ledger）。
 
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use chrono::{DateTime, Local};
+use regex::Regex;
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use serde_json::{json, Value};
 
 use crate::memory::strip::strip_think;
 
@@ -50,14 +52,16 @@ impl MemoryStore {
         let workspace = workspace.as_ref();
         let memory_dir = workspace.join("memory");
         fs::create_dir_all(&memory_dir)?;
-        Ok(Self {
+        let store = Self {
             memory_file: memory_dir.join("MEMORY.md"),
             soul_file: workspace.join("SOUL.md"),
             user_file: workspace.join("USER.md"),
             history_file: memory_dir.join("history.jsonl"),
             cursor_file: memory_dir.join(".cursor"),
             dream_cursor_file: memory_dir.join(".dream_cursor"),
-        })
+        };
+        store.maybe_migrate_legacy_history()?;
+        Ok(store)
     }
 
     /// history.jsonl 路径。
@@ -219,5 +223,171 @@ impl MemoryStore {
             content,
             session_key,
         })
+    }
+
+    fn maybe_migrate_legacy_history(&self) -> std::io::Result<()> {
+        let legacy_file = self.history_file.with_file_name("HISTORY.md");
+        if !legacy_file.exists() {
+            return Ok(());
+        }
+        if self.history_file.exists() && fs::metadata(&self.history_file)?.len() > 0 {
+            return Ok(());
+        }
+
+        let bytes = fs::read(&legacy_file)?;
+        let legacy_text = String::from_utf8_lossy(&bytes).into_owned();
+        let entries = self.parse_legacy_history(&legacy_text, &legacy_file);
+        if !entries.is_empty() {
+            write_history_entries(&self.history_file, &entries)?;
+            let last_cursor = entries.last().map(|entry| entry.cursor).unwrap_or(0);
+            fs::write(&self.cursor_file, last_cursor.to_string())?;
+            // 升级后默认视为已被 Dream 处理，避免首次启动重放整段历史。
+            fs::write(&self.dream_cursor_file, last_cursor.to_string())?;
+        }
+
+        fs::rename(&legacy_file, next_legacy_backup_path(&legacy_file))?;
+        Ok(())
+    }
+
+    fn parse_legacy_history(&self, text: &str, legacy_file: &Path) -> Vec<HistoryEntry> {
+        let normalized = text.replace("\r\n", "\n").replace('\r', "\n");
+        let normalized = normalized.trim();
+        if normalized.is_empty() {
+            return Vec::new();
+        }
+
+        let fallback_timestamp = legacy_fallback_timestamp(legacy_file);
+        split_legacy_history_chunks(normalized)
+            .into_iter()
+            .enumerate()
+            .map(|(idx, chunk)| {
+                let (timestamp, content) = parse_legacy_timestamp(&chunk)
+                    .unwrap_or_else(|| (fallback_timestamp.clone(), chunk));
+                HistoryEntry {
+                    cursor: (idx + 1) as u64,
+                    timestamp,
+                    content,
+                    session_key: None,
+                }
+            })
+            .collect()
+    }
+}
+
+fn write_history_entries(path: &Path, entries: &[HistoryEntry]) -> std::io::Result<()> {
+    let mut text = String::new();
+    for entry in entries {
+        let line = serde_json::to_string(&json!({
+            "cursor": entry.cursor,
+            "timestamp": entry.timestamp,
+            "content": entry.content,
+        }))?;
+        text.push_str(&line);
+        text.push('\n');
+    }
+    fs::write(path, text)
+}
+
+fn split_legacy_history_chunks(text: &str) -> Vec<String> {
+    let mut chunks: Vec<String> = Vec::new();
+    let mut current: Vec<String> = Vec::new();
+    let mut saw_blank_separator = false;
+
+    for line in text.split('\n') {
+        if saw_blank_separator && !line.trim().is_empty() && !current.is_empty() {
+            chunks.push(current.join("\n").trim().to_string());
+            current = vec![line.to_string()];
+            saw_blank_separator = false;
+            continue;
+        }
+        if should_start_new_legacy_chunk(line, &current) {
+            chunks.push(current.join("\n").trim().to_string());
+            current = vec![line.to_string()];
+            saw_blank_separator = false;
+            continue;
+        }
+        current.push(line.to_string());
+        saw_blank_separator = line.trim().is_empty();
+    }
+
+    if !current.is_empty() {
+        chunks.push(current.join("\n").trim().to_string());
+    }
+    chunks
+        .into_iter()
+        .filter(|chunk| !chunk.is_empty())
+        .collect()
+}
+
+fn should_start_new_legacy_chunk(line: &str, current: &[String]) -> bool {
+    if current.is_empty() || !legacy_entry_start_re().is_match(line) {
+        return false;
+    }
+    if is_raw_legacy_chunk(current) && legacy_raw_message_re().is_match(line) {
+        return false;
+    }
+    true
+}
+
+fn is_raw_legacy_chunk(lines: &[String]) -> bool {
+    let Some(first_nonempty) = lines.iter().find(|line| !line.trim().is_empty()) else {
+        return false;
+    };
+    let Some(mat) = legacy_timestamp_re().find(first_nonempty) else {
+        return false;
+    };
+    first_nonempty[mat.end()..]
+        .trim_start()
+        .starts_with("[RAW]")
+}
+
+fn parse_legacy_timestamp(chunk: &str) -> Option<(String, String)> {
+    let regex = legacy_timestamp_re();
+    let captures = regex.captures(chunk)?;
+    let timestamp = captures.get(1)?.as_str().to_string();
+    let mat = captures.get(0)?;
+    let remainder = chunk[mat.end()..].trim_start();
+    if remainder.is_empty() {
+        None
+    } else {
+        Some((timestamp, remainder.to_string()))
+    }
+}
+
+fn legacy_entry_start_re() -> Regex {
+    Regex::new(r"^\[(\d{4}-\d{2}-\d{2}[^\]]*)\]\s*").expect("valid regex")
+}
+
+fn legacy_timestamp_re() -> Regex {
+    Regex::new(r"^\[(\d{4}-\d{2}-\d{2} \d{2}:\d{2})\]\s*").expect("valid regex")
+}
+
+fn legacy_raw_message_re() -> Regex {
+    Regex::new(r"^\[\d{4}-\d{2}-\d{2}[^\]]*\]\s+[A-Z][A-Z0-9_]*(?:\s+\[tools:\s*[^\]]+\])?:")
+        .expect("valid regex")
+}
+
+fn legacy_fallback_timestamp(legacy_file: &Path) -> String {
+    fs::metadata(legacy_file)
+        .and_then(|metadata| metadata.modified())
+        .map(DateTime::<Local>::from)
+        .unwrap_or_else(|_| Local::now())
+        .format("%Y-%m-%d %H:%M")
+        .to_string()
+}
+
+fn next_legacy_backup_path(legacy_file: &Path) -> PathBuf {
+    let memory_dir = legacy_file.parent().unwrap_or_else(|| Path::new("."));
+    let first = memory_dir.join("HISTORY.md.bak");
+    if !first.exists() {
+        return first;
+    }
+    let mut suffix = 2;
+    loop {
+        let candidate = memory_dir.join(format!("HISTORY.md.bak.{suffix}"));
+        if !candidate.exists() {
+            return candidate;
+        }
+        suffix += 1;
     }
 }

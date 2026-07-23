@@ -145,7 +145,6 @@
     `test_session_fsync.py`（durable reload + 无 tmp 残留；fsync=true 路径执行）、
     session key 可逆与 JSONL round-trip（含非 ASCII）。
   - 暂未覆盖（记入 ledger）：
-    - `test_session_list_repair_legacy.py`：legacy lossy stem 修复，属迁移边界，后续回补。
     - `test_turn_continuation.py`：耦合 `bus.InboundMessage` 与 agent runner，归 Phase 3/7。
     - weak-overflow 身份保留（cache 的 `is` 身份两例）：需 `Rc`/`Weak` 语义，后续回补。
     - `runner_wall_llm_timeout_s`：runner 关注点，归 Phase 3。
@@ -338,7 +337,7 @@
   - 已覆盖：`test_memory_store.py`（memory/soul/user 读写、history cursor、strip、session 过滤、
     reopen 持久化）、dream 触发/写回/幂等/cursor 推进（fake runner）、context 注入顺序。
   - 暂未覆盖（记入 ledger）：
-    - GitStore 版本化与 legacy `HISTORY.md` 迁移。
+    - GitStore 版本化。
     - 真实 LLM dream、SOUL/USER 的整合、迭代/批次与压缩策略、autocompact（`test_dream.py` 等）。
     - unified session 内部会话过滤、`compact_history` 完整策略、并发 append 锁。
 - 下一步：
@@ -546,8 +545,33 @@
     `test_package_version.py`（版本核对，等价为 CLI `--version`）。
   - 暂未覆盖（记入 ledger）：
     - 真实 `docker build`/`docker compose`（外部工具，属 CI；本地不作单测门禁）。
-    - legacy session/memory fixture 迁移（`HISTORY.md` → `history.jsonl`、legacy session 路径迁移，
-      属 Phase 2/6 暂缓项，回补时纳入 release checklist）。
     - `tools` typed 建模后 my tool keys 的 typed 往返（当前仅原始 JSON 层迁移可测）。
 - 说明：至此 11 个阶段均形成可运行纵向切片，Phase 1-11 以 partial 状态收敛，暂缓项均在
   `upstream-test-ledger.md` 与 `release-checklist.md` 记录。
+
+### 进度记录 2026-07-23（legacy session/memory 迁移回补）
+
+- 状态：partial
+- 本次完成：
+  - `SessionManager` 支持 workspace 内 legacy lossy stem（如 `telegram_12345.jsonl`）读取 metadata key，
+    `list_stored_keys` 可在损坏行存在时保留 session，并迁移到 base64url canonical 文件名。
+  - `get_or_create` 在 canonical 文件缺失时会从匹配 key 的 legacy lossy stem 迁移并加载原消息。
+  - `MemoryStore::new` 增加一次性 `memory/HISTORY.md` → `memory/history.jsonl` 迁移：
+    支持时间戳块、连续无空行条目、`[RAW]` 块保持单条、空 `history.jsonl` 仍迁移、非空
+    `history.jsonl` 跳过、非法 UTF-8 以 lossless-enough 方式保留可读内容。
+  - 迁移后写入 `.cursor` 与 `.dream_cursor` 到最后 cursor，并把原始 `HISTORY.md` 移为
+    `HISTORY.md.bak`（已有备份时自动加序号）。
+  - 修正 `handbook/README.md` 过期基线描述。
+- 验证：
+  - `rtk cargo fmt --check` 通过。
+  - `rtk cargo clippy --all-targets --all-features -- -D warnings` 无问题。
+  - `rtk env -u DEEPSEEK_API_KEY cargo test --all-targets --all-features` 通过（177 passed）。
+  - 直接运行 `rtk cargo test --all-targets --all-features` 时，因当前环境含 `DEEPSEEK_API_KEY`
+    且沙箱禁止 DNS，opt-in `provider_deepseek_smoke` 触网失败；已按 opt-in 设计清除该变量后完成本地全量验证。
+- 上游对照：
+  - 已覆盖：`tests/session/test_session_list_repair_legacy.py`、`tests/agent/test_memory_store.py`
+    中 legacy `HISTORY.md` 迁移核心场景。
+  - 暂未覆盖：legacy 全局 sessions 目录（`~/.nanobot/sessions`）迁移、GitStore 版本化、
+    `compact_history` 完整策略与并发 append 锁。
+- 下一步：
+  - 可继续收敛 Phase 4 的 stateful `ModelRuntimeResolver`，或 Phase 9/10 的真实 HTTP/WebSocket 服务。

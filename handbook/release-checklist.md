@@ -27,8 +27,9 @@
 
 - [ ] legacy config：含 `maxMessages` / `tools.myEnabled|mySet` / `tools.exec.restrictToWorkspace`
       的旧 `config.json` 经 `load_config` 迁移后可正常加载（见 `config_migration.rs`）。
-- [ ] legacy session/memory fixture 迁移：待补（`HISTORY.md` → `history.jsonl`、legacy session
-      路径迁移属 Phase 2/6 暂缓项，回补时纳入本清单）。
+- [ ] legacy session/memory fixture 迁移：基础闭环已覆盖（workspace legacy lossy stem →
+      canonical session 文件、`HISTORY.md` → `history.jsonl`，见 `session_persistence.rs`
+      与 `memory_store.rs`）；legacy 全局 sessions 目录迁移待补。
 
 ## 文档
 

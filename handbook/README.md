@@ -4,7 +4,8 @@
 
 ## 当前基线
 
-- 当前仓库仍处在初始化前状态：尚未创建 Rust crate 或 Cargo workspace。
+- 当前仓库已建立 Cargo workspace，包含 `lure-core` 与 `lure-cli` 两个 crate。
+- Phase 0 已完成；Phase 1-11 均已有可运行纵向切片，当前以 `partial` 状态继续回补上游测试缺口。
 - 上游事实来源：`/Users/scottlee/workspace/github/nanobot`。
 - 上游当前可见形态：Python 后端核心、CLI/API/Gateway/WebUI、多渠道、工具、provider、session、memory、cron 等能力。
 - 本项目推进原则：先做窄而可运行的纵向闭环，再扩展到外围能力；每个阶段先补测试，再补生产代码。

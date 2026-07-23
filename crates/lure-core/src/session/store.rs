@@ -8,8 +8,7 @@
 //! - 缓存为有界 LRU，超过上限淘汰最久未用条目。
 //! - 加载损坏行时跳过（合并了上游 `_load` 与 `_repair` 的容错读取）。
 //!
-//! Phase 2 暂不实现：weak-overflow 身份保留、legacy 路径迁移与 `list_sessions`
-//! legacy stem 修复、file cap 归档、retention。详见 upstream-test-ledger。
+//! Phase 2 暂不实现：weak-overflow 身份保留、file cap 归档、retention。详见 upstream-test-ledger。
 
 use std::collections::{HashMap, VecDeque};
 use std::fmt;
@@ -114,9 +113,16 @@ impl SessionManager {
             .join(format!("{}.jsonl", Self::storage_key(key)))
     }
 
-    /// 枚举 sessions 目录下所有已存储会话 key（反解 base64url 文件名）。
+    /// 旧版 workspace 内会话文件名：把 `:` 有损替换为 `_`。
+    fn legacy_lossy_path(&self, key: &str) -> PathBuf {
+        self.sessions_dir
+            .join(format!("{}.jsonl", safe_filename(&key.replace(':', "_"))))
+    }
+
+    /// 枚举 sessions 目录下所有已存储会话 key。
     ///
-    /// 用于 WebUI session list 等需要遍历会话的场景；无法反解的文件被跳过。
+    /// 用于 WebUI session list 等需要遍历会话的场景；优先反解 base64url 文件名，
+    /// 无法反解时读取 metadata 中的 `key`，并把旧版有损 stem 迁移到 canonical 文件名。
     pub fn list_stored_keys(&self) -> Vec<String> {
         let Ok(entries) = fs::read_dir(&self.sessions_dir) else {
             return Vec::new();
@@ -129,10 +135,16 @@ impl SessionManager {
                     return None;
                 }
                 let stem = path.file_stem()?.to_str()?;
-                Self::decode_storage_key(stem)
+                if let Some(key) = Self::decode_storage_key(stem) {
+                    return Some(key);
+                }
+                let key = stored_key_for_path(&path)?;
+                self.migrate_legacy_path(&path, &key);
+                Some(key)
             })
             .collect();
         keys.sort();
+        keys.dedup();
         keys
     }
 
@@ -185,6 +197,15 @@ impl SessionManager {
 
     fn load(&self, key: &str) -> Result<Option<Session>, SessionError> {
         let path = self.session_path(key);
+        if !path.exists() {
+            let legacy_path = self.legacy_lossy_path(key);
+            if legacy_path.exists() {
+                let stored_key = stored_key_for_path(&legacy_path);
+                if stored_key.as_deref().is_none_or(|stored| stored == key) {
+                    let _ = fs::rename(&legacy_path, &path);
+                }
+            }
+        }
         match fs::read_to_string(&path) {
             Ok(text) => Ok(Some(parse_session(key, &text))),
             Err(source) if source.kind() == io::ErrorKind::NotFound => Ok(None),
@@ -211,6 +232,45 @@ impl SessionManager {
             self.lru.push_back(key.to_string());
         }
     }
+
+    fn migrate_legacy_path(&self, legacy_path: &Path, key: &str) {
+        let canonical = self.session_path(key);
+        if legacy_path == canonical || canonical.exists() {
+            return;
+        }
+        let _ = fs::rename(legacy_path, canonical);
+    }
+}
+
+fn safe_filename(value: &str) -> String {
+    value
+        .chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() || matches!(ch, '_' | '-' | '.') {
+                ch
+            } else {
+                '_'
+            }
+        })
+        .collect()
+}
+
+fn stored_key_for_path(path: &Path) -> Option<String> {
+    let text = fs::read_to_string(path).ok()?;
+    for line in text.lines() {
+        let line = line.trim();
+        if line.is_empty() {
+            continue;
+        }
+        let Ok(Value::Object(obj)) = serde_json::from_str::<Value>(line) else {
+            return None;
+        };
+        if obj.get("_type").and_then(Value::as_str) == Some("metadata") {
+            return obj.get("key").and_then(Value::as_str).map(str::to_string);
+        }
+        return None;
+    }
+    None
 }
 
 /// 容错解析 JSONL：跳过无法解析或非对象的行；首个 metadata 行提供会话元数据。

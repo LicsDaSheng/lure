@@ -24,8 +24,8 @@
 | 上游测试区域 | 归属 phase | 状态 | 说明 |
 |---|---:|---|---|
 | `tests/config/` | 1 | partial | 核心 loader/paths/save 已覆盖；migration/env/gateway 相关暂缓，见下方明细 |
-| `tests/session/` | 2 | partial | 存储/clamp/cache/goal_state 已覆盖；list repair、turn continuation、weak-identity 暂缓，见下方明细 |
-| `tests/agent/` | 2,3,4,6 | partial | session/loop/memory 已覆盖；provider runtime、tool 上下文、dream LLM 待后续 |
+| `tests/session/` | 2 | partial | 存储/clamp/cache/goal_state/list repair 已覆盖；turn continuation、weak-identity 暂缓，见下方明细 |
+| `tests/agent/` | 2,3,4,6 | partial | session/loop/memory/legacy history migration 已覆盖；provider runtime、tool 上下文、dream LLM 待后续 |
 | `tests/cli/` | 3 | partial | one-shot 已覆盖；interactive/commands 待后续 |
 | `tests/providers/` | 4 | partial | OpenAI-compatible 请求/响应/错误 + 选择顺序已覆盖；registry 全量、真实 provider opt-in 待补 |
 | `tests/tools/` | 5 | partial | registry/schema/文件/shell allow-deny 已覆盖；apply_patch/search/web/mcp/exec 平台细节待补 |
@@ -62,9 +62,9 @@ Phase 0 已完成，确定 phase 1-4 关键上游测试的 Rust 测试落点（�
 | `tests/config/test_config_migration.py` | 11 | `crates/lure-core/tests/config_migration.rs` | partial | maxMessages/exec.restrictToWorkspace/my tool keys 原始 JSON 迁移已覆盖；tools typed 往返待 ToolsConfig |
 | `tests/test_package_version.py` | 11 | `crates/lure-cli/tests/version.rs` | partial | CLI `--version` 与包版本一致已覆盖 |
 | `tests/test_docker.sh` | 11 | Dockerfile/docker-compose.yml | partial | 发布产物结构已提供；真实 docker build 属 CI |
+| legacy session/memory fixture 迁移 | 2,6,11 | `crates/lure-core/tests/session_persistence.rs` + `crates/lure-core/tests/memory_store.rs` | partial | workspace legacy lossy stem 与 `HISTORY.md` → `history.jsonl` 已覆盖；legacy 全局 sessions 目录待补 |
 
-> 注：Phase 11 提供发布结构与 config 迁移逻辑；真实镜像构建、legacy session/memory fixture
-> 迁移（`HISTORY.md` → `history.jsonl`）留待后续，并纳入 `release-checklist.md`。
+> 注：Phase 11 提供发布结构与 config 迁移逻辑；真实镜像构建留待 CI/发布验收。
 
 ## Phase 10 明细映射
 
@@ -113,7 +113,7 @@ Phase 0 已完成，确定 phase 1-4 关键上游测试的 Rust 测试落点（�
 
 | 上游测试 | 归属 phase | Rust 测试 | 状态 | 说明 |
 |---|---:|---|---|---|
-| `tests/agent/test_memory_store.py` | 6 | `crates/lure-core/tests/memory_store.rs` | partial | memory/soul/user 读写、history cursor、strip、session 过滤、reopen 已覆盖；compact/并发锁/legacy 迁移待补 |
+| `tests/agent/test_memory_store.py` | 6 | `crates/lure-core/tests/memory_store.rs` | partial | memory/soul/user 读写、history cursor、strip、session 过滤、reopen、legacy `HISTORY.md` 迁移已覆盖；compact/并发锁待补 |
 | `tests/agent/test_dream.py` | 6 | `crates/lure-core/tests/memory_dream.rs` | partial | dream 触发/写回/幂等/cursor 推进用 fake runner 覆盖；真实 LLM dream、SOUL/USER 整合、批次策略暂缓 |
 | `tests/agent/test_context_builder.py` | 6 | `crates/lure-core/tests/memory_context.rs` | partial | memory 注入顺序（system→memory→历史）已覆盖；runtime context 块、富历史处理待补 |
 
@@ -167,7 +167,7 @@ Phase 0 已完成，确定 phase 1-4 关键上游测试的 Rust 测试落点（�
 | `tests/session/test_consolidated_offset_clamp.py` | 2 | `crates/lure-core/tests/session_offset_clamp.rs` | covered | 内存与加载两条路径的 clamp 均覆盖 |
 | `tests/session/test_session_cache.py` | 2 | `crates/lure-core/tests/session_cache.rs` | partial | bounded/LRU order/淘汰重载已覆盖；weak-overflow 身份保留两例需 `Rc`/`Weak`，后续回补 |
 | `tests/session/test_session_fsync.py` | 2 | `crates/lure-core/tests/session_cache.rs` + `session_persistence.rs` | partial | durable reload / flush_all / 无 tmp 残留已覆盖；fsync 调用计数与 PermissionError 传播暂缓（Rust std 不便 mock `os.fsync`） |
-| `tests/session/test_session_list_repair_legacy.py` | 2 | 待定 | deferred | legacy lossy stem 修复，属迁移边界，待 legacy 迁移子阶段回补 |
+| `tests/session/test_session_list_repair_legacy.py` | 2 | `crates/lure-core/tests/session_persistence.rs` | covered | legacy lossy stem 在 list 和 get_or_create 路径均迁移到 canonical base64url 文件 |
 | `tests/session/test_turn_continuation.py` | 2→3/7 | 待定 | deferred | 耦合 `bus.InboundMessage` 与 agent runner，随 loop/bus 落地 |
 
 > 注：以上上游文件名均已按 `nanobot/tests/` 现状核对存在。base64url 存储 key 可逆性与

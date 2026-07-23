@@ -131,3 +131,136 @@ fn cursor_persists_across_store_reopen() {
     let reopened = MemoryStore::new(dir.path()).unwrap();
     assert_eq!(reopened.append_history("event 3", None).unwrap(), 3);
 }
+
+#[test]
+fn migrates_legacy_history_md_preserving_partial_entries() {
+    let dir = tempdir().unwrap();
+    let memory_dir = dir.path().join("memory");
+    std::fs::create_dir_all(&memory_dir).unwrap();
+    let legacy_file = memory_dir.join("HISTORY.md");
+    let legacy_content = concat!(
+        "[2026-04-01 10:00] User prefers dark mode.\n\n",
+        "[2026-04-01 10:05] [RAW] 2 messages\n",
+        "[2026-04-01 10:04] USER: hello\n",
+        "[2026-04-01 10:04] ASSISTANT: hi\n\n",
+        "Legacy chunk without timestamp.\n",
+        "Keep whatever content we can recover.\n",
+    );
+    std::fs::write(&legacy_file, legacy_content).unwrap();
+
+    let store = MemoryStore::new(dir.path()).unwrap();
+    let entries = store.read_unprocessed_history(0);
+
+    assert_eq!(entries.len(), 3);
+    assert_eq!(entries[0].cursor, 1);
+    assert_eq!(entries[0].timestamp, "2026-04-01 10:00");
+    assert_eq!(entries[0].content, "User prefers dark mode.");
+    assert_eq!(entries[1].timestamp, "2026-04-01 10:05");
+    assert!(entries[1].content.starts_with("[RAW] 2 messages"));
+    assert!(entries[1].content.contains("USER: hello"));
+    assert!(entries[2]
+        .content
+        .starts_with("Legacy chunk without timestamp."));
+    assert_eq!(
+        MemoryStore::read_file(&memory_dir.join(".cursor")).trim(),
+        "3"
+    );
+    assert_eq!(
+        MemoryStore::read_file(&memory_dir.join(".dream_cursor")).trim(),
+        "3"
+    );
+    assert!(!legacy_file.exists());
+    assert_eq!(
+        MemoryStore::read_file(&memory_dir.join("HISTORY.md.bak")),
+        legacy_content
+    );
+}
+
+#[test]
+fn migrates_consecutive_legacy_entries_without_blank_lines() {
+    let dir = tempdir().unwrap();
+    let memory_dir = dir.path().join("memory");
+    std::fs::create_dir_all(&memory_dir).unwrap();
+    std::fs::write(
+        memory_dir.join("HISTORY.md"),
+        concat!(
+            "[2026-04-01 10:00] First event.\n",
+            "[2026-04-01 10:01] Second event.\n",
+            "[2026-04-01 10:02] Third event.\n",
+        ),
+    )
+    .unwrap();
+
+    let store = MemoryStore::new(dir.path()).unwrap();
+    let contents: Vec<String> = store
+        .read_unprocessed_history(0)
+        .into_iter()
+        .map(|entry| entry.content)
+        .collect();
+
+    assert_eq!(
+        contents,
+        vec!["First event.", "Second event.", "Third event."]
+    );
+}
+
+#[test]
+fn existing_nonempty_history_jsonl_skips_legacy_migration() {
+    let dir = tempdir().unwrap();
+    let memory_dir = dir.path().join("memory");
+    std::fs::create_dir_all(&memory_dir).unwrap();
+    std::fs::write(
+        memory_dir.join("history.jsonl"),
+        r#"{"cursor":7,"timestamp":"2026-04-01 12:00","content":"existing"}"#,
+    )
+    .unwrap();
+    std::fs::write(memory_dir.join("HISTORY.md"), "[2026-04-01 10:00] legacy\n").unwrap();
+
+    let store = MemoryStore::new(dir.path()).unwrap();
+    let entries = store.read_unprocessed_history(0);
+
+    assert_eq!(entries.len(), 1);
+    assert_eq!(entries[0].cursor, 7);
+    assert_eq!(entries[0].content, "existing");
+    assert!(memory_dir.join("HISTORY.md").exists());
+    assert!(!memory_dir.join("HISTORY.md.bak").exists());
+}
+
+#[test]
+fn empty_history_jsonl_still_allows_legacy_migration() {
+    let dir = tempdir().unwrap();
+    let memory_dir = dir.path().join("memory");
+    std::fs::create_dir_all(&memory_dir).unwrap();
+    std::fs::write(memory_dir.join("history.jsonl"), "").unwrap();
+    std::fs::write(memory_dir.join("HISTORY.md"), "[2026-04-01 10:00] legacy\n").unwrap();
+
+    let store = MemoryStore::new(dir.path()).unwrap();
+    let entries = store.read_unprocessed_history(0);
+
+    assert_eq!(entries.len(), 1);
+    assert_eq!(entries[0].cursor, 1);
+    assert_eq!(entries[0].timestamp, "2026-04-01 10:00");
+    assert_eq!(entries[0].content, "legacy");
+    assert!(!memory_dir.join("HISTORY.md").exists());
+    assert!(memory_dir.join("HISTORY.md.bak").exists());
+}
+
+#[test]
+fn migrates_legacy_history_with_invalid_utf8_bytes() {
+    let dir = tempdir().unwrap();
+    let memory_dir = dir.path().join("memory");
+    std::fs::create_dir_all(&memory_dir).unwrap();
+    std::fs::write(
+        memory_dir.join("HISTORY.md"),
+        b"[2026-04-01 10:00] Broken \xff data still needs migration.\n\n",
+    )
+    .unwrap();
+
+    let store = MemoryStore::new(dir.path()).unwrap();
+    let entries = store.read_unprocessed_history(0);
+
+    assert_eq!(entries.len(), 1);
+    assert_eq!(entries[0].timestamp, "2026-04-01 10:00");
+    assert!(entries[0].content.contains("Broken"));
+    assert!(entries[0].content.contains("migration."));
+}
