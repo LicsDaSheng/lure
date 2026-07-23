@@ -146,7 +146,7 @@
 
 ## Phase 9: OpenAI-compatible API 与 SDK 表面
 
-- 状态：`todo`
+- 状态：`partial`
 - 目标：实现 `/v1/chat/completions` 等 API 兼容层和 SDK 可调用表面。
 - 上游参考：
   - `nanobot/api/`

@@ -445,6 +445,31 @@
 - 错误响应状态码和 body 稳定。
 - API runtime 与 gateway 生命周期互不混淆。
 
+### 进度记录 2026-07-23
+
+- 状态：partial
+- 本次完成（OpenAI-compatible API 表面，传输无关）：
+  - `lure-core::api`：`parse_chat_request`（messages 必须恰好一条 user，支持多模态 text 抽取、
+    stream 标志、可选 model）；`validate_model`（不匹配→400）；`authorize`（未配置 key 放行，
+    配置后校验 `Bearer <key>`→401）；`api_session_key`（固定 `api:default` 或 `api:{id}`）。
+  - 响应：`chat_completion_response`（`object:"chat.completion"`、choices、usage total 规则：
+    provider total 优先，否则 prompt+completion）、`error_body`（`{error:{message,type,code}}`）、
+    结构化 `ApiError`。
+  - streaming：`sse_chunks` 产出有序事件（内容 chunk → finish=stop chunk → `data: [DONE]`）。
+- 验证：
+  - `rtk cargo fmt --check` 通过；`rtk cargo clippy --all-targets --all-features -- -D warnings` 无问题。
+  - `rtk cargo test --all-targets --all-features` 通过（157 passed）。
+- 上游对照：
+  - 已覆盖：`test_openai_api.py`（error json、chat completion 形状/usage、单条 user 校验、model
+    不匹配、鉴权、固定 session）、`test_api_stream.py`（SSE 事件顺序）。
+  - 暂未覆盖（记入 ledger）：
+    - 真实 HTTP server（aiohttp 对应）、`/v1/models`、media 上传、并发 session lock、
+      真实 agent 接线与响应回填。
+    - SDK facade（`nanobot/sdk`）与其 streaming client。
+    - API runtime 进程生命周期（与 gateway runtime 的隔离目前体现在固定 session key 命名空间）。
+- 下一步：
+  - 进入 Phase 10：WebUI 后端服务协议、session list/thread API、WebSocket stream 协议与前端测试映射。
+
 ## Phase 10: WebUI 与前端集成
 
 ### Plan

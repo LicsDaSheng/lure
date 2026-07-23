@@ -15,8 +15,10 @@
 //! - [`gateway`]：Phase 7 的最小 gateway 编排。
 //! - [`cron`]：Phase 8 的 cron 调度类型、持久化 store 与 session-bound 投递。
 //! - [`trigger`]：Phase 8 的本地 trigger at-least-once 投递队列。
+//! - [`api`]：Phase 9 的 OpenAI-compatible API 表面（传输无关）。
 
 pub mod agent;
+pub mod api;
 pub mod bus;
 pub mod channel;
 pub mod config;
