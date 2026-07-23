@@ -4,8 +4,10 @@
 //!
 //! 当前已落地：
 //! - [`config`]：Phase 1 的配置 schema、路径解析与读写。
+//! - [`session`]：Phase 2 的 session key、存储、goal 派生视图。
 
 pub mod config;
+pub mod session;
 
 /// 返回 `lure-core` crate 的版本号。
 ///

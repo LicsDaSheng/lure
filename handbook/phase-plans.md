@@ -119,6 +119,40 @@
 - 未覆盖场景已写入 `upstream-test-ledger.md`。
 - 全量 Rust 验证通过。
 
+### 进度记录 2026-07-23
+
+- 状态：partial
+- 本次完成（session 存储核心纵向切片）：
+  - `lure-core::session` 落地：`keys` / `goal_state` / `model`(Session) / `store`(SessionManager)。
+  - session key：`session_key_for_channel` 与 `unified:default`，对齐上游 `keys.py`。
+  - 存储 key：base64url（无 padding）编码，`storage_key`/`decode_storage_key` 可逆、抗冲突、文件名安全。
+  - JSONL：首行 metadata + 每行一条消息；容错读取（跳过损坏行，合并上游 `_load`+`_repair`）。
+  - `Session`：`last_consolidated` clamp（越界/负数/浮点/布尔/字符串/空 → 0，不丢消息）；
+    `get_history` 按条数切片（富回放逻辑留待 context builder）。
+  - `SessionManager`：`get_or_create`、`save`(temp+rename 原子写，`fsync` 刷 file+目录)、
+    `flush_all`、有界 LRU cache（`SESSION_CACHE_MAX_SIZE=128`）、`invalidate`。
+  - `goal_state` 纯派生视图：`goal_state_raw`/`parse_goal_state`/`sustained_goal_active`/
+    `goal_state_runtime_lines`/`goal_state_ws_blob`/`discard_legacy_goal_state_key`/
+    `explicit_goal_requested`/`sustained_goal_turn`，兼容 legacy `thread_goal` key。
+  - 结构化错误 `SessionError`（Io/NotCached）。
+- 验证：
+  - `rtk cargo fmt --check` 通过。
+  - `rtk cargo clippy --all-targets --all-features -- -D warnings` 无问题。
+  - `rtk cargo test --all-targets --all-features` 通过（43 passed）。
+- 上游对照：
+  - 已覆盖：`test_goal_state.py`（纯函数）、`test_consolidated_offset_clamp.py`、
+    `test_session_cache.py`（bounded + LRU order + 淘汰后重载）、
+    `test_session_fsync.py`（durable reload + 无 tmp 残留；fsync=true 路径执行）、
+    session key 可逆与 JSONL round-trip（含非 ASCII）。
+  - 暂未覆盖（记入 ledger）：
+    - `test_session_list_repair_legacy.py`：legacy lossy stem 修复，属迁移边界，后续回补。
+    - `test_turn_continuation.py`：耦合 `bus.InboundMessage` 与 agent runner，归 Phase 3/7。
+    - weak-overflow 身份保留（cache 的 `is` 身份两例）：需 `Rc`/`Weak` 语义，后续回补。
+    - `runner_wall_llm_timeout_s`：runner 关注点，归 Phase 3。
+    - fsync 调用计数断言：Rust std 不便 mock `os.fsync`，改以 durable reload 行为验证。
+- 下一步：
+  - 进入 Phase 3：定义 `AgentLoop`/`AgentRunner` 边界与 fake provider，CLI one-shot 闭环。
+
 ## Phase 3: Agent Loop 最小纵向闭环
 
 ### Plan

@@ -32,7 +32,7 @@
 
 ## Phase 2: Session 与近程历史
 
-- 状态：`todo`
+- 状态：`partial`
 - 目标：复刻 session key、JSONL 存储、历史读取、turn continuation、goal state、压缩偏移等核心状态语义。
 - 上游参考：
   - `nanobot/session/`

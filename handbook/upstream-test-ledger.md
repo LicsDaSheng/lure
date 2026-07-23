@@ -24,7 +24,7 @@
 | 上游测试区域 | 归属 phase | 状态 | 说明 |
 |---|---:|---|---|
 | `tests/config/` | 1 | partial | 核心 loader/paths/save 已覆盖；migration/env/gateway 相关暂缓，见下方明细 |
-| `tests/session/` | 2 | todo | session JSONL、fsync、cache、goal state、turn continuation |
+| `tests/session/` | 2 | partial | 存储/clamp/cache/goal_state 已覆盖；list repair、turn continuation、weak-identity 暂缓，见下方明细 |
 | `tests/agent/` | 2,3,4,6 | todo | 需按 session、loop、provider、memory 拆分 |
 | `tests/cli/` | 3 | todo | 先覆盖 CLI one-shot，再覆盖 interactive |
 | `tests/providers/` | 4 | todo | provider registry、runtime resolver、真实 provider opt-in |
@@ -55,11 +55,19 @@ Phase 0 已完成，确定 phase 1-4 关键上游测试的 Rust 测试落点（�
 | `tests/config/test_config_atomic_save.py` | 1 | `crates/lure-core/tests/config_save.rs` | partial | round-trip/camelCase/父目录/unix 权限位已覆盖；`preserves_existing_file_when_write_fails`(mock `Path.replace`) 由 temp+rename 设计保证，未单独 mock `fs::rename` |
 | `tests/config/test_config_migration.py` | 1 | 待定 | deferred | `_migrate_config` 依赖尚未建模字段（maxMessages/tools 迁移） |
 | `tests/config/test_env_interpolation.py` | 1 | 待定 | deferred | `${VAR}` 插值依赖后续字段与运行时上下文 |
-| `tests/session/test_goal_state.py` | 2 | `crates/lure-core/tests/session_goal_state.rs` | mapped | goal state 持久化 |
-| `tests/session/test_session_fsync.py` | 2 | `crates/lure-core/tests/session_fsync.rs` | mapped | session 写入安全 |
 | `tests/agent/test_loop_runner_integration.py` | 3 | `crates/lure-core/tests/loop_runner_integration.rs` | mapped | agent loop 最小闭环 |
 | `tests/agent/test_model_runtime_resolver.py` | 4 | `crates/lure-core/tests/model_runtime_resolver.rs` | mapped | provider/model 解析 |
 
-> 注：以上上游文件名均已按 `nanobot/tests/` 现状核对存在。`tests/session/` 另有
-> `test_consolidated_offset_clamp.py`、`test_session_cache.py`、`test_turn_continuation.py`、
-> `test_session_list_repair_legacy.py`，进入 Phase 2 时一并映射。
+## Phase 2 明细映射
+
+| 上游测试 | 归属 phase | Rust 测试 | 状态 | 说明 |
+|---|---:|---|---|---|
+| `tests/session/test_goal_state.py` | 2 | `crates/lure-core/tests/session_goal_state.rs` | partial | 纯派生视图已覆盖；`runner_wall_llm_timeout_s`（需 SessionManager/runner）归 Phase 3 |
+| `tests/session/test_consolidated_offset_clamp.py` | 2 | `crates/lure-core/tests/session_offset_clamp.rs` | covered | 内存与加载两条路径的 clamp 均覆盖 |
+| `tests/session/test_session_cache.py` | 2 | `crates/lure-core/tests/session_cache.rs` | partial | bounded/LRU order/淘汰重载已覆盖；weak-overflow 身份保留两例需 `Rc`/`Weak`，后续回补 |
+| `tests/session/test_session_fsync.py` | 2 | `crates/lure-core/tests/session_cache.rs` + `session_persistence.rs` | partial | durable reload / flush_all / 无 tmp 残留已覆盖；fsync 调用计数与 PermissionError 传播暂缓（Rust std 不便 mock `os.fsync`） |
+| `tests/session/test_session_list_repair_legacy.py` | 2 | 待定 | deferred | legacy lossy stem 修复，属迁移边界，待 legacy 迁移子阶段回补 |
+| `tests/session/test_turn_continuation.py` | 2→3/7 | 待定 | deferred | 耦合 `bus.InboundMessage` 与 agent runner，随 loop/bus 落地 |
+
+> 注：以上上游文件名均已按 `nanobot/tests/` 现状核对存在。base64url 存储 key 可逆性与
+> JSONL round-trip（含非 ASCII）由 `session_persistence.rs` 覆盖。
