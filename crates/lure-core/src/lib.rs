@@ -13,17 +13,21 @@
 //! - [`bus`]：Phase 7 的 InboundMessage/OutboundMessage 与消息总线。
 //! - [`channel`]：Phase 7 的 channel 契约。
 //! - [`gateway`]：Phase 7 的最小 gateway 编排。
+//! - [`cron`]：Phase 8 的 cron 调度类型、持久化 store 与 session-bound 投递。
+//! - [`trigger`]：Phase 8 的本地 trigger at-least-once 投递队列。
 
 pub mod agent;
 pub mod bus;
 pub mod channel;
 pub mod config;
+pub mod cron;
 pub mod gateway;
 pub mod memory;
 pub mod provider;
 pub mod security;
 pub mod session;
 pub mod tool;
+pub mod trigger;
 
 /// 返回 `lure-core` crate 的版本号。
 ///

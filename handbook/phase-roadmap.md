@@ -130,7 +130,7 @@
 
 ## Phase 8: Automations、Cron 与 Trigger
 
-- 状态：`todo`
+- 状态：`partial`
 - 目标：复刻提醒、定时任务、heartbeat、trigger delivery 这些后台任务能力。
 - 上游参考：
   - `nanobot/cron/`

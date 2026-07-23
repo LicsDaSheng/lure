@@ -403,6 +403,32 @@
 - at-least-once delivery 语义有测试。
 - heartbeat 与普通 reminder 区分清楚。
 
+### 进度记录 2026-07-23
+
+- 状态：partial
+- 本次完成（cron store + session-bound 投递 + heartbeat + 本地 trigger）：
+  - `lure-core::cron`：`CronSchedule`（at/every/cron，camelCase `atMs`/`everyMs`）、`CronJob`/
+    `CronPayload`/`CronJobState`/`RunStatus`；`compute_next_run`（at 过期返回 None、every=now+间隔、
+    cron 暂 None）；`CronStore`（`workspace/cron/jobs.json` 持久化、add 算 next_run、due_jobs、
+    record_run 推进/一次性删除）；`heartbeat` 受保护 job（`remove` 返回 `Protected`，
+    `is_heartbeat` 区别于普通 reminder）。
+  - `cron::origin_delivery_context`：session-bound cron 返回 `(channel, chat_id, metadata)`，
+    缺 origin 字段返回 `MissingOriginError`。
+  - `lure-core::trigger::LocalTriggerQueue`：enqueue/claim/complete/recover 的 at-least-once
+    语义（recover 把未完成投递重新入队，attempts 递增），claim 尊重 busy-session 等待与 limit。
+- 验证：
+  - `rtk cargo fmt --check` 通过；`rtk cargo clippy --all-targets --all-features -- -D warnings` 无问题。
+  - `rtk cargo test --all-targets --all-features` 通过（148 passed）。
+- 上游对照：
+  - 已覆盖：`test_cron_persistence.py`（持久化/next-run/camelCase）、`test_session_delivery.py`
+    （origin 上下文）、`test_local_triggers.py`（at-least-once/忙等/limit）、heartbeat 保护。
+  - 暂未覆盖（记入 ledger）：
+    - cron 表达式调度（croniter）与时区、并发调度线程、run history 完整记录。
+    - 真实文件 inbox/processing 目录布局与 gateway 消费循环、trigger 定义存储。
+    - cron 工具（create/list）与 schema 契约（`test_cron_tool_*`）。
+- 下一步：
+  - 进入 Phase 9：OpenAI-compatible API server、`/v1/chat/completions`（非 streaming + streaming）、SDK facade。
+
 ## Phase 9: OpenAI-compatible API 与 SDK 表面
 
 ### Plan
