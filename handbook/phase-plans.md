@@ -486,6 +486,30 @@
 - WebSocket stream 与前端期望事件兼容。
 - 前端测试有等价验证或明确暂缓原因。
 
+### 进度记录 2026-07-23
+
+- 状态：partial
+- 本次完成（WebUI 后端服务协议，传输无关）：
+  - `session::SessionManager::list_stored_keys`：枚举并反解 sessions 目录（补 Phase 2 缺口）。
+  - `lure-core::webui`：`list_webui_sessions`（session 列表行 key/preview/计数/更新时间）、
+    `thread_messages`（thread 的 `{key, messages:[{role,content}]}` 投影）、`webui_status`
+    （bootstrap/status：status/version/sessions）。
+  - WebSocket 协议：出站事件 `message`/`delta`/`status`/`error`（`{event, ...}` 形状）、
+    入站 `parse_ws_inbound`（`{type,chat_id,content}` → InboundMessage，缺 chat_id/content 返回 detail）。
+- 验证：
+  - `rtk cargo fmt --check` 通过；`rtk cargo clippy --all-targets --all-features -- -D warnings` 无问题。
+  - `rtk cargo test --all-targets --all-features` 通过（163 passed）。
+- 上游对照：
+  - 已覆盖：`test_session_list_index.py`（preview/计数/枚举）、WebSocket 事件形状与入站校验、
+    bootstrap/status。
+  - 暂未覆盖（记入 ledger）：
+    - 真实 HTTP/WebSocket 服务、连接生命周期（attach/detach）、SSL、媒体重写。
+    - session_list_index 的索引缓存/增量重扫优化。
+    - settings/transcript/token usage/mcp presets 等大表面 API。
+    - 前端资源构建（`webui/src`）与前端测试：属外部前端构建资产，暂缓（可后续决定复用或改写）。
+- 下一步：
+  - 进入 Phase 11：Rust 发布产物、Dockerfile/compose、legacy config/session/memory 迁移、发布清单。
+
 ## Phase 11: 打包、部署与迁移兼容
 
 ### Plan

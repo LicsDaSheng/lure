@@ -114,6 +114,28 @@ impl SessionManager {
             .join(format!("{}.jsonl", Self::storage_key(key)))
     }
 
+    /// 枚举 sessions 目录下所有已存储会话 key（反解 base64url 文件名）。
+    ///
+    /// 用于 WebUI session list 等需要遍历会话的场景；无法反解的文件被跳过。
+    pub fn list_stored_keys(&self) -> Vec<String> {
+        let Ok(entries) = fs::read_dir(&self.sessions_dir) else {
+            return Vec::new();
+        };
+        let mut keys: Vec<String> = entries
+            .filter_map(Result::ok)
+            .filter_map(|entry| {
+                let path = entry.path();
+                if path.extension().and_then(|e| e.to_str()) != Some("jsonl") {
+                    return None;
+                }
+                let stem = path.file_stem()?.to_str()?;
+                Self::decode_storage_key(stem)
+            })
+            .collect();
+        keys.sort();
+        keys
+    }
+
     /// 命中缓存返回；否则加载或新建。
     pub fn get_or_create(&mut self, key: &str) -> Result<&mut Session, SessionError> {
         if self.cache.contains_key(key) {

@@ -35,8 +35,8 @@
 | `tests/gateway/` | 7,9 | partial | 编排闭环/启停/health 状态已覆盖；真实 HTTP endpoint、进程 runtime、API runtime 待补 |
 | `tests/cron/` | 8 | partial | store 持久化/next-run/session delivery/heartbeat 已覆盖；cron 表达式、工具 schema 待补 |
 | `tests/triggers/` | 8 | partial | at-least-once/忙等/limit 已覆盖；文件 inbox 布局、trigger 定义存储待补 |
-| `tests/webui/` | 10 | todo | 后端 WebUI API 先于前端复刻 |
-| `webui/src/tests/` | 10 | todo | 前端行为测试，后续决定复用或重写 |
+| `tests/webui/` | 10 | partial | session list/thread/status/WS 事件已覆盖；settings/transcript/token usage/媒体等大表面待补 |
+| `webui/src/tests/` | 10 | deferred | 前端行为测试，属外部前端构建资产，后续决定复用或重写 |
 | `tests/test_openai_api.py` | 9 | partial | 请求/响应/校验/鉴权/session 已覆盖；真实 HTTP server、/v1/models、media 待补 |
 | `tests/test_api_stream.py` | 9 | partial | SSE 事件顺序已覆盖；真实流式传输与 agent 接线待补 |
 | `tests/test_document_parsing.py` | 5 | todo | 文档读取可作为工具/文档能力子阶段 |
@@ -55,6 +55,17 @@ Phase 0 已完成，确定 phase 1-4 关键上游测试的 Rust 测试落点（�
 | `tests/config/test_config_atomic_save.py` | 1 | `crates/lure-core/tests/config_save.rs` | partial | round-trip/camelCase/父目录/unix 权限位已覆盖；`preserves_existing_file_when_write_fails`(mock `Path.replace`) 由 temp+rename 设计保证，未单独 mock `fs::rename` |
 | `tests/config/test_config_migration.py` | 1 | 待定 | deferred | `_migrate_config` 依赖尚未建模字段（maxMessages/tools 迁移） |
 | `tests/config/test_env_interpolation.py` | 1 | 待定 | deferred | `${VAR}` 插值依赖后续字段与运行时上下文 |
+## Phase 10 明细映射
+
+| 上游测试 | 归属 phase | Rust 测试 | 状态 | 说明 |
+|---|---:|---|---|---|
+| `tests/webui/test_session_list_index.py` | 10 | `crates/lure-core/tests/webui_protocol.rs` | partial | session 列表 preview/计数/枚举已覆盖；索引缓存/增量重扫优化待补 |
+| `nanobot/channels/websocket/runtime.py`（事件协议） | 10 | `crates/lure-core/tests/webui_protocol.rs` | partial | message/delta/status/error 事件形状与入站校验已覆盖；连接生命周期、SSL、媒体待补 |
+| `webui/src/tests/` | 10 | 待定 | deferred | 前端行为测试，属外部前端构建资产 |
+
+> 注：Phase 10 为传输无关的 WebUI 后端协议；真实 HTTP/WebSocket 服务、前端资源构建、
+> settings/transcript 等大表面留待后续。
+
 ## Phase 9 明细映射
 
 | 上游测试 | 归属 phase | Rust 测试 | 状态 | 说明 |

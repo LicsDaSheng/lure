@@ -162,7 +162,7 @@
 
 ## Phase 10: WebUI 与前端集成
 
-- 状态：`todo`
+- 状态：`partial`
 - 目标：在 Rust 后端稳定后，复刻 WebUI 服务、WebSocket 协议和前端集成。
 - 上游参考：
   - `webui/`
