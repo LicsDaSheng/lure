@@ -11,43 +11,9 @@ use std::fmt;
 
 use crate::agent::context::ContextBuilder;
 use crate::agent::runner::AgentRunner;
+use crate::bus::InboundMessage;
 use crate::provider::{GenerationSettings, LlmProvider, ProviderError};
-use crate::session::keys::session_key_for_channel;
 use crate::session::{SessionError, SessionManager};
-
-/// agent loop 的一次输入。
-///
-/// Phase 3 只取 channel/chat_id/content；完整 `InboundMessage`（sender、metadata、
-/// 附件等）随 bus 落地（Phase 7）。
-#[derive(Debug, Clone)]
-pub struct AgentInput {
-    /// 来源渠道，例如 `cli`。
-    pub channel: String,
-    /// 会话内的 chat id。
-    pub chat_id: String,
-    /// 用户消息文本。
-    pub content: String,
-}
-
-impl AgentInput {
-    /// 构造一次输入。
-    pub fn new(
-        channel: impl Into<String>,
-        chat_id: impl Into<String>,
-        content: impl Into<String>,
-    ) -> Self {
-        Self {
-            channel: channel.into(),
-            chat_id: chat_id.into(),
-            content: content.into(),
-        }
-    }
-
-    /// 派生 session key（`channel:chat_id`）。
-    pub fn session_key(&self) -> String {
-        session_key_for_channel(&self.channel, &self.chat_id, false)
-    }
-}
 
 /// 结构化 progress 事件。
 #[derive(Debug, Clone, PartialEq)]
@@ -148,8 +114,8 @@ impl AgentLoop {
         &mut self.sessions
     }
 
-    /// 处理一次输入，跑完最小闭环并返回产出。
-    pub fn process(&mut self, input: &AgentInput) -> Result<TurnOutcome, AgentError> {
+    /// 处理一条 inbound 消息，跑完最小闭环并返回产出。
+    pub fn process(&mut self, input: &InboundMessage) -> Result<TurnOutcome, AgentError> {
         let key = input.session_key();
         let mut progress = vec![ProgressEvent::TurnStarted {
             session_key: key.clone(),

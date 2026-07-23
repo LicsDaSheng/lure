@@ -113,7 +113,7 @@
 
 ## Phase 7: Bus、Channels 与 Gateway
 
-- 状态：`todo`
+- 状态：`partial`
 - 目标：把 CLI 之外的入口抽象到 message bus/channel contract，并实现 gateway 最小常驻进程。
 - 上游参考：
   - `nanobot/bus/`

@@ -30,9 +30,9 @@
 | `tests/providers/` | 4 | partial | OpenAI-compatible 请求/响应/错误 + 选择顺序已覆盖；registry 全量、真实 provider opt-in 待补 |
 | `tests/tools/` | 5 | partial | registry/schema/文件/shell allow-deny 已覆盖；apply_patch/search/web/mcp/exec 平台细节待补 |
 | `tests/security/` | 5 | partial | workspace 边界已覆盖；network SSRF、启动安全待补 |
-| `tests/bus/` | 7 | todo | message bus 事件和队列 |
-| `tests/channels/` | 7 | todo | channel contract、manager、plugin、validation |
-| `tests/gateway/` | 7,9 | todo | gateway service 与 API runtime 分开映射 |
+| `tests/bus/` | 7 | partial | InboundMessage/OutboundMessage 与内存队列已覆盖；outbound runtime 事件、async 队列待补 |
+| `tests/channels/` | 7 | partial | channel 契约与配置校验已覆盖；manager 热加载、plugin、具体平台待补 |
+| `tests/gateway/` | 7,9 | partial | 编排闭环/启停/health 状态已覆盖；真实 HTTP endpoint、进程 runtime、API runtime 待补 |
 | `tests/cron/` | 8 | todo | cron store、delivery、schema contract |
 | `tests/triggers/` | 8 | todo | local trigger 与 session delivery |
 | `tests/webui/` | 10 | todo | 后端 WebUI API 先于前端复刻 |
@@ -55,6 +55,17 @@ Phase 0 已完成，确定 phase 1-4 关键上游测试的 Rust 测试落点（�
 | `tests/config/test_config_atomic_save.py` | 1 | `crates/lure-core/tests/config_save.rs` | partial | round-trip/camelCase/父目录/unix 权限位已覆盖；`preserves_existing_file_when_write_fails`(mock `Path.replace`) 由 temp+rename 设计保证，未单独 mock `fs::rename` |
 | `tests/config/test_config_migration.py` | 1 | 待定 | deferred | `_migrate_config` 依赖尚未建模字段（maxMessages/tools 迁移） |
 | `tests/config/test_env_interpolation.py` | 1 | 待定 | deferred | `${VAR}` 插值依赖后续字段与运行时上下文 |
+## Phase 7 明细映射
+
+| 上游测试 | 归属 phase | Rust 测试 | 状态 | 说明 |
+|---|---:|---|---|---|
+| `nanobot/bus`（events/queue） | 7 | `crates/lure-core/tests/bus_events.rs` | partial | InboundMessage session_key、OutboundMessage reply、FIFO 队列已覆盖；outbound runtime 事件待补 |
+| `tests/channels/test_channel_validation.py` 等 | 7 | `crates/lure-core/tests/gateway_dispatch.rs` | partial | channel 配置校验（缺字段）已覆盖；TCP probe/热加载/plugin 待补 |
+| `tests/gateway/`（service 编排） | 7 | `crates/lure-core/tests/gateway_dispatch.rs` | partial | InboundMessage→AgentLoop→OutboundMessage→channel 闭环、启停不丢任务、未知 channel、health 已覆盖；HTTP endpoint/进程 runtime 待补 |
+
+> 注：Phase 7 为同步内存实现（上游 asyncio）；WebSocket 最小往返随 Phase 10 WebUI，
+> 真实 HTTP health endpoint 与进程管理 runtime 留待后续。
+
 ## Phase 6 明细映射
 
 | 上游测试 | 归属 phase | Rust 测试 | 状态 | 说明 |

@@ -360,6 +360,33 @@
 - channel 配置校验有测试。
 - WebSocket 最小消息往返有测试。
 
+### 进度记录 2026-07-23
+
+- 状态：partial
+- 本次完成（消息总线 + channel 契约 + 最小 gateway，同步内存实现）：
+  - `lure-core::bus`：`InboundMessage`（channel/sender/chat/content/metadata/session_key_override
+    + `session_key()`）、`OutboundMessage`（含 `reply` 构造）、同步内存 `MessageBus`（publish/consume/size）。
+  - 收敛入口：`AgentLoop::process` 改为接受 `bus::InboundMessage`，移除 Phase 3 的占位
+    `AgentInput`；CLI 与相关测试同步迁移。
+  - `lure-core::channel`：`Channel` trait（name/validate/deliver）、结构化 `ChannelError`
+    （MissingConfig/Delivery）、测试用 `RecordingChannel`（共享 `DeliveryLog`）。
+  - `lure-core::gateway`：`Gateway`（注册 channel[先校验]、start/stop、submit、
+    dispatch_pending[drain inbound → agent → outbound → 路由 channel]、health），结构化
+    `GatewayError`（Agent/Channel/UnknownChannel）。
+- 验证：
+  - `rtk cargo fmt --check` 通过；`rtk cargo clippy --all-targets --all-features -- -D warnings` 无问题。
+  - `rtk cargo test --all-targets --all-features` 通过（135 passed）。
+  - 手动 smoke：CLI one-shot 经收敛后的 InboundMessage 仍正常闭环。
+- 上游对照：
+  - 已覆盖：`bus` 消息契约与队列语义、InboundMessage→AgentLoop→OutboundMessage→channel 闭环、
+    channel 配置校验、gateway 启停不丢任务、未知 channel 路由错误、health 状态。
+  - 暂未覆盖（记入 ledger）：
+    - WebSocket 最小消息往返：需真实 WebSocket，随 Phase 10 WebUI 落地。
+    - 真实 HTTP health endpoint、进程管理 runtime、async 调度。
+    - channel 热加载、delta coalescing、pairing、各具体平台 channel（telegram/discord/…）。
+- 下一步：
+  - 进入 Phase 8：cron job store、session-bound delivery、heartbeat、local trigger。
+
 ## Phase 8: Automations、Cron 与 Trigger
 
 ### Plan

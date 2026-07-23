@@ -7,7 +7,8 @@
 
 use std::cell::RefCell;
 
-use lure_core::agent::{AgentError, AgentInput, AgentLoop, ContextBuilder, ProgressEvent};
+use lure_core::agent::{AgentError, AgentLoop, ContextBuilder, ProgressEvent};
+use lure_core::bus::InboundMessage;
 use lure_core::provider::{CompletionRequest, LlmProvider, LlmResponse, ProviderError};
 use lure_core::session::SessionManager;
 use tempfile::TempDir;
@@ -61,7 +62,7 @@ fn process_returns_provider_final_reply() {
     let (_dir, mut agent_loop) = loop_with(Box::new(ScriptedProvider::new(vec!["done"])));
 
     let outcome = agent_loop
-        .process(&AgentInput::new("cli", "direct", "hello"))
+        .process(&InboundMessage::new("cli", "direct", "hello"))
         .unwrap();
 
     assert_eq!(outcome.final_content, "done");
@@ -84,7 +85,7 @@ fn process_saves_user_and_assistant_turns() {
     let (dir, mut agent_loop) = loop_with(Box::new(ScriptedProvider::new(vec!["reply"])));
 
     agent_loop
-        .process(&AgentInput::new("cli", "direct", "hello"))
+        .process(&InboundMessage::new("cli", "direct", "hello"))
         .unwrap();
 
     // 冷启动新 manager，从磁盘读回，确认两条 turn 已持久化。
@@ -106,10 +107,10 @@ fn second_turn_sees_prior_history() {
     let mut agent_loop = AgentLoop::new(Box::new(provider), sessions, ContextBuilder::new(None));
 
     agent_loop
-        .process(&AgentInput::new("cli", "direct", "hi"))
+        .process(&InboundMessage::new("cli", "direct", "hi"))
         .unwrap();
     let outcome = agent_loop
-        .process(&AgentInput::new("cli", "direct", "again"))
+        .process(&InboundMessage::new("cli", "direct", "again"))
         .unwrap();
 
     assert_eq!(outcome.final_content, "second");
@@ -132,7 +133,7 @@ fn provider_failure_surfaces_structured_error() {
     let (_dir, mut agent_loop) = loop_with(Box::new(FailingProvider));
 
     let err = agent_loop
-        .process(&AgentInput::new("cli", "direct", "hello"))
+        .process(&InboundMessage::new("cli", "direct", "hello"))
         .unwrap_err();
 
     assert!(matches!(

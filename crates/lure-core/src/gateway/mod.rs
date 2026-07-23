@@ -1,0 +1,137 @@
+//! Gateway 子系统：最小消息编排。
+//!
+//! 对齐上游 `nanobot/gateway` 的职责边界，但收敛为同步最小编排：注册 channel、
+//! 生命周期启停、把 inbound 经 AgentLoop 处理为 outbound 并路由到目标 channel、
+//! 暴露健康状态。
+//!
+//! Phase 7 不做：真实 HTTP health endpoint、进程管理 runtime、async 调度、
+//! channel 热加载（见 upstream-test-ledger）。
+
+use std::collections::HashMap;
+use std::fmt;
+
+use crate::agent::{AgentError, AgentLoop};
+use crate::bus::{InboundMessage, MessageBus, OutboundMessage};
+use crate::channel::{Channel, ChannelError};
+
+/// gateway 编排错误。
+#[derive(Debug)]
+pub enum GatewayError {
+    /// agent 处理失败。
+    Agent(AgentError),
+    /// channel 投递失败。
+    Channel(ChannelError),
+    /// outbound 指向未注册的 channel。
+    UnknownChannel(String),
+}
+
+impl fmt::Display for GatewayError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            GatewayError::Agent(e) => write!(f, "gateway agent 错误: {e}"),
+            GatewayError::Channel(e) => write!(f, "gateway channel 错误: {e}"),
+            GatewayError::UnknownChannel(name) => write!(f, "gateway 未注册 channel: {name}"),
+        }
+    }
+}
+
+impl std::error::Error for GatewayError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            GatewayError::Agent(e) => Some(e),
+            GatewayError::Channel(e) => Some(e),
+            GatewayError::UnknownChannel(_) => None,
+        }
+    }
+}
+
+/// gateway 健康状态快照。
+#[derive(Debug, Clone, PartialEq)]
+pub struct GatewayHealth {
+    /// 是否处于运行态。
+    pub running: bool,
+    /// 已注册 channel 数。
+    pub channels: usize,
+    /// 待处理 inbound 数。
+    pub pending_inbound: usize,
+}
+
+/// 最小 gateway：编排 bus、agent 与 channel。
+pub struct Gateway {
+    bus: MessageBus,
+    agent: AgentLoop,
+    channels: HashMap<String, Box<dyn Channel>>,
+    running: bool,
+}
+
+impl Gateway {
+    /// 绑定 AgentLoop，初始为停止态。
+    pub fn new(agent: AgentLoop) -> Self {
+        Self {
+            bus: MessageBus::new(),
+            agent,
+            channels: HashMap::new(),
+            running: false,
+        }
+    }
+
+    /// 注册 channel（先校验配置）。
+    pub fn register_channel(&mut self, channel: Box<dyn Channel>) -> Result<(), ChannelError> {
+        channel.validate()?;
+        self.channels.insert(channel.name().to_string(), channel);
+        Ok(())
+    }
+
+    /// 进入运行态。
+    pub fn start(&mut self) {
+        self.running = true;
+    }
+
+    /// 退出运行态（不丢弃待处理任务）。
+    pub fn stop(&mut self) {
+        self.running = false;
+    }
+
+    /// 提交一条 inbound 消息到总线。
+    pub fn submit(&mut self, message: InboundMessage) {
+        self.bus.publish_inbound(message);
+    }
+
+    /// 处理所有待处理 inbound：agent → outbound → 路由到目标 channel。
+    ///
+    /// 非运行态时不处理，待处理任务保留在总线中。返回本次处理条数。
+    pub fn dispatch_pending(&mut self) -> Result<usize, GatewayError> {
+        if !self.running {
+            return Ok(0);
+        }
+        let mut processed = 0;
+        while let Some(inbound) = self.bus.consume_inbound() {
+            let outcome = self.agent.process(&inbound).map_err(GatewayError::Agent)?;
+            let outbound = OutboundMessage::reply(&inbound, outcome.final_content);
+            self.route(&outbound)?;
+            processed += 1;
+        }
+        Ok(processed)
+    }
+
+    /// 健康状态快照。
+    pub fn health(&self) -> GatewayHealth {
+        GatewayHealth {
+            running: self.running,
+            channels: self.channels.len(),
+            pending_inbound: self.bus.inbound_size(),
+        }
+    }
+
+    /// 待处理 inbound 数。
+    pub fn pending_inbound(&self) -> usize {
+        self.bus.inbound_size()
+    }
+
+    fn route(&self, outbound: &OutboundMessage) -> Result<(), GatewayError> {
+        match self.channels.get(&outbound.channel) {
+            Some(channel) => channel.deliver(outbound).map_err(GatewayError::Channel),
+            None => Err(GatewayError::UnknownChannel(outbound.channel.clone())),
+        }
+    }
+}

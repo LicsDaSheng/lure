@@ -8,5 +8,5 @@ mod loop_run;
 mod runner;
 
 pub use context::ContextBuilder;
-pub use loop_run::{AgentError, AgentInput, AgentLoop, ProgressEvent, TurnOutcome};
+pub use loop_run::{AgentError, AgentLoop, ProgressEvent, TurnOutcome};
 pub use runner::AgentRunner;

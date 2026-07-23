@@ -6,7 +6,8 @@
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-use lure_core::agent::{AgentInput, AgentLoop, ContextBuilder};
+use lure_core::agent::{AgentLoop, ContextBuilder};
+use lure_core::bus::InboundMessage;
 use lure_core::config::default_workspace;
 use lure_core::provider::EchoProvider;
 use lure_core::session::SessionManager;
@@ -65,7 +66,7 @@ fn run_agent(args: &[String]) -> Result<String, String> {
         ContextBuilder::new(None),
     );
 
-    let input = AgentInput::new("cli", "direct", message);
+    let input = InboundMessage::new("cli", "direct", message);
     let outcome = agent_loop.process(&input).map_err(|e| e.to_string())?;
     Ok(outcome.final_content)
 }
