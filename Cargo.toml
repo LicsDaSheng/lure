@@ -1,0 +1,12 @@
+[workspace]
+members = ["crates/lure-core", "crates/lure-cli"]
+resolver = "2"
+
+[workspace.package]
+version = "0.0.0"
+edition = "2021"
+license = "MIT"
+rust-version = "1.85"
+
+# 说明：本 workspace 是 Rust 版 nanobot 复刻（Phase 0 骨架）。
+# 后续 crate 只有在出现真实跨 crate 复用需求时才拆分，避免万能 crate。

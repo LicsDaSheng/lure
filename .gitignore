@@ -1,0 +1,12 @@
+/target/
+**/*.rs.bk
+
+# Local editor and OS files
+.DS_Store
+.idea/
+.vscode/
+
+# Local environment files
+.env
+.env.*
+!.env.example

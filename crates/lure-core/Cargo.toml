@@ -1,0 +1,9 @@
+[package]
+name = "lure-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "Rust 版 nanobot 复刻的核心领域库（Phase 0 骨架）"
+
+[dependencies]
