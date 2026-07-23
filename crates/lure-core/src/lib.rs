@@ -9,9 +9,11 @@
 //! - [`agent`]：Phase 3 的最小 loop / runner / context 闭环。
 //! - [`security`]：Phase 5 的 workspace 路径边界。
 //! - [`tool`]：Phase 5 的 tool trait / registry / 文件与 shell 工具。
+//! - [`memory`]：Phase 6 的长期记忆存储、history 与 dream consolidation。
 
 pub mod agent;
 pub mod config;
+pub mod memory;
 pub mod provider;
 pub mod security;
 pub mod session;

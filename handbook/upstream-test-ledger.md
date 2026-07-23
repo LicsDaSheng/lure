@@ -25,7 +25,7 @@
 |---|---:|---|---|
 | `tests/config/` | 1 | partial | 核心 loader/paths/save 已覆盖；migration/env/gateway 相关暂缓，见下方明细 |
 | `tests/session/` | 2 | partial | 存储/clamp/cache/goal_state 已覆盖；list repair、turn continuation、weak-identity 暂缓，见下方明细 |
-| `tests/agent/` | 2,3,4,6 | partial | session/loop 已覆盖；provider/tool/memory 待后续 phase |
+| `tests/agent/` | 2,3,4,6 | partial | session/loop/memory 已覆盖；provider runtime、tool 上下文、dream LLM 待后续 |
 | `tests/cli/` | 3 | partial | one-shot 已覆盖；interactive/commands 待后续 |
 | `tests/providers/` | 4 | partial | OpenAI-compatible 请求/响应/错误 + 选择顺序已覆盖；registry 全量、真实 provider opt-in 待补 |
 | `tests/tools/` | 5 | partial | registry/schema/文件/shell allow-deny 已覆盖；apply_patch/search/web/mcp/exec 平台细节待补 |
@@ -55,6 +55,17 @@ Phase 0 已完成，确定 phase 1-4 关键上游测试的 Rust 测试落点（�
 | `tests/config/test_config_atomic_save.py` | 1 | `crates/lure-core/tests/config_save.rs` | partial | round-trip/camelCase/父目录/unix 权限位已覆盖；`preserves_existing_file_when_write_fails`(mock `Path.replace`) 由 temp+rename 设计保证，未单独 mock `fs::rename` |
 | `tests/config/test_config_migration.py` | 1 | 待定 | deferred | `_migrate_config` 依赖尚未建模字段（maxMessages/tools 迁移） |
 | `tests/config/test_env_interpolation.py` | 1 | 待定 | deferred | `${VAR}` 插值依赖后续字段与运行时上下文 |
+## Phase 6 明细映射
+
+| 上游测试 | 归属 phase | Rust 测试 | 状态 | 说明 |
+|---|---:|---|---|---|
+| `tests/agent/test_memory_store.py` | 6 | `crates/lure-core/tests/memory_store.rs` | partial | memory/soul/user 读写、history cursor、strip、session 过滤、reopen 已覆盖；compact/并发锁/legacy 迁移待补 |
+| `tests/agent/test_dream.py` | 6 | `crates/lure-core/tests/memory_dream.rs` | partial | dream 触发/写回/幂等/cursor 推进用 fake runner 覆盖；真实 LLM dream、SOUL/USER 整合、批次策略暂缓 |
+| `tests/agent/test_context_builder.py` | 6 | `crates/lure-core/tests/memory_context.rs` | partial | memory 注入顺序（system→memory→历史）已覆盖；runtime context 块、富历史处理待补 |
+
+> 注：Phase 6 dream 把 LLM 抽象为可替换 `DreamRunner`，测试不接真实 LLM；GitStore 版本化、
+> autocompact、unified session 内部会话过滤留待后续。
+
 ## Phase 5 明细映射
 
 | 上游测试 | 归属 phase | Rust 测试 | 状态 | 说明 |

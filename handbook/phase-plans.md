@@ -319,6 +319,31 @@
 - context builder 注入 memory 的顺序有测试。
 - 未接真实 LLM 的 consolidation 使用 fake runner 覆盖。
 
+### 进度记录 2026-07-23
+
+- 状态：partial
+- 本次完成（长期记忆存储 + dream 整合 + context 注入）：
+  - `lure-core::memory::MemoryStore`：`MEMORY.md`/`SOUL.md`/`USER.md` 读写、`get_memory_context`
+    （`## Long-term Memory` 块）、`history.jsonl` append（自增 cursor + `strip_think` + 硬上限）、
+    `read_unprocessed_history`（cursor 过滤）、`read_recent_history_for_prompt`（session 过滤）、
+    `.cursor`/`.dream_cursor` 持久化；损坏 cursor/字段的记录丢弃。
+  - `memory::strip_think`：移除完整 think 块、开头未闭合前缀、`<channel|>` 标记、畸形开标签。
+  - `memory::DreamRunner` + `MemoryStore::consolidate`：整合 dream cursor 之后的历史，写回
+    MEMORY.md 并推进 cursor；无新历史返回 None。fake runner 覆盖，不接真实 LLM。
+  - `agent::ContextBuilder`：新增 `with_memory`，注入顺序 system → memory → 历史。
+- 验证：
+  - `rtk cargo fmt --check` 通过；`rtk cargo clippy --all-targets --all-features -- -D warnings` 无问题。
+  - `rtk cargo test --all-targets --all-features` 通过（126 passed）。
+- 上游对照：
+  - 已覆盖：`test_memory_store.py`（memory/soul/user 读写、history cursor、strip、session 过滤、
+    reopen 持久化）、dream 触发/写回/幂等/cursor 推进（fake runner）、context 注入顺序。
+  - 暂未覆盖（记入 ledger）：
+    - GitStore 版本化与 legacy `HISTORY.md` 迁移。
+    - 真实 LLM dream、SOUL/USER 的整合、迭代/批次与压缩策略、autocompact（`test_dream.py` 等）。
+    - unified session 内部会话过滤、`compact_history` 完整策略、并发 append 锁。
+- 下一步：
+  - 进入 Phase 7：message bus、InboundMessage/OutboundMessage、channel trait 与最小 gateway。
+
 ## Phase 7: Bus、Channels 与 Gateway
 
 ### Plan

@@ -98,7 +98,7 @@
 
 ## Phase 6: Memory、Dream 与长期上下文
 
-- 状态：`todo`
+- 状态：`partial`
 - 目标：复刻 memory store、history、dream consolidation 触发和上下文注入规则。
 - 上游参考：
   - `nanobot/agent/memory.py`
