@@ -28,8 +28,8 @@
 | `tests/agent/` | 2,3,4,6 | partial | session/loop 已覆盖；provider/tool/memory 待后续 phase |
 | `tests/cli/` | 3 | partial | one-shot 已覆盖；interactive/commands 待后续 |
 | `tests/providers/` | 4 | partial | OpenAI-compatible 请求/响应/错误 + 选择顺序已覆盖；registry 全量、真实 provider opt-in 待补 |
-| `tests/tools/` | 5 | todo | tool schema、文件、shell、web、MCP 分阶段覆盖 |
-| `tests/security/` | 5 | todo | workspace、network、启动安全等边界测试 |
+| `tests/tools/` | 5 | partial | registry/schema/文件/shell allow-deny 已覆盖；apply_patch/search/web/mcp/exec 平台细节待补 |
+| `tests/security/` | 5 | partial | workspace 边界已覆盖；network SSRF、启动安全待补 |
 | `tests/bus/` | 7 | todo | message bus 事件和队列 |
 | `tests/channels/` | 7 | todo | channel contract、manager、plugin、validation |
 | `tests/gateway/` | 7,9 | todo | gateway service 与 API runtime 分开映射 |
@@ -55,6 +55,20 @@ Phase 0 已完成，确定 phase 1-4 关键上游测试的 Rust 测试落点（�
 | `tests/config/test_config_atomic_save.py` | 1 | `crates/lure-core/tests/config_save.rs` | partial | round-trip/camelCase/父目录/unix 权限位已覆盖；`preserves_existing_file_when_write_fails`(mock `Path.replace`) 由 temp+rename 设计保证，未单独 mock `fs::rename` |
 | `tests/config/test_config_migration.py` | 1 | 待定 | deferred | `_migrate_config` 依赖尚未建模字段（maxMessages/tools 迁移） |
 | `tests/config/test_env_interpolation.py` | 1 | 待定 | deferred | `${VAR}` 插值依赖后续字段与运行时上下文 |
+## Phase 5 明细映射
+
+| 上游测试 | 归属 phase | Rust 测试 | 状态 | 说明 |
+|---|---:|---|---|---|
+| `tests/security/test_workspace_policy.py` | 5 | `crates/lure-core/tests/security_workspace.rs` | partial | 相对/穿越/前缀兄弟/符号链接逃逸/额外 root/精确文件已覆盖；extra-file 符号链接逃逸精确拦截待补 |
+| `tests/tools/test_exec_allow_patterns.py` | 5 | `crates/lure-core/tests/tool_shell_policy.rs` | covered | allow/deny/allowlist/分段/fd 重定向均覆盖 |
+| `tests/tools/test_tool_registry.py` | 5 | `crates/lure-core/tests/tool_registry.rs` | partial | 定义顺序/派发/近似建议/参数校验已覆盖；MCP 排序、prepare_call 全貌待补 |
+| `tests/tools/test_filesystem_tools.py` | 5 | `crates/lure-core/tests/tool_file.rs` | partial | read/write + workspace 越界拒绝已覆盖；edit/search/高级读增强待补 |
+| `tests/tools/test_tool_validation.py` | 5 | `crates/lure-core/tests/tool_registry.rs` | partial | type/required/enum/数值/长度校验已覆盖；组合校验待补 |
+| `tests/test_truncate_text_shadowing.py` | 5 | `crates/lure-core/tests/tool_registry.rs` | partial | 结果截断行为已覆盖（`truncate_result`）；上游具体 shadowing 回归 N/A |
+
+> 注：Phase 5 tool `execute` 采用同步（上游 async）；apply_patch/search/web/mcp/exec 平台细节、
+> network SSRF、tool 上下文变量注入完整链路留待后续 phase。
+
 ## Phase 4 明细映射
 
 | 上游测试 | 归属 phase | Rust 测试 | 状态 | 说明 |

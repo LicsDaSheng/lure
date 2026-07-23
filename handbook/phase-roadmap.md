@@ -82,7 +82,7 @@
 
 ## Phase 5: Tool Runtime 与安全边界
 
-- 状态：`todo`
+- 状态：`partial`
 - 目标：复刻工具注册、schema、文件和 shell 等基础工具，并把 workspace 安全策略作为功能契约实现。
 - 上游参考：
   - `nanobot/agent/tools/`

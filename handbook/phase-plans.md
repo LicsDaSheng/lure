@@ -274,6 +274,35 @@
 - 工具错误不会被字符串控制流程吞掉。
 - 相关 `tests/tools/`、`tests/security/` 映射完成。
 
+### 进度记录 2026-07-23
+
+- 状态：partial
+- 本次完成（工具运行时 + 安全边界）：
+  - `lure-core::security::workspace`：`resolve_path`（软解析，跟随已存在部分符号链接）、
+    `is_path_within`（分量比较，避免前缀误判）、`resolve_allowed_path`（allowed root/extra
+    roots/exact files）、`WorkspaceBoundaryError`。
+  - `lure-core::tool`：`Tool` trait（name/description/parameters/execute，同步）、`ToolResult`、
+    `truncate_result`、`ToolRegistry`（register/get_definitions[OpenAI function 格式]/execute +
+    近似建议）、`validate_value`（JSON Schema 子集：type/required/enum/min-max/长度/递归）、
+    结构化 `ToolError`（UnknownTool/InvalidArgs）。
+  - `tool::shell`：`ExecPolicy.guard_command`（allow 优先、deny 在原始命令、allowlist-only；
+    顶层分段切分保留 `2>&1` 等 fd 重定向）+ `ExecTool`（门禁后在 workspace 内执行）。
+  - `tool::file`：`ReadFileTool`/`WriteFileTool` 强制路径落在 workspace 内，越界返回错误结果。
+- 验证：
+  - `rtk cargo fmt --check` 通过；`rtk cargo clippy --all-targets --all-features -- -D warnings` 无问题。
+  - `rtk cargo test --all-targets --all-features` 通过（107 passed）。
+- 上游对照：
+  - 已覆盖：`test_workspace_policy.py`（相对路径/穿越/前缀兄弟/符号链接逃逸/额外 root/精确文件）、
+    `test_exec_allow_patterns.py`（allow/deny/allowlist/分段/fd 重定向）、`test_tool_registry.py`
+    （定义/派发/近似建议/参数校验）、结果截断、文件工具 workspace 越界拒绝。
+  - 暂未覆盖（记入 ledger）：
+    - apply_patch/search/web/mcp/image/message 等工具（体量大，后续按需）。
+    - exec 平台/env/session 隔离/reap（`test_exec_platform`/`test_exec_env`/`test_exec_session_*`）。
+    - extra-file 符号链接逃逸精确拦截（跨平台稳健先用软解析对比，escape 边界待补）。
+    - async 执行、tool 上下文变量注入完整链路、network SSRF（`security/network`）。
+- 下一步：
+  - 进入 Phase 6：memory store、history、dream consolidation（fake runner）、context 注入。
+
 ## Phase 6: Memory、Dream 与长期上下文
 
 ### Plan
