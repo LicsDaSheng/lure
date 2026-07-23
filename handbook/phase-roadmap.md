@@ -16,7 +16,7 @@
 
 ## Phase 1: 配置、路径与工作区基础
 
-- 状态：`todo`
+- 状态：`partial`
 - 目标：复刻 `nanobot` 的实例配置、workspace 路径和基础文件布局，为 session/memory/agent loop 提供稳定地基。
 - 上游参考：
   - `nanobot/config/`

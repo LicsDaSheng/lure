@@ -23,7 +23,7 @@
 
 | 上游测试区域 | 归属 phase | 状态 | 说明 |
 |---|---:|---|---|
-| `tests/config/` | 1 | todo | 配置 schema、loader、路径解析优先映射 |
+| `tests/config/` | 1 | partial | 核心 loader/paths/save 已覆盖；migration/env/gateway 相关暂缓，见下方明细 |
 | `tests/session/` | 2 | todo | session JSONL、fsync、cache、goal state、turn continuation |
 | `tests/agent/` | 2,3,4,6 | todo | 需按 session、loop、provider、memory 拆分 |
 | `tests/cli/` | 3 | todo | 先覆盖 CLI one-shot，再覆盖 interactive |
@@ -49,9 +49,12 @@ Phase 0 已完成，确定 phase 1-4 关键上游测试的 Rust 测试落点（�
 
 | 上游测试 | 归属 phase | Rust 测试 | 状态 | 说明 |
 |---|---:|---|---|---|
-| `tests/agent/test_onboard_logic.py` | 1 | `crates/lure-core/tests/onboard_logic.rs` | mapped | onboard 初始化和默认配置 |
-| `tests/config/test_config_load_errors.py` | 1 | `crates/lure-core/tests/config_load.rs` | mapped | 无效配置错误路径 |
-| `tests/config/test_config_atomic_save.py` | 1 | `crates/lure-core/tests/config_save.rs` | mapped | 配置原子保存格式 |
+| `tests/agent/test_onboard_logic.py` | 1 | `crates/lure-core/tests/onboard_logic.rs` | deferred | 上游为 ~1900 行交互式向导，耦合 providers/plugins；待 provider 配置落地后回补 |
+| `tests/config/test_config_paths.py` | 1 | `crates/lure-core/tests/config_paths.rs` | partial | workspace 路径已覆盖；`get_data_dir`/`get_cron_dir` 等运行时子目录待引入 |
+| `tests/config/test_config_load_errors.py` | 1 | `crates/lure-core/tests/config_load.rs` | partial | missing/invalid-json/类型不匹配已覆盖；invalid-schema(`tools.exec.timeout=-1`) 待 Phase 5；ApiConfig wildcard 待 Phase 7/9 |
+| `tests/config/test_config_atomic_save.py` | 1 | `crates/lure-core/tests/config_save.rs` | partial | round-trip/camelCase/父目录/unix 权限位已覆盖；`preserves_existing_file_when_write_fails`(mock `Path.replace`) 由 temp+rename 设计保证，未单独 mock `fs::rename` |
+| `tests/config/test_config_migration.py` | 1 | 待定 | deferred | `_migrate_config` 依赖尚未建模字段（maxMessages/tools 迁移） |
+| `tests/config/test_env_interpolation.py` | 1 | 待定 | deferred | `${VAR}` 插值依赖后续字段与运行时上下文 |
 | `tests/session/test_goal_state.py` | 2 | `crates/lure-core/tests/session_goal_state.rs` | mapped | goal state 持久化 |
 | `tests/session/test_session_fsync.py` | 2 | `crates/lure-core/tests/session_fsync.rs` | mapped | session 写入安全 |
 | `tests/agent/test_loop_runner_integration.py` | 3 | `crates/lure-core/tests/loop_runner_integration.rs` | mapped | agent loop 最小闭环 |

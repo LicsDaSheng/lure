@@ -64,6 +64,39 @@
 - 上游 `tests/config/` 和 `test_onboard_logic.py` 相关场景已映射。
 - `rtk cargo fmt --check`、`rtk cargo clippy --all-targets --all-features -- -D warnings`、`rtk cargo test --all-targets --all-features` 通过。
 
+### 进度记录 2026-07-23
+
+- 状态：partial
+- 本次完成（config 核心纵向切片）：
+  - `lure-core::config` 子模块落地：`schema` / `paths` / `loader`。
+  - typed config：`Config → AgentsConfig → AgentDefaults`，字段与默认值对齐上游
+    `nanobot/config/schema.py`（model=`anthropic/claude-opus-4-5`、workspace=`~/.nanobot/workspace`、
+    provider=`auto`、max_tokens=8192、temperature=0.1）。
+  - 别名策略对齐上游 `config_base.Base`：序列化 camelCase；反序列化兼容 camelCase 与
+    snake_case；缺失字段回落默认；未知字段忽略。
+  - `load_config`：文件不存在返回默认；解析失败快速失败并带路径上下文。
+  - `save_config`：camelCase + 缩进 2 + 保留非 ASCII；temp + rename 原子写；unix 保留既有权限位。
+  - 路径解析：`default_config_path`、`default_workspace`、`expand_user`、`resolve_workspace`、
+    `is_default_workspace`（纯解析，不创建目录）。
+  - 结构化错误 `ConfigError`（Read/Parse/Serialize/Write），实现 `Display` + `Error::source`。
+- 验证：
+  - `rtk cargo fmt --check` 通过。
+  - `rtk cargo clippy --all-targets --all-features -- -D warnings` 无问题。
+  - `rtk cargo test --all-targets --all-features` 通过（17 passed）。
+- 上游对照：
+  - 已覆盖：`tests/config/test_config_paths.py`（workspace 部分）、`test_config_load_errors.py`
+    （missing→default / invalid json / 类型不匹配）、`test_config_atomic_save.py`
+    （round trip / camelCase 格式 / 父目录创建 / unix 权限位保留）。
+  - 暂未覆盖（记入 ledger，属尚未进入范围的上游子系统）：
+    - onboard 最小初始化：上游 `cli/onboard.py` 为 ~1900 行交互式向导，耦合 providers/plugins，
+      待 provider 配置落地后回补。
+    - invalid schema fails fast（`tools.exec.timeout=-1`）：tools 字段 Phase 5 建模。
+    - ApiConfig wildcard host 需 api_key：gateway/api 配置 Phase 7/9 建模。
+    - `_migrate_config` / env 变量插值：依赖尚未建模字段，后续回补。
+- 下一步：
+  - 进入 Phase 2：提取上游 `nanobot/session/` 数据结构与文件语义，先补 session key / JSONL 测试。
+  - 回补项在对应 phase 落地时消账。
+
 ## Phase 2: Session 与近程历史
 
 ### Plan

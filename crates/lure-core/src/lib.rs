@@ -1,7 +1,11 @@
 //! `lure-core`：Rust 版 `nanobot` 复刻的核心领域库。
 //!
-//! Phase 0 仅建立 crate 边界与测试入口，暂不实现任何 provider / channel /
-//! gateway 行为。公开 API 保持最小，等待上游契约确认后再逐步收敛扩展。
+//! 公开 API 保持最小，等待上游契约确认后再逐步收敛扩展。
+//!
+//! 当前已落地：
+//! - [`config`]：Phase 1 的配置 schema、路径解析与读写。
+
+pub mod config;
 
 /// 返回 `lure-core` crate 的版本号。
 ///
