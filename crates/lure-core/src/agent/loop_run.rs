@@ -9,6 +9,8 @@
 
 use std::fmt;
 
+use serde_json::{Map, Value};
+
 use crate::agent::context::ContextBuilder;
 use crate::agent::runner::AgentRunner;
 use crate::bus::InboundMessage;
@@ -131,16 +133,24 @@ impl AgentLoop {
         let messages = self.context.build(&history);
 
         // 3) 调 runner/provider（借用在此块内结束）。
-        let content = {
+        let (content, reasoning) = {
             let runner = AgentRunner::new(self.provider.as_ref(), self.settings.clone());
             let response = runner.run(&self.model, messages)?;
-            response.content.unwrap_or_default()
+            (
+                response.content.unwrap_or_default(),
+                response.reasoning_content,
+            )
         };
 
-        // 4) 追加 assistant turn 并保存。
+        // 4) 追加 assistant turn 并保存；reasoning_content 一并持久化（供 WebUI 展示，
+        //    但不会经 context 投影回放给 provider）。
+        let mut extra = Map::new();
+        if let Some(reasoning) = reasoning.filter(|r| !r.is_empty()) {
+            extra.insert("reasoning_content".to_string(), Value::String(reasoning));
+        }
         self.sessions
             .get_or_create(&key)?
-            .add_message("assistant", &content);
+            .add_message_with("assistant", &content, extra);
         self.sessions.save(&key, false)?;
 
         progress.push(ProgressEvent::FinalResponse {

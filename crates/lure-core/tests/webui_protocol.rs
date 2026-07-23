@@ -79,6 +79,29 @@ fn thread_messages_projects_role_and_content() {
 }
 
 #[test]
+fn thread_messages_surface_reasoning_content() {
+    let dir = tempdir().unwrap();
+    let mut manager = SessionManager::new(dir.path()).unwrap();
+    {
+        let session = manager.get_or_create("websocket:r").unwrap();
+        session.add_message("user", "2+2");
+        let mut extra = serde_json::Map::new();
+        extra.insert("reasoning_content".to_string(), json!("2 加 2 等于 4"));
+        session.add_message_with("assistant", "答案是 4", extra);
+    }
+    manager.save("websocket:r", false).unwrap();
+
+    let session = manager.get_or_create("websocket:r").unwrap();
+    let payload = thread_messages(session);
+    let assistant = &payload["messages"][1];
+    assert_eq!(assistant["role"], "assistant");
+    assert_eq!(assistant["content"], "答案是 4");
+    assert_eq!(assistant["reasoning_content"], "2 加 2 等于 4");
+    // user 消息无 reasoning_content。
+    assert!(payload["messages"][0].get("reasoning_content").is_none());
+}
+
+#[test]
 fn status_reports_session_count_and_version() {
     let dir = tempdir().unwrap();
     let mut manager = SessionManager::new(dir.path()).unwrap();

@@ -81,6 +81,14 @@ impl Session {
 
     /// 追加一条消息并刷新更新时间。
     pub fn add_message(&mut self, role: &str, content: &str) {
+        self.add_message_with(role, content, Map::new());
+    }
+
+    /// 追加一条带附加字段的消息（如 assistant 的 `reasoning_content`）。
+    ///
+    /// 附加字段与 `role`/`content`/`timestamp` 一起持久化；`role`/`content`/`timestamp`
+    /// 为保留键，附加字段不会覆盖它们。
+    pub fn add_message_with(&mut self, role: &str, content: &str, extra: Map<String, Value>) {
         let mut msg = Map::new();
         msg.insert("role".to_string(), Value::String(role.to_string()));
         msg.insert("content".to_string(), Value::String(content.to_string()));
@@ -88,6 +96,11 @@ impl Session {
             "timestamp".to_string(),
             Value::String(Local::now().to_rfc3339()),
         );
+        for (key, value) in extra {
+            if key != "role" && key != "content" && key != "timestamp" {
+                msg.insert(key, value);
+            }
+        }
         self.messages.push(Value::Object(msg));
         self.updated_at = Local::now();
     }

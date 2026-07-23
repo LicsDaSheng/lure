@@ -50,11 +50,45 @@ impl LlmProvider for FailingProvider {
     }
 }
 
+/// 返回带 reasoning_content 的推理模型 provider。
+struct ReasoningProvider;
+
+impl LlmProvider for ReasoningProvider {
+    fn default_model(&self) -> &str {
+        "reasoner"
+    }
+
+    fn complete(&self, _request: &CompletionRequest) -> Result<LlmResponse, ProviderError> {
+        Ok(LlmResponse {
+            content: Some("答案".to_string()),
+            reasoning_content: Some("思考过程".to_string()),
+            finish_reason: "stop".to_string(),
+            usage: Default::default(),
+        })
+    }
+}
+
 fn loop_with(provider: Box<dyn LlmProvider>) -> (TempDir, AgentLoop) {
     let dir = tempfile::tempdir().unwrap();
     let sessions = SessionManager::new(dir.path()).unwrap();
     let agent_loop = AgentLoop::new(provider, sessions, ContextBuilder::new(None));
     (dir, agent_loop)
+}
+
+#[test]
+fn reasoning_content_is_persisted_on_assistant_turn() {
+    let (dir, mut agent_loop) = loop_with(Box::new(ReasoningProvider));
+    agent_loop
+        .process(&InboundMessage::new("cli", "direct", "问题"))
+        .unwrap();
+
+    // 冷启动读回，assistant turn 带 reasoning_content。
+    let mut reloaded = SessionManager::new(dir.path()).unwrap();
+    let session = reloaded.get_or_create("cli:direct").unwrap();
+    let history = session.get_history(100);
+    assert_eq!(history[1]["role"], "assistant");
+    assert_eq!(history[1]["content"], "答案");
+    assert_eq!(history[1]["reasoning_content"], "思考过程");
 }
 
 #[test]
@@ -147,16 +181,19 @@ fn provider_failure_surfaces_structured_error() {
 fn context_projection_drops_internal_fields() {
     let builder = ContextBuilder::new(Some("system prompt".to_string()));
     let history = vec![serde_json::json!({
-        "role": "user",
-        "content": "hi",
-        "timestamp": "2026-07-23T00:00:00+00:00"
+        "role": "assistant",
+        "content": "答案",
+        "timestamp": "2026-07-23T00:00:00+00:00",
+        "reasoning_content": "思考过程"
     })];
 
     let built = builder.build(&history);
     assert_eq!(built[0]["role"], "system");
     assert_eq!(
         built[1],
-        serde_json::json!({"role": "user", "content": "hi"})
+        serde_json::json!({"role": "assistant", "content": "答案"})
     );
+    // timestamp 与 reasoning_content 不回放给 provider。
     assert!(built[1].get("timestamp").is_none());
+    assert!(built[1].get("reasoning_content").is_none());
 }
