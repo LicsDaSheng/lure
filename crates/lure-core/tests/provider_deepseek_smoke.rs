@@ -33,7 +33,7 @@ fn deepseek_chat_completion_round_trip() {
         messages: vec![json!({"role": "user", "content": "只回复两个字：你好"})],
         settings: GenerationSettings {
             temperature: 0.1,
-            max_tokens: 64,
+            max_tokens: 512,
             reasoning_effort: None,
         },
     };
