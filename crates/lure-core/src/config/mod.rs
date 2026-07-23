@@ -5,10 +5,12 @@
 //! 对应 phase 按上游契约补齐。
 
 mod loader;
+mod migration;
 mod paths;
 mod schema;
 
 pub use loader::{load_config, save_config, ConfigError};
+pub use migration::migrate_config;
 pub use paths::{
     default_config_path, default_workspace, expand_user, home_dir, is_default_workspace,
     resolve_workspace,

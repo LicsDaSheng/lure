@@ -178,7 +178,7 @@
 
 ## Phase 11: 打包、部署与迁移兼容
 
-- 状态：`todo`
+- 状态：`partial`
 - 目标：完成跨平台安装、Docker、发布包、已有 workspace/config/session 的兼容迁移。
 - 上游参考：
   - `Dockerfile`

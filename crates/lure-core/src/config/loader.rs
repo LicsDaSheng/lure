@@ -73,7 +73,13 @@ pub fn load_config(path: &Path) -> Result<Config, ConfigError> {
         path: path.to_path_buf(),
         source,
     })?;
-    let config: Config = serde_json::from_str(&text).map_err(|source| ConfigError::Parse {
+    let mut raw: serde_json::Value =
+        serde_json::from_str(&text).map_err(|source| ConfigError::Parse {
+            path: path.to_path_buf(),
+            source,
+        })?;
+    crate::config::migration::migrate_config(&mut raw);
+    let config: Config = serde_json::from_value(raw).map_err(|source| ConfigError::Parse {
         path: path.to_path_buf(),
         source,
     })?;

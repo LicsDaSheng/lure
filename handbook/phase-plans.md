@@ -525,3 +525,29 @@
 - Docker smoke test 可运行。
 - legacy workspace fixture 可迁移。
 - 完整验证清单有记录。
+
+### 进度记录 2026-07-23
+
+- 状态：partial
+- 本次完成（发布产物 + Docker 骨架 + config 迁移 + 清单）：
+  - `config::migrate_config`：原始 JSON 层 legacy 迁移（丢弃 `maxMessages`/`max_messages`、
+    `tools.exec.restrictToWorkspace` → `tools.restrictToWorkspace`、`myEnabled`/`mySet` →
+    `tools.my.{enable,allowSet}` 且已有子键优先）；`load_config` 在 typed 解析前调用。
+  - CLI `--version`/`-V`：输出与包版本一致，供发布产物核对。
+  - `Dockerfile`（多阶段 builder → runtime，非 root，workspace volume）、`docker-compose.yml`
+    （构建 + 版本 smoke）。
+  - `handbook/release-checklist.md`：构建/产物/Docker/迁移/文档/暂缓项完整清单。
+- 验证：
+  - `rtk cargo fmt --check` 通过；`rtk cargo clippy --all-targets --all-features -- -D warnings` 无问题。
+  - `rtk cargo test --all-targets --all-features` 通过（170 passed）。
+  - `rtk cargo build --release --bin lure` 生成 `target/release/lure`（643K），`--version` 输出 `lure 0.0.0`。
+- 上游对照：
+  - 已覆盖：`test_config_migration.py`（maxMessages/exec.restrictToWorkspace/my tool keys 变换）、
+    `test_package_version.py`（版本核对，等价为 CLI `--version`）。
+  - 暂未覆盖（记入 ledger）：
+    - 真实 `docker build`/`docker compose`（外部工具，属 CI；本地不作单测门禁）。
+    - legacy session/memory fixture 迁移（`HISTORY.md` → `history.jsonl`、legacy session 路径迁移，
+      属 Phase 2/6 暂缓项，回补时纳入 release checklist）。
+    - `tools` typed 建模后 my tool keys 的 typed 往返（当前仅原始 JSON 层迁移可测）。
+- 说明：至此 11 个阶段均形成可运行纵向切片，Phase 1-11 以 partial 状态收敛，暂缓项均在
+  `upstream-test-ledger.md` 与 `release-checklist.md` 记录。

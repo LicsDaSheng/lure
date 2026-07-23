@@ -16,7 +16,12 @@
 | Phase 3 | Agent Loop 最小纵向闭环（CLI one-shot） | `partial` |
 | Phase 4 | Provider preset 解析与 OpenAI-compatible provider | `partial` |
 | Phase 5 | Tool 运行时与 workspace 安全边界 | `partial` |
-| Phase 6–11 | Memory / Bus / Automations / API / WebUI / 打包 | `todo` |
+| Phase 6 | Memory 存储、history 与 dream consolidation | `partial` |
+| Phase 7 | Bus、channel 契约与最小 gateway | `partial` |
+| Phase 8 | Cron store、session 投递、heartbeat 与 trigger | `partial` |
+| Phase 9 | OpenAI-compatible API 表面 | `partial` |
+| Phase 10 | WebUI 后端服务协议 | `partial` |
+| Phase 11 | 打包、Docker 骨架与 config 迁移 | `partial` |
 
 详细阶段计划、验收标准与上游测试映射见 [handbook/](handbook/)：
 - [phase-roadmap.md](handbook/phase-roadmap.md)：阶段拆分与状态
@@ -34,12 +39,20 @@ lure/
 └── crates/
     ├── lure-core/                 # 核心领域库
     │   └── src/
-    │       ├── config/            # 配置 schema / 路径 / 读写 / preset 解析
+    │       ├── config/            # 配置 schema / 路径 / 读写 / preset / 迁移
     │       ├── session/           # session key / 存储 / 缓存 / goal 派生视图
     │       ├── provider/          # LLM provider 契约 / OpenAI-compatible / registry
     │       ├── agent/             # 最小 loop / runner / context 闭环
     │       ├── security/          # workspace 路径边界
-    │       └── tool/              # tool trait / registry / 文件与 shell 工具
+    │       ├── tool/              # tool trait / registry / 文件与 shell 工具
+    │       ├── memory/            # 长期记忆 / history / dream consolidation
+    │       ├── bus/               # InboundMessage / OutboundMessage / 消息总线
+    │       ├── channel/           # channel 契约
+    │       ├── gateway/           # 最小 gateway 编排
+    │       ├── cron/              # cron 调度 / 持久化 / session 投递
+    │       ├── trigger/           # 本地 trigger at-least-once 队列
+    │       ├── api/               # OpenAI-compatible API 表面（传输无关）
+    │       └── webui/             # WebUI 后端服务协议（传输无关）
     └── lure-cli/                  # 命令行入口（二进制 `lure`）
 ```
 

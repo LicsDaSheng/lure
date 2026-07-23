@@ -26,6 +26,7 @@ fn main() -> ExitCode {
                 ExitCode::FAILURE
             }
         },
+        // `--version` / `-V` 与无子命令都输出版本，供发布产物版本核对。
         _ => {
             println!("lure {}", lure_core::version());
             ExitCode::SUCCESS

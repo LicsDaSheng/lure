@@ -40,8 +40,8 @@
 | `tests/test_openai_api.py` | 9 | partial | 请求/响应/校验/鉴权/session 已覆盖；真实 HTTP server、/v1/models、media 待补 |
 | `tests/test_api_stream.py` | 9 | partial | SSE 事件顺序已覆盖；真实流式传输与 agent 接线待补 |
 | `tests/test_document_parsing.py` | 5 | todo | 文档读取可作为工具/文档能力子阶段 |
-| `tests/test_docker.sh` | 11 | todo | Docker 验收，最后阶段处理 |
-| `tests/test_package_version.py` | 11 | todo | 发布包版本语义，最后阶段处理 |
+| `tests/test_docker.sh` | 11 | partial | Dockerfile/compose 骨架已提供；真实 docker build 属 CI 外部工具 |
+| `tests/test_package_version.py` | 11 | partial | CLI `--version` 版本核对已覆盖；发布包元数据待补 |
 
 ## Phase 0 待补映射
 
@@ -55,6 +55,17 @@ Phase 0 已完成，确定 phase 1-4 关键上游测试的 Rust 测试落点（�
 | `tests/config/test_config_atomic_save.py` | 1 | `crates/lure-core/tests/config_save.rs` | partial | round-trip/camelCase/父目录/unix 权限位已覆盖；`preserves_existing_file_when_write_fails`(mock `Path.replace`) 由 temp+rename 设计保证，未单独 mock `fs::rename` |
 | `tests/config/test_config_migration.py` | 1 | 待定 | deferred | `_migrate_config` 依赖尚未建模字段（maxMessages/tools 迁移） |
 | `tests/config/test_env_interpolation.py` | 1 | 待定 | deferred | `${VAR}` 插值依赖后续字段与运行时上下文 |
+## Phase 11 明细映射
+
+| 上游测试 | 归属 phase | Rust 测试 | 状态 | 说明 |
+|---|---:|---|---|---|
+| `tests/config/test_config_migration.py` | 11 | `crates/lure-core/tests/config_migration.rs` | partial | maxMessages/exec.restrictToWorkspace/my tool keys 原始 JSON 迁移已覆盖；tools typed 往返待 ToolsConfig |
+| `tests/test_package_version.py` | 11 | `crates/lure-cli/tests/version.rs` | partial | CLI `--version` 与包版本一致已覆盖 |
+| `tests/test_docker.sh` | 11 | Dockerfile/docker-compose.yml | partial | 发布产物结构已提供；真实 docker build 属 CI |
+
+> 注：Phase 11 提供发布结构与 config 迁移逻辑；真实镜像构建、legacy session/memory fixture
+> 迁移（`HISTORY.md` → `history.jsonl`）留待后续，并纳入 `release-checklist.md`。
+
 ## Phase 10 明细映射
 
 | 上游测试 | 归属 phase | Rust 测试 | 状态 | 说明 |
