@@ -14,6 +14,7 @@ pub use paths::{
     resolve_workspace,
 };
 pub use schema::{
-    AgentDefaults, AgentsConfig, Config, DEFAULT_MAX_TOKENS, DEFAULT_MODEL, DEFAULT_PROVIDER,
-    DEFAULT_TEMPERATURE, DEFAULT_WORKSPACE,
+    AgentDefaults, AgentsConfig, Config, ModelPresetConfig, PresetError,
+    DEFAULT_CONTEXT_WINDOW_TOKENS, DEFAULT_MAX_TOKENS, DEFAULT_MODEL, DEFAULT_PRESET_NAME,
+    DEFAULT_PROVIDER, DEFAULT_TEMPERATURE, DEFAULT_WORKSPACE,
 };

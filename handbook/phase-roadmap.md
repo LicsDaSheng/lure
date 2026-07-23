@@ -67,7 +67,7 @@
 
 ## Phase 4: Provider 与模型运行时
 
-- 状态：`todo`
+- 状态：`partial`
 - 目标：建立 provider registry、model preset、运行时解析和 OpenAI-compatible 的最小真实调用边界。
 - 上游参考：
   - `nanobot/providers/`

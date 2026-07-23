@@ -1,0 +1,210 @@
+//! OpenAI-compatible provider 的请求/响应 golden 与错误分类。
+//!
+//! 全部使用假传输，不触网；真实网络 smoke 留待接入真实 HTTP 传输时以显式 opt-in
+//! 方式提供（见 upstream-test-ledger）。
+
+use std::cell::RefCell;
+use std::rc::Rc;
+
+use lure_core::provider::{
+    build_chat_request, CompletionRequest, GenerationSettings, HttpRequest, HttpResponse,
+    HttpTransport, LlmProvider, OpenAiCompatProvider, ProviderError,
+};
+use serde_json::json;
+
+type Capture = Rc<RefCell<Option<HttpRequest>>>;
+
+struct FakeTransport {
+    response: HttpResponse,
+    captured: Capture,
+}
+
+impl FakeTransport {
+    fn new(status: u16, body: &str) -> Self {
+        Self {
+            response: HttpResponse {
+                status,
+                body: body.to_string(),
+            },
+            captured: Rc::new(RefCell::new(None)),
+        }
+    }
+
+    fn with_capture(status: u16, body: &str, captured: Capture) -> Self {
+        Self {
+            response: HttpResponse {
+                status,
+                body: body.to_string(),
+            },
+            captured,
+        }
+    }
+}
+
+impl HttpTransport for FakeTransport {
+    fn post_json(&self, request: &HttpRequest) -> Result<HttpResponse, String> {
+        *self.captured.borrow_mut() = Some(request.clone());
+        Ok(self.response.clone())
+    }
+}
+
+struct FailingTransport;
+
+impl HttpTransport for FailingTransport {
+    fn post_json(&self, _request: &HttpRequest) -> Result<HttpResponse, String> {
+        Err("连接被拒绝".to_string())
+    }
+}
+
+fn request(messages: Vec<serde_json::Value>) -> CompletionRequest {
+    CompletionRequest {
+        model: "gpt-4o".to_string(),
+        messages,
+        settings: GenerationSettings::default(),
+    }
+}
+
+#[test]
+fn build_chat_request_matches_openai_shape() {
+    let messages = vec![json!({"role": "user", "content": "hi"})];
+    let body = build_chat_request("gpt-4o", &messages, &GenerationSettings::default());
+    assert_eq!(
+        body,
+        json!({
+            "model": "gpt-4o",
+            "messages": [{"role": "user", "content": "hi"}],
+            "temperature": 0.7,
+            "max_tokens": 4096,
+        })
+    );
+}
+
+#[test]
+fn complete_sends_request_and_parses_response() {
+    let body = json!({
+        "choices": [{"message": {"role": "assistant", "content": "hello there"}, "finish_reason": "stop"}],
+        "usage": {"prompt_tokens": 5, "completion_tokens": 2}
+    })
+    .to_string();
+    let transport = FakeTransport::new(200, &body);
+    let provider = OpenAiCompatProvider::new(
+        "https://api.example.test/v1",
+        Some("sk-test".to_string()),
+        "gpt-4o",
+        transport,
+    );
+
+    let response = provider
+        .complete(&request(vec![json!({"role": "user", "content": "hi"})]))
+        .unwrap();
+
+    assert_eq!(response.content.as_deref(), Some("hello there"));
+    assert_eq!(response.finish_reason, "stop");
+    assert_eq!(response.usage["prompt_tokens"], 5);
+}
+
+#[test]
+fn complete_targets_chat_completions_with_auth_header() {
+    let body = json!({"choices": [{"message": {"content": "ok"}}]}).to_string();
+    let captured: Capture = Rc::new(RefCell::new(None));
+    let transport = FakeTransport::with_capture(200, &body, Rc::clone(&captured));
+    let provider = OpenAiCompatProvider::new(
+        "https://api.example.test/v1/",
+        Some("sk-secret".to_string()),
+        "gpt-4o",
+        transport,
+    );
+
+    provider
+        .complete(&request(vec![json!({"role": "user", "content": "hi"})]))
+        .unwrap();
+
+    let request = captured.borrow().clone().expect("应捕获到请求");
+    assert_eq!(request.url, "https://api.example.test/v1/chat/completions");
+    assert!(request
+        .headers
+        .iter()
+        .any(|(k, v)| k == "authorization" && v == "Bearer sk-secret"));
+    assert_eq!(request.body["model"], "gpt-4o");
+    assert_eq!(request.body["messages"][0]["content"], "hi");
+}
+
+#[test]
+fn missing_content_yields_none_not_error() {
+    let body = json!({"choices": [{"message": {"role": "assistant"}, "finish_reason": "stop"}]})
+        .to_string();
+    let provider = OpenAiCompatProvider::new(
+        "https://api.example.test/v1",
+        None,
+        "gpt-4o",
+        FakeTransport::new(200, &body),
+    );
+
+    let response = provider
+        .complete(&request(vec![json!({"role": "user", "content": "hi"})]))
+        .unwrap();
+    assert_eq!(response.content, None);
+    assert_eq!(response.finish_reason, "stop");
+}
+
+fn provider_error(status: u16, body: &str) -> ProviderError {
+    let provider = OpenAiCompatProvider::new(
+        "https://api.example.test/v1",
+        Some("sk".to_string()),
+        "gpt-4o",
+        FakeTransport::new(status, body),
+    );
+    provider
+        .complete(&request(vec![json!({"role": "user", "content": "hi"})]))
+        .unwrap_err()
+}
+
+#[test]
+fn classifies_http_error_statuses() {
+    assert!(matches!(
+        provider_error(401, "unauthorized"),
+        ProviderError::Auth { status: 401, .. }
+    ));
+    assert!(matches!(
+        provider_error(403, "forbidden"),
+        ProviderError::Auth { status: 403, .. }
+    ));
+    assert!(matches!(
+        provider_error(429, "slow down"),
+        ProviderError::RateLimited { status: 429, .. }
+    ));
+    assert!(matches!(
+        provider_error(500, "boom"),
+        ProviderError::Server { status: 500, .. }
+    ));
+    assert!(matches!(
+        provider_error(400, "bad request"),
+        ProviderError::Api { status: 400, .. }
+    ));
+}
+
+#[test]
+fn transport_failure_is_structured() {
+    let provider = OpenAiCompatProvider::new(
+        "https://api.example.test/v1",
+        None,
+        "gpt-4o",
+        FailingTransport,
+    );
+    let err = provider
+        .complete(&request(vec![json!({"role": "user", "content": "hi"})]))
+        .unwrap_err();
+    assert!(matches!(err, ProviderError::Transport(_)));
+}
+
+#[test]
+fn malformed_and_missing_choices_are_response_errors() {
+    assert!(matches!(
+        provider_error(200, "not json at all"),
+        ProviderError::Response(_)
+    ));
+    assert!(matches!(
+        provider_error(200, "{}"),
+        ProviderError::Response(_)
+    ));
+}

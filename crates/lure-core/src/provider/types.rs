@@ -68,8 +68,18 @@ impl LlmResponse {
 /// provider 结构化错误。
 #[derive(Debug)]
 pub enum ProviderError {
-    /// 请求构造或传输层失败。
+    /// 请求构造或参数错误。
     Request(String),
+    /// 传输/网络层失败。
+    Transport(String),
+    /// 认证或授权失败（401/403）。
+    Auth { status: u16, message: String },
+    /// 触发限流（429）。
+    RateLimited { status: u16, message: String },
+    /// 服务端错误（5xx）。
+    Server { status: u16, message: String },
+    /// 其他非 2xx 响应。
+    Api { status: u16, message: String },
     /// 响应解析或语义失败。
     Response(String),
 }
@@ -78,6 +88,19 @@ impl fmt::Display for ProviderError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             ProviderError::Request(msg) => write!(f, "provider 请求失败: {msg}"),
+            ProviderError::Transport(msg) => write!(f, "provider 传输失败: {msg}"),
+            ProviderError::Auth { status, message } => {
+                write!(f, "provider 认证失败({status}): {message}")
+            }
+            ProviderError::RateLimited { status, message } => {
+                write!(f, "provider 限流({status}): {message}")
+            }
+            ProviderError::Server { status, message } => {
+                write!(f, "provider 服务端错误({status}): {message}")
+            }
+            ProviderError::Api { status, message } => {
+                write!(f, "provider API 错误({status}): {message}")
+            }
             ProviderError::Response(msg) => write!(f, "provider 响应失败: {msg}"),
         }
     }

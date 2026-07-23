@@ -27,7 +27,7 @@
 | `tests/session/` | 2 | partial | 存储/clamp/cache/goal_state 已覆盖；list repair、turn continuation、weak-identity 暂缓，见下方明细 |
 | `tests/agent/` | 2,3,4,6 | partial | session/loop 已覆盖；provider/tool/memory 待后续 phase |
 | `tests/cli/` | 3 | partial | one-shot 已覆盖；interactive/commands 待后续 |
-| `tests/providers/` | 4 | todo | provider registry、runtime resolver、真实 provider opt-in |
+| `tests/providers/` | 4 | partial | OpenAI-compatible 请求/响应/错误 + 选择顺序已覆盖；registry 全量、真实 provider opt-in 待补 |
 | `tests/tools/` | 5 | todo | tool schema、文件、shell、web、MCP 分阶段覆盖 |
 | `tests/security/` | 5 | todo | workspace、network、启动安全等边界测试 |
 | `tests/bus/` | 7 | todo | message bus 事件和队列 |
@@ -55,7 +55,17 @@ Phase 0 已完成，确定 phase 1-4 关键上游测试的 Rust 测试落点（�
 | `tests/config/test_config_atomic_save.py` | 1 | `crates/lure-core/tests/config_save.rs` | partial | round-trip/camelCase/父目录/unix 权限位已覆盖；`preserves_existing_file_when_write_fails`(mock `Path.replace`) 由 temp+rename 设计保证，未单独 mock `fs::rename` |
 | `tests/config/test_config_migration.py` | 1 | 待定 | deferred | `_migrate_config` 依赖尚未建模字段（maxMessages/tools 迁移） |
 | `tests/config/test_env_interpolation.py` | 1 | 待定 | deferred | `${VAR}` 插值依赖后续字段与运行时上下文 |
-| `tests/agent/test_model_runtime_resolver.py` | 4 | `crates/lure-core/tests/model_runtime_resolver.rs` | mapped | provider/model 解析 |
+## Phase 4 明细映射
+
+| 上游测试 | 归属 phase | Rust 测试 | 状态 | 说明 |
+|---|---:|---|---|---|
+| `tests/config/test_model_presets.py` | 4 | `crates/lure-core/tests/config_model_presets.rs` | partial | config 层 preset 解析/校验/序列化已覆盖；`_match_provider`/`get_provider_name`（依赖 `ProvidersConfig`）暂缓 |
+| `tests/providers/` (OpenAI-compatible) | 4 | `crates/lure-core/tests/provider_openai.rs` | partial | 请求 golden + 响应解析 + 错误分类已覆盖；`max_completion_tokens`/streaming/tool/重试暂缓 |
+| `tests/providers/` (selection order) | 4 | `crates/lure-core/tests/provider_registry.rs` | partial | forced/前缀/关键字选择顺序已覆盖；config 驱动 api_key/OAuth/local fallback 暂缓 |
+| `tests/agent/test_model_runtime_resolver.py` | 4 | 待定 | deferred | stateful resolver 生命周期（refresh/admit/invalidate/preset tracking + 不可变 LLMRuntime/ProviderSnapshot），本阶段只覆盖 config 层解析顺序 |
+
+> 注：Phase 4 provider 通过 `HttpTransport` 抽象，单测用假传输不触网；真实 HTTP 传输与
+> 真实 provider smoke（opt-in）待接入真实客户端时补齐。
 
 ## Phase 3 明细映射
 

@@ -225,6 +225,37 @@
 - 不需要真实 API key 的测试全量通过。
 - 真实 provider smoke test 标记为显式 opt-in。
 
+### 进度记录 2026-07-23
+
+- 状态：partial
+- 本次完成（preset 解析 + OpenAI-compatible provider + 最小 registry）：
+  - 扩展 config：`ModelPresetConfig`、`Config.model_presets`（camelCase `modelPresets` + snake 别名）、
+    `AgentDefaults` 新增 `model_preset`/`context_window_tokens`/`reasoning_effort`。
+  - `Config::resolve_default_preset`/`resolve_preset(name)`/`validate`：解析顺序对齐上游
+    （None→defaults.model_preset；空/`default`→隐式默认；命名查表；缺失/保留名/未知 preset 报错）。
+    `load_config` 在解析后调用 `validate`，非法 preset 走 `ConfigError::Validation`。
+  - provider：`HttpTransport` 抽象 + `HttpRequest`/`HttpResponse`；`OpenAiCompatProvider`
+    构建 `{model,messages,temperature,max_tokens}` 请求、POST `{base}/chat/completions`、
+    解析 `choices[0].message.content`/`finish_reason`/`usage`；错误按状态分类为
+    `Auth/RateLimited/Server/Api/Transport/Response`。
+  - `provider::registry`：代表性 provider 子集 + `find_by_name`/`match_provider`
+    （forced 按名；auto 前缀优先、再关键字匹配）。
+- 验证：
+  - `rtk cargo fmt --check` 通过；`rtk cargo clippy --all-targets --all-features -- -D warnings` 无问题。
+  - `rtk cargo test --all-targets --all-features` 通过（77 passed）。全部不触网。
+- 上游对照：
+  - 已覆盖：`test_model_presets.py`（config 层 preset 解析/校验/序列化）、OpenAI-compatible
+    请求/响应 golden + 错误分类、provider 选择顺序参数化。
+  - 暂未覆盖（记入 ledger）：
+    - `test_model_runtime_resolver.py`：stateful resolver 生命周期（refresh/admit/invalidate/preset
+      tracking、LLMRuntime/ProviderSnapshot 不可变捕获），本次只覆盖 config 层解析顺序。
+    - config 驱动的 `_match_provider`/`get_provider_name`：依赖尚未建模的 `ProvidersConfig`
+      （api_key/OAuth/local fallback/transcription 过滤）。
+    - 真实 HTTP 传输与真实 provider smoke（opt-in）：传输 trait 已就位，真实实现待接入。
+    - `max_completion_tokens`/模型专属覆盖、streaming、tool call、fallback provider。
+- 下一步：
+  - 进入 Phase 5：tool trait/schema/registry、文件与 shell 工具最小集、workspace 安全策略。
+
 ## Phase 5: Tool Runtime 与安全边界
 
 ### Plan

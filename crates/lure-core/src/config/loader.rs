@@ -30,6 +30,8 @@ pub enum ConfigError {
     Serialize { source: serde_json::Error },
     /// 写入配置文件失败。
     Write { path: PathBuf, source: io::Error },
+    /// 配置语义校验失败（如 preset 约束）。
+    Validation { path: PathBuf, message: String },
 }
 
 impl fmt::Display for ConfigError {
@@ -45,6 +47,9 @@ impl fmt::Display for ConfigError {
             ConfigError::Write { path, source } => {
                 write!(f, "写入配置失败 {}: {source}", path.display())
             }
+            ConfigError::Validation { path, message } => {
+                write!(f, "配置校验失败 {}: {message}", path.display())
+            }
         }
     }
 }
@@ -54,6 +59,7 @@ impl std::error::Error for ConfigError {
         match self {
             ConfigError::Read { source, .. } | ConfigError::Write { source, .. } => Some(source),
             ConfigError::Parse { source, .. } | ConfigError::Serialize { source } => Some(source),
+            ConfigError::Validation { .. } => None,
         }
     }
 }
@@ -67,10 +73,17 @@ pub fn load_config(path: &Path) -> Result<Config, ConfigError> {
         path: path.to_path_buf(),
         source,
     })?;
-    serde_json::from_str(&text).map_err(|source| ConfigError::Parse {
+    let config: Config = serde_json::from_str(&text).map_err(|source| ConfigError::Parse {
         path: path.to_path_buf(),
         source,
-    })
+    })?;
+    config
+        .validate()
+        .map_err(|message| ConfigError::Validation {
+            path: path.to_path_buf(),
+            message,
+        })?;
+    Ok(config)
 }
 
 /// 将配置以约定格式原子写入文件。
