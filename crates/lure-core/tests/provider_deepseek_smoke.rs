@@ -9,7 +9,7 @@ use lure_core::provider::{
 };
 use serde_json::json;
 
-const MODEL: &str = "deepseek-v4-pro";
+const DEFAULT_MODEL: &str = "deepseek-v4-pro";
 
 #[test]
 fn deepseek_chat_completion_round_trip() {
@@ -17,19 +17,24 @@ fn deepseek_chat_completion_round_trip() {
         eprintln!("跳过：未设置 DEEPSEEK_API_KEY");
         return;
     };
+    // 可用 DEEPSEEK_SMOKE_MODEL 覆盖模型（如 deepseek-reasoner 验证 reasoning_content）。
+    let model = std::env::var("DEEPSEEK_SMOKE_MODEL").unwrap_or_else(|_| DEFAULT_MODEL.to_string());
 
-    let spec = match_provider(MODEL, "auto").expect("deepseek 应可匹配");
-    eprintln!("provider={} base={}", spec.name, spec.default_api_base);
+    let spec = match_provider(&model, "auto").expect("deepseek 应可匹配");
+    eprintln!(
+        "provider={} base={} model={model}",
+        spec.name, spec.default_api_base
+    );
 
     let provider = OpenAiCompatProvider::new(
         spec.default_api_base,
         Some(api_key),
-        MODEL,
+        &model,
         UreqTransport::new(),
     );
 
     let request = CompletionRequest {
-        model: MODEL.to_string(),
+        model: model.clone(),
         messages: vec![json!({"role": "user", "content": "只回复两个字：你好"})],
         settings: GenerationSettings {
             temperature: 0.1,
@@ -41,8 +46,13 @@ fn deepseek_chat_completion_round_trip() {
     match provider.complete(&request) {
         Ok(response) => {
             eprintln!(
-                "成功 finish={} content={:?}",
-                response.finish_reason, response.content
+                "成功 finish={} content={:?} reasoning_len={:?}",
+                response.finish_reason,
+                response.content,
+                response
+                    .reasoning_content
+                    .as_ref()
+                    .map(|r| r.chars().count()),
             );
             assert!(response.content.is_some(), "成功响应应含 content");
         }

@@ -144,7 +144,35 @@ fn missing_content_yields_none_not_error() {
         .complete(&request(vec![json!({"role": "user", "content": "hi"})]))
         .unwrap();
     assert_eq!(response.content, None);
+    assert_eq!(response.reasoning_content, None);
     assert_eq!(response.finish_reason, "stop");
+}
+
+#[test]
+fn reasoning_content_is_parsed_alongside_content() {
+    let body = json!({
+        "choices": [{
+            "message": {
+                "role": "assistant",
+                "content": "答案是 4",
+                "reasoning_content": "2 加 2 等于 4"
+            },
+            "finish_reason": "stop"
+        }]
+    })
+    .to_string();
+    let provider = OpenAiCompatProvider::new(
+        "https://api.example.test/v1",
+        None,
+        "deepseek-reasoner",
+        FakeTransport::new(200, &body),
+    );
+
+    let response = provider
+        .complete(&request(vec![json!({"role": "user", "content": "2+2"})]))
+        .unwrap();
+    assert_eq!(response.content.as_deref(), Some("答案是 4"));
+    assert_eq!(response.reasoning_content.as_deref(), Some("2 加 2 等于 4"));
 }
 
 fn provider_error(status: u16, body: &str) -> ProviderError {

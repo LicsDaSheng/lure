@@ -115,9 +115,13 @@ pub fn parse_chat_response(response: &HttpResponse) -> Result<LlmResponse, Provi
         .and_then(|choices| choices.first())
         .ok_or_else(|| ProviderError::Response("响应缺少 choices".to_string()))?;
 
-    let content = choice
-        .get("message")
+    let message = choice.get("message");
+    let content = message
         .and_then(|m| m.get("content"))
+        .and_then(Value::as_str)
+        .map(str::to_string);
+    let reasoning_content = message
+        .and_then(|m| m.get("reasoning_content"))
         .and_then(Value::as_str)
         .map(str::to_string);
 
@@ -135,6 +139,7 @@ pub fn parse_chat_response(response: &HttpResponse) -> Result<LlmResponse, Provi
 
     Ok(LlmResponse {
         content,
+        reasoning_content,
         finish_reason,
         usage,
     })

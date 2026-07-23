@@ -48,6 +48,8 @@ pub struct CompletionRequest {
 pub struct LlmResponse {
     /// 文本内容（可能为空）。
     pub content: Option<String>,
+    /// 推理内容（思维链）；推理模型如 deepseek-reasoner / DeepSeek-R1 / Kimi 提供。
+    pub reasoning_content: Option<String>,
     /// 结束原因，默认 `stop`。
     pub finish_reason: String,
     /// 用量统计。
@@ -59,6 +61,7 @@ impl LlmResponse {
     pub fn text(content: impl Into<String>) -> Self {
         Self {
             content: Some(content.into()),
+            reasoning_content: None,
             finish_reason: "stop".to_string(),
             usage: Map::new(),
         }
