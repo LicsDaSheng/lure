@@ -47,7 +47,7 @@
 
 ## Phase 3: Agent Loop 最小纵向闭环
 
-- 状态：`todo`
+- 状态：`partial`
 - 目标：实现 CLI one-shot 到 agent loop，再到可替换 provider stub，最终保存 session 并输出回复的最小闭环。
 - 上游参考：
   - `nanobot/agent/loop.py`

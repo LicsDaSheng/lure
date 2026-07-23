@@ -180,6 +180,34 @@
 - 与上游 `tests/agent/test_loop_runner_integration.py`、`tests/cli/` 相关测试建立映射。
 - 全量 Rust 验证通过。
 
+### 进度记录 2026-07-23
+
+- 状态：partial
+- 本次完成（CLI one-shot 纵向闭环）：
+  - `lure-core::provider`：同步 `LlmProvider` trait + 契约类型（`CompletionRequest`/`LlmResponse`/
+    `GenerationSettings`，默认对齐上游 `base.py` 0.7/4096）+ 结构化 `ProviderError` + `EchoProvider` 占位。
+  - `lure-core::agent`：`ContextBuilder`（system + 历史 `{role,content}` 投影）、
+    `AgentRunner`（单次补全）、`AgentLoop`（追加 user turn → build context → runner → 追加
+    assistant turn → save → 返回 `TurnOutcome` + 结构化 `ProgressEvent`）、结构化 `AgentError`。
+  - CLI `lure agent -m "..." [--workspace P]`：解析输入、选 workspace/session、跑闭环、stdout 输出回复。
+- 验证：
+  - `rtk cargo fmt --check` 通过；`rtk cargo clippy --all-targets --all-features -- -D warnings` 无问题。
+  - `rtk cargo test --all-targets --all-features` 通过（51 passed）。
+  - 手动 smoke：`lure agent -m "你好，世界" --workspace <tmp>` 输出 `echo: 你好，世界`，
+    JSONL 持久化 metadata + user + assistant turn，存储 key 为 `cli:direct` 的 base64url。
+- 上游对照：
+  - 已覆盖（`test_loop_runner_integration.py` 最小闭环 + `tests/cli/` one-shot）：
+    输入进入 loop、fake provider 返回最终回复、user/assistant turn 保存、下一轮读历史、
+    provider 失败形成结构化错误、CLI one-shot 可运行。
+  - 暂未覆盖（记入 ledger）：
+    - async/streaming provider（上游为 async + StreamedResponseEvent）：改用同步 trait，随 bus/API 落地再引入。
+    - tool 执行循环、goal/subagent、consolidation：属 Phase 5/6。
+    - 真实 provider（`get_default_model`/`chat_with_retry` 真实实现）：属 Phase 4，现以 `EchoProvider` 占位。
+    - 完整 `InboundMessage`（sender/metadata/附件）与 bus：属 Phase 7。
+    - interactive CLI（`test_cli_input.py` 等）：先覆盖 one-shot。
+- 下一步：
+  - 进入 Phase 4：provider registry、model runtime resolver、OpenAI-compatible 最小真实调用与 golden test。
+
 ## Phase 4: Provider 与模型运行时
 
 ### Plan

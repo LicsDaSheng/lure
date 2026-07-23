@@ -25,8 +25,8 @@
 |---|---:|---|---|
 | `tests/config/` | 1 | partial | 核心 loader/paths/save 已覆盖；migration/env/gateway 相关暂缓，见下方明细 |
 | `tests/session/` | 2 | partial | 存储/clamp/cache/goal_state 已覆盖；list repair、turn continuation、weak-identity 暂缓，见下方明细 |
-| `tests/agent/` | 2,3,4,6 | todo | 需按 session、loop、provider、memory 拆分 |
-| `tests/cli/` | 3 | todo | 先覆盖 CLI one-shot，再覆盖 interactive |
+| `tests/agent/` | 2,3,4,6 | partial | session/loop 已覆盖；provider/tool/memory 待后续 phase |
+| `tests/cli/` | 3 | partial | one-shot 已覆盖；interactive/commands 待后续 |
 | `tests/providers/` | 4 | todo | provider registry、runtime resolver、真实 provider opt-in |
 | `tests/tools/` | 5 | todo | tool schema、文件、shell、web、MCP 分阶段覆盖 |
 | `tests/security/` | 5 | todo | workspace、network、启动安全等边界测试 |
@@ -55,8 +55,17 @@ Phase 0 已完成，确定 phase 1-4 关键上游测试的 Rust 测试落点（�
 | `tests/config/test_config_atomic_save.py` | 1 | `crates/lure-core/tests/config_save.rs` | partial | round-trip/camelCase/父目录/unix 权限位已覆盖；`preserves_existing_file_when_write_fails`(mock `Path.replace`) 由 temp+rename 设计保证，未单独 mock `fs::rename` |
 | `tests/config/test_config_migration.py` | 1 | 待定 | deferred | `_migrate_config` 依赖尚未建模字段（maxMessages/tools 迁移） |
 | `tests/config/test_env_interpolation.py` | 1 | 待定 | deferred | `${VAR}` 插值依赖后续字段与运行时上下文 |
-| `tests/agent/test_loop_runner_integration.py` | 3 | `crates/lure-core/tests/loop_runner_integration.rs` | mapped | agent loop 最小闭环 |
 | `tests/agent/test_model_runtime_resolver.py` | 4 | `crates/lure-core/tests/model_runtime_resolver.rs` | mapped | provider/model 解析 |
+
+## Phase 3 明细映射
+
+| 上游测试 | 归属 phase | Rust 测试 | 状态 | 说明 |
+|---|---:|---|---|---|
+| `tests/agent/test_loop_runner_integration.py` | 3 | `crates/lure-core/tests/agent_loop.rs` | partial | 最小闭环（输入/最终回复/turn 保存/历史可读/结构化错误）已覆盖；streaming、tool 循环、goal/subagent、consolidation 属 Phase 4/5/6 |
+| `tests/cli/` (one-shot) | 3 | `crates/lure-cli/tests/cli_one_shot.rs` | partial | `agent -m` one-shot、无子命令输出版本、缺参失败已覆盖；interactive/commands 待后续 |
+
+> 注：Phase 3 provider 采用同步 trait + `EchoProvider` 占位；上游 async provider 与
+> 真实 OpenAI-compatible 调用归 Phase 4，届时收敛 provider 契约。
 
 ## Phase 2 明细映射
 

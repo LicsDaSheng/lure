@@ -12,3 +12,6 @@ path = "src/main.rs"
 
 [dependencies]
 lure-core = { path = "../lure-core" }
+
+[dev-dependencies]
+tempfile = "3"

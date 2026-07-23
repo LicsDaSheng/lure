@@ -5,8 +5,12 @@
 //! 当前已落地：
 //! - [`config`]：Phase 1 的配置 schema、路径解析与读写。
 //! - [`session`]：Phase 2 的 session key、存储、goal 派生视图。
+//! - [`provider`]：Phase 3 的 LLM provider 契约与占位实现。
+//! - [`agent`]：Phase 3 的最小 loop / runner / context 闭环。
 
+pub mod agent;
 pub mod config;
+pub mod provider;
 pub mod session;
 
 /// 返回 `lure-core` crate 的版本号。
