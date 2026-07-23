@@ -1,7 +1,9 @@
 //! `lure-cli`：Rust 版 `nanobot` 复刻的命令行入口。
 //!
-//! Phase 3 打通第一条纵向闭环：`lure agent -m "..."` 走 EchoProvider（占位）跑完
-//! agent loop，保存 user/assistant turn 并输出最终回复。真实 provider 属 Phase 4。
+//! `lure agent -m "..."` 跑完 agent loop 并保存 turn。默认走 EchoProvider（离线占位）；
+//! 指定 `--model <model>` 时经 registry 匹配 provider、从 `<PROVIDER>_API_KEY` 读取
+//! key，用真实 OpenAI-compatible provider 出网（例如
+//! `--model deepseek-v4-pro` → deepseek + `DEEPSEEK_API_KEY`）。
 
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -9,7 +11,9 @@ use std::process::ExitCode;
 use lure_core::agent::{AgentLoop, ContextBuilder};
 use lure_core::bus::InboundMessage;
 use lure_core::config::default_workspace;
-use lure_core::provider::EchoProvider;
+use lure_core::provider::{
+    match_provider, EchoProvider, LlmProvider, OpenAiCompatProvider, UreqTransport,
+};
 use lure_core::session::SessionManager;
 
 fn main() -> ExitCode {
@@ -34,10 +38,11 @@ fn main() -> ExitCode {
     }
 }
 
-/// 解析并执行 `agent -m <message> [--workspace <path>]`。
+/// 解析并执行 `agent -m <message> [--workspace <path>] [--model <model>]`。
 fn run_agent(args: &[String]) -> Result<String, String> {
     let mut message: Option<String> = None;
     let mut workspace: Option<String> = None;
+    let mut model: Option<String> = None;
 
     let mut index = 0;
     while index < args.len() {
@@ -50,6 +55,10 @@ fn run_agent(args: &[String]) -> Result<String, String> {
                 index += 1;
                 workspace = Some(args.get(index).ok_or("--workspace 缺少路径")?.clone());
             }
+            "--model" => {
+                index += 1;
+                model = Some(args.get(index).ok_or("--model 缺少模型名")?.clone());
+            }
             other => return Err(format!("未知参数: {other}")),
         }
         index += 1;
@@ -60,14 +69,36 @@ fn run_agent(args: &[String]) -> Result<String, String> {
         .map(PathBuf::from)
         .unwrap_or_else(default_workspace);
 
+    let provider = build_provider(model.as_deref())?;
     let sessions = SessionManager::new(&workspace).map_err(|e| e.to_string())?;
-    let mut agent_loop = AgentLoop::new(
-        Box::new(EchoProvider::new()),
-        sessions,
-        ContextBuilder::new(None),
-    );
+    let mut agent_loop = AgentLoop::new(provider, sessions, ContextBuilder::new(None));
 
     let input = InboundMessage::new("cli", "direct", message);
     let outcome = agent_loop.process(&input).map_err(|e| e.to_string())?;
     Ok(outcome.final_content)
+}
+
+/// 构建 provider：无 `--model` 走离线 EchoProvider；指定 `--model` 时经 registry 匹配
+/// provider，从 `<PROVIDER>_API_KEY` 读取 key，返回真实 OpenAI-compatible provider。
+fn build_provider(model: Option<&str>) -> Result<Box<dyn LlmProvider>, String> {
+    let Some(model) = model else {
+        return Ok(Box::new(EchoProvider::new()));
+    };
+
+    let spec = match_provider(model, "auto")
+        .ok_or_else(|| format!("无法为模型 '{model}' 匹配 provider"))?;
+    let env_key = format!("{}_API_KEY", spec.name.to_uppercase());
+    let api_key = std::env::var(&env_key).map_err(|_| {
+        format!(
+            "缺少环境变量 {env_key}（provider '{}' 需要 API key）",
+            spec.name
+        )
+    })?;
+
+    Ok(Box::new(OpenAiCompatProvider::new(
+        spec.default_api_base,
+        Some(api_key),
+        model,
+        UreqTransport::new(),
+    )))
 }

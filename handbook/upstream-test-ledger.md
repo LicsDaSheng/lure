@@ -143,8 +143,11 @@ Phase 0 已完成，确定 phase 1-4 关键上游测试的 Rust 测试落点（�
 | `tests/providers/` (selection order) | 4 | `crates/lure-core/tests/provider_registry.rs` | partial | forced/前缀/关键字选择顺序已覆盖；config 驱动 api_key/OAuth/local fallback 暂缓 |
 | `tests/agent/test_model_runtime_resolver.py` | 4 | 待定 | deferred | stateful resolver 生命周期（refresh/admit/invalidate/preset tracking + 不可变 LLMRuntime/ProviderSnapshot），本阶段只覆盖 config 层解析顺序 |
 
-> 注：Phase 4 provider 通过 `HttpTransport` 抽象，单测用假传输不触网；真实 HTTP 传输与
-> 真实 provider smoke（opt-in）待接入真实客户端时补齐。
+> 注：Phase 4 provider 通过 `HttpTransport` 抽象，单测用假传输不触网。真实同步 HTTP 传输
+> 已由 `UreqTransport`（ureq）落地；真实 provider smoke 为 opt-in（`provider_deepseek_smoke.rs`，
+> 仅设置 `DEEPSEEK_API_KEY` 时出网），CLI `--model <model>` 经 registry 匹配 provider 并从
+> `<PROVIDER>_API_KEY` 读取 key。stateful ModelRuntimeResolver 与 config 驱动的完整
+> `_match_provider`（api_key/OAuth/local fallback）仍待后续。
 
 ## Phase 3 明细映射
 
