@@ -37,6 +37,8 @@ pub enum ProgressEvent {
 pub struct TurnOutcome {
     /// 最终回复文本。
     pub final_content: String,
+    /// 推理内容（思维链）；推理模型提供时非空。
+    pub reasoning: Option<String>,
     /// 结构化 progress 序列。
     pub progress: Vec<ProgressEvent>,
 }
@@ -144,9 +146,13 @@ impl AgentLoop {
 
         // 4) 追加 assistant turn 并保存；reasoning_content 一并持久化（供 WebUI 展示，
         //    但不会经 context 投影回放给 provider）。
+        let reasoning = reasoning.filter(|r| !r.is_empty());
         let mut extra = Map::new();
-        if let Some(reasoning) = reasoning.filter(|r| !r.is_empty()) {
-            extra.insert("reasoning_content".to_string(), Value::String(reasoning));
+        if let Some(reasoning) = &reasoning {
+            extra.insert(
+                "reasoning_content".to_string(),
+                Value::String(reasoning.clone()),
+            );
         }
         self.sessions
             .get_or_create(&key)?
@@ -158,6 +164,7 @@ impl AgentLoop {
         });
         Ok(TurnOutcome {
             final_content: content,
+            reasoning,
             progress,
         })
     }

@@ -76,11 +76,15 @@ fn loop_with(provider: Box<dyn LlmProvider>) -> (TempDir, AgentLoop) {
 }
 
 #[test]
-fn reasoning_content_is_persisted_on_assistant_turn() {
+fn reasoning_content_is_persisted_and_exposed_in_outcome() {
     let (dir, mut agent_loop) = loop_with(Box::new(ReasoningProvider));
-    agent_loop
+    let outcome = agent_loop
         .process(&InboundMessage::new("cli", "direct", "问题"))
         .unwrap();
+
+    // TurnOutcome 暴露 reasoning，供 CLI --show-reasoning 打印。
+    assert_eq!(outcome.final_content, "答案");
+    assert_eq!(outcome.reasoning.as_deref(), Some("思考过程"));
 
     // 冷启动读回，assistant turn 带 reasoning_content。
     let mut reloaded = SessionManager::new(dir.path()).unwrap();

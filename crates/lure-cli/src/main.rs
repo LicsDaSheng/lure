@@ -22,7 +22,11 @@ fn main() -> ExitCode {
     match args.first().map(String::as_str) {
         Some("agent") => match run_agent(&args[1..]) {
             Ok(reply) => {
-                println!("{reply}");
+                // 思维链走 stderr（保持 stdout 为纯答案、可脚本化），答案走 stdout。
+                if let Some(reasoning) = reply.reasoning {
+                    eprintln!("💭 思维链:\n{reasoning}\n");
+                }
+                println!("{}", reply.final_content);
                 ExitCode::SUCCESS
             }
             Err(message) => {
@@ -38,11 +42,18 @@ fn main() -> ExitCode {
     }
 }
 
-/// 解析并执行 `agent -m <message> [--workspace <path>] [--model <model>]`。
-fn run_agent(args: &[String]) -> Result<String, String> {
+/// CLI 的一次回复：最终答案 + 可选思维链（仅 `--show-reasoning` 时携带）。
+struct AgentReply {
+    final_content: String,
+    reasoning: Option<String>,
+}
+
+/// 解析并执行 `agent -m <message> [--workspace <path>] [--model <model>] [--show-reasoning]`。
+fn run_agent(args: &[String]) -> Result<AgentReply, String> {
     let mut message: Option<String> = None;
     let mut workspace: Option<String> = None;
     let mut model: Option<String> = None;
+    let mut show_reasoning = false;
 
     let mut index = 0;
     while index < args.len() {
@@ -59,6 +70,7 @@ fn run_agent(args: &[String]) -> Result<String, String> {
                 index += 1;
                 model = Some(args.get(index).ok_or("--model 缺少模型名")?.clone());
             }
+            "--show-reasoning" => show_reasoning = true,
             other => return Err(format!("未知参数: {other}")),
         }
         index += 1;
@@ -75,7 +87,14 @@ fn run_agent(args: &[String]) -> Result<String, String> {
 
     let input = InboundMessage::new("cli", "direct", message);
     let outcome = agent_loop.process(&input).map_err(|e| e.to_string())?;
-    Ok(outcome.final_content)
+    Ok(AgentReply {
+        final_content: outcome.final_content,
+        reasoning: if show_reasoning {
+            outcome.reasoning
+        } else {
+            None
+        },
+    })
 }
 
 /// 构建 provider：无 `--model` 走离线 EchoProvider；指定 `--model` 时经 registry 匹配

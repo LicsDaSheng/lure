@@ -50,3 +50,26 @@ fn agent_without_message_fails() {
     let output = lure().args(["agent"]).output().unwrap();
     assert!(!output.status.success());
 }
+
+#[test]
+fn show_reasoning_flag_is_accepted_and_stdout_stays_answer() {
+    let dir = tempdir().unwrap();
+    let output = lure()
+        .args([
+            "agent",
+            "-m",
+            "hello",
+            "--show-reasoning",
+            "--workspace",
+            dir.path().to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    // EchoProvider 无 reasoning：stdout 仍是纯答案，可脚本化。
+    assert_eq!(
+        String::from_utf8(output.stdout).unwrap().trim(),
+        "echo: hello"
+    );
+}
