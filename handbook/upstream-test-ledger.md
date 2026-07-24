@@ -126,6 +126,7 @@ Phase 0 已完成，确定 phase 1-4 关键上游测试的 Rust 测试落点（�
 |---|---:|---|---|---|
 | `tests/security/test_workspace_policy.py` | 5 | `crates/lure-core/tests/security_workspace.rs` | partial | 相对/穿越/前缀兄弟/符号链接逃逸/额外 root/精确文件已覆盖；extra-file 符号链接逃逸精确拦截待补 |
 | `tests/tools/test_exec_allow_patterns.py` | 5 | `crates/lure-core/tests/tool_shell_policy.rs` | covered | allow/deny/allowlist/分段/fd 重定向均覆盖 |
+| `tests/tools/` (config 驱动注册) | 5 | `crates/lure-core/tests/tool_setup.rs` | partial | `registry_from_config`（默认注册文件工具、exec 按 `tools.exec` 开关+正则门禁、非法正则报错）已覆盖；CLI 已接入 `build_agent_loop` |
 | `tests/tools/test_tool_registry.py` | 5 | `crates/lure-core/tests/tool_registry.rs` | partial | 定义顺序/派发/近似建议/参数校验已覆盖；MCP 排序、prepare_call 全貌待补 |
 | `tests/tools/test_filesystem_tools.py` | 5 | `crates/lure-core/tests/tool_file.rs` | partial | read/write + workspace 越界拒绝已覆盖；edit/search/高级读增强待补 |
 | `tests/tools/test_tool_validation.py` | 5 | `crates/lure-core/tests/tool_registry.rs` | partial | type/required/enum/数值/长度校验已覆盖；组合校验待补 |

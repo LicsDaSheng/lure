@@ -238,6 +238,41 @@ fn preset_uses_config_api_key_and_api_base_override() {
 }
 
 #[test]
+fn exec_tool_invalid_pattern_surfaces_error_before_provider() {
+    // config 启用 exec 但 allow 含非法正则：工具注册应在 provider 出网前就失败。
+    let dir = tempdir().unwrap();
+    let config_path = dir.path().join("config.json");
+    std::fs::write(
+        &config_path,
+        r#"{"tools":{"exec":{"enabled":true,"allow":["["]}},"modelPresets":{"fast":{"model":"deepseek-chat","provider":"auto"}}}"#,
+    )
+    .unwrap();
+
+    let output = lure()
+        .args([
+            "agent",
+            "-m",
+            "hello",
+            "--config",
+            config_path.to_str().unwrap(),
+            "--preset",
+            "fast",
+            "--workspace",
+            dir.path().to_str().unwrap(),
+        ])
+        .env_remove("DEEPSEEK_API_KEY")
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert!(
+        stderr.contains("exec"),
+        "stderr 应提示 exec 策略正则无效，实际: {stderr}"
+    );
+}
+
+#[test]
 fn preset_and_model_flags_are_mutually_exclusive() {
     let dir = tempdir().unwrap();
     let output = lure()

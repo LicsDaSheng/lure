@@ -66,6 +66,8 @@ pub struct Config {
     pub model_presets: BTreeMap<String, ModelPresetConfig>,
     /// 按 provider 名的可选配置覆盖（api key / api base / 启用开关）。
     pub providers: BTreeMap<String, ProviderConfig>,
+    /// 工具运行时配置（文件工具默认启用；exec 按开关 + allow/deny 门禁）。
+    pub tools: ToolsConfig,
 }
 
 /// config 驱动匹配出的 provider：registry 名 + 生效 api_base（含 config 覆盖）。
@@ -210,6 +212,28 @@ impl Default for ProviderConfig {
 
 fn default_provider_enabled() -> bool {
     true
+}
+
+/// 工具运行时配置。
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct ToolsConfig {
+    /// shell exec 工具配置（默认关闭）。
+    pub exec: ExecToolConfig,
+}
+
+/// shell exec 工具配置：开关 + allow/deny 正则模式。
+///
+/// 对齐 [`crate::tool::ExecPolicy`] 的 allow/deny 语义；`deny` 追加到内建 deny 之后。
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct ExecToolConfig {
+    /// 是否注册 exec 工具（默认 `false`，shell 执行默认不开放）。
+    pub enabled: bool,
+    /// allow 正则模式：每个顶层命令段都匹配某个 allow 才放行。
+    pub allow: Vec<String>,
+    /// 追加的 deny 正则模式（追加到内建 deny 之后）。
+    pub deny: Vec<String>,
 }
 
 /// agents 配置分组。

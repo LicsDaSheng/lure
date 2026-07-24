@@ -8,10 +8,12 @@ mod file;
 mod registry;
 mod result;
 mod schema;
+mod setup;
 mod shell;
 
 pub use file::{ReadFileTool, WriteFileTool};
 pub use registry::{Tool, ToolError, ToolRegistry};
 pub use result::{truncate_result, ToolResult};
 pub use schema::validate_value;
+pub use setup::{registry_from_config, ToolSetupError};
 pub use shell::{ExecPolicy, ExecTool};

@@ -99,7 +99,15 @@ cargo run --bin lure -- agent -m "你好" --config ~/.nanobot/config.json --pres
 cargo run --bin lure
 ```
 
-`--workspace` 缺省时使用 `~/.nanobot/workspace`，`--config` 缺省时使用 `~/.nanobot/config.json`（对齐上游默认路径）。会话以 JSONL 持久化在 `<workspace>/sessions/` 下，文件名为 session key 的 base64url 编码。指定 `--model`/`--preset` 时，provider 身份、api_base、model 与生成参数均由 resolver 解析出的不可变 runtime 决定。
+`--workspace` 缺省时使用 `~/.nanobot/workspace`，`--config` 缺省时使用 `~/.nanobot/config.json`（对齐上游默认路径）。会话以 JSONL 持久化在 `<workspace>/sessions/` 下，文件名为 session key 的 base64url 编码。指定 `--model`/`--preset` 时，provider 身份、api_base、model 与生成参数均由 resolver 解析出的不可变 runtime 决定，并挂载工具运行时（tool-call 循环）：workspace 绑定的 `read_file`/`write_file` 默认可用；`exec` shell 工具需在 config 中显式开启并配置 allow 模式：
+
+```jsonc
+{
+  "tools": {
+    "exec": { "enabled": true, "allow": ["^ls\\b", "^cat\\b"], "deny": [] }
+  }
+}
+```
 
 ## 贡献约定
 

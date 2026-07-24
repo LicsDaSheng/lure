@@ -430,6 +430,27 @@
 - 下一步：
   - CLI `build_agent_loop` 注册 workspace 绑定的 file/shell 工具（exec 策略来源待定），或进入 Phase 6。
 
+### 进度记录 2026-07-24（CLI 工具注册）
+
+- 状态：partial
+- 本次完成：
+  - schema 新增 `ToolsConfig`/`ExecToolConfig`（`tools.exec.enabled`/`allow`/`deny`，camelCase + 默认，exec 默认关闭）
+    与 `Config.tools`；导出 `ToolsConfig`/`ExecToolConfig`。
+  - `tool::registry_from_config(config, workspace)`（+ `ToolSetupError`）：默认注册 workspace 绑定的
+    `read_file`/`write_file`；`tools.exec.enabled` 时按 `allow`/`deny` 正则构造 `ExecPolicy` 注册 `exec`，
+    正则非法即结构化报错。CLI/WebUI 共用同一注册策略。
+  - CLI `build_agent_loop`：真实 provider 分支先 `registry_from_config`（config 错误 fail-fast，先于出网/读 key），
+    再 `.with_tools(tools)`。离线 EchoProvider 分支不挂工具（echo 不触发 tool_calls）。
+- 验证：
+  - `rtk cargo fmt --check` 通过；`clippy --all-targets --all-features -D warnings` 无问题。
+  - 新增 `tool_setup.rs`（4：默认文件工具/exec 开关/非法正则报错/serde 默认）；CLI 新增非法 exec 正则用例；
+    全量测试通过（38 套件）。
+- 上游对照：
+  - 已覆盖：config 驱动的工具注册 + CLI 接线，tool-call 循环现可在真实 CLI 运行（文件工具默认可用，exec opt-in）。
+  - 暂未覆盖：exec env/session 隔离、file edit/search、并行 tool、streaming、tool 上下文变量注入完整链路。
+- 下一步：
+  - 进入 Phase 6（memory/dream 缺口盘点），或补文件工具 edit/search 与 exec 平台细节。
+
 ## Phase 6: Memory、Dream 与长期上下文
 
 ### Plan

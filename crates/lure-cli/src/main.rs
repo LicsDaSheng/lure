@@ -9,7 +9,7 @@
 //! `--model deepseek-v4-pro` → deepseek + `DEEPSEEK_API_KEY`）。
 
 use std::io::{self, BufRead, Write};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use lure_core::agent::{AgentLoop, ContextBuilder};
@@ -20,6 +20,7 @@ use lure_core::provider::{
     UreqTransport,
 };
 use lure_core::session::SessionManager;
+use lure_core::tool::registry_from_config;
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -116,6 +117,7 @@ fn run_agent(args: &[String]) -> Result<AgentRun, String> {
         config_path.as_deref(),
         preset.as_deref(),
         model.as_deref(),
+        &workspace,
         sessions,
     )?;
     let (channel, chat_id) = split_session_id(&session_id);
@@ -217,6 +219,7 @@ fn build_agent_loop(
     config_path: Option<&str>,
     preset: Option<&str>,
     model: Option<&str>,
+    workspace: &Path,
     sessions: SessionManager,
 ) -> Result<AgentLoop, String> {
     let context = ContextBuilder::new(None);
@@ -231,8 +234,13 @@ fn build_agent_loop(
 
     let config = load_cli_config(config_path)?;
     let runtime = resolve_runtime(config.clone(), preset, model)?;
+    // 工具运行时先于 provider 构建：config 里的 exec 策略正则等错误 fail-fast，
+    // 不必等到读取 API key / 出网。
+    let tools = registry_from_config(&config, workspace).map_err(|e| e.to_string())?;
     let provider = build_provider_from_runtime(&config, &runtime)?;
-    Ok(AgentLoop::new(provider, sessions, context).with_runtime(&runtime))
+    Ok(AgentLoop::new(provider, sessions, context)
+        .with_runtime(&runtime)
+        .with_tools(tools))
 }
 
 /// 加载 config 文件（缺省用 `default_config_path`）；文件不存在时回落到默认配置。
