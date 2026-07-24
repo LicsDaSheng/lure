@@ -14,7 +14,7 @@ use serde_json::{Map, Value};
 use crate::agent::context::ContextBuilder;
 use crate::agent::runner::AgentRunner;
 use crate::bus::InboundMessage;
-use crate::provider::{GenerationSettings, LlmProvider, ProviderError};
+use crate::provider::{GenerationSettings, LlmProvider, LlmRuntime, ProviderError};
 use crate::session::{SessionError, SessionManager};
 
 /// 结构化 progress 事件。
@@ -106,6 +106,16 @@ impl AgentLoop {
             settings: GenerationSettings::default(),
             model,
         }
+    }
+
+    /// 用 `ModelRuntimeResolver` 产出的 [`LlmRuntime`] 覆盖 model 与生成参数。
+    ///
+    /// 让 provider 选择路径由 resolver 驱动：model 取快照中的 `provider.model`，
+    /// 生成参数取 runtime 捕获的 `settings`（provider 实例仍由调用方按快照构造）。
+    pub fn with_runtime(mut self, runtime: &LlmRuntime) -> Self {
+        self.model = runtime.provider.model.clone();
+        self.settings = runtime.settings.clone();
+        self
     }
 
     /// 只读访问 session 管理器（测试与诊断用）。

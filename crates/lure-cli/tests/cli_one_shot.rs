@@ -80,6 +80,56 @@ fn show_reasoning_flag_is_accepted_and_stdout_stays_answer() {
 }
 
 #[test]
+fn model_flag_routes_through_resolver_and_reports_missing_key() {
+    // `--model deepseek-chat` 经 resolver 匹配到 deepseek，缺 key 时报出对应 env 变量。
+    let dir = tempdir().unwrap();
+    let output = lure()
+        .args([
+            "agent",
+            "-m",
+            "hello",
+            "--model",
+            "deepseek-chat",
+            "--workspace",
+            dir.path().to_str().unwrap(),
+        ])
+        .env_remove("DEEPSEEK_API_KEY")
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert!(
+        stderr.contains("DEEPSEEK_API_KEY"),
+        "stderr 应提示缺少 DEEPSEEK_API_KEY，实际: {stderr}"
+    );
+}
+
+#[test]
+fn model_flag_unmatchable_provider_fails_via_resolver() {
+    let dir = tempdir().unwrap();
+    let output = lure()
+        .args([
+            "agent",
+            "-m",
+            "hello",
+            "--model",
+            "mystery-xyz",
+            "--workspace",
+            dir.path().to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert!(
+        stderr.contains("mystery-xyz"),
+        "stderr 应提示无法为该模型匹配 provider，实际: {stderr}"
+    );
+}
+
+#[test]
 fn interactive_mode_processes_multiple_turns_until_exit() {
     let dir = tempdir().unwrap();
     let mut child = lure()

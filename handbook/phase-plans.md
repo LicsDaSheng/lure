@@ -293,10 +293,30 @@
 - 上游对照：
   - 已覆盖：`test_model_runtime_resolver.py` 记录的 admit/refresh/invalidate + preset tracking +
     不可变 `LlmRuntime`/`ProviderSnapshot` 捕获语义（上游源码未 vendored，按 ledger 建立事实来源）。
-  - 暂未覆盖：真实 runtime 探活/降级、config 驱动 `_match_provider`（api_key/OAuth/local fallback）、
-    resolver 与 AgentLoop 的接线（当前 CLI 仍走 `build_provider` 直接构造）。
+  - 暂未覆盖：真实 runtime 探活/降级、config 驱动 `_match_provider`（api_key/OAuth/local fallback）。
 - 下一步：
-  - 将 resolver 接入 AgentLoop/CLI 的 provider 选择路径，或补 config 驱动的 `ProvidersConfig` 匹配。
+  - 将 resolver 接入 AgentLoop/CLI 的 provider 选择路径（已在下一条记录完成），或补 config 驱动的 `ProvidersConfig` 匹配。
+
+### 进度记录 2026-07-24（resolver 接入 AgentLoop/CLI provider 选择路径）
+
+- 状态：partial
+- 本次完成：
+  - `AgentLoop::with_runtime(&LlmRuntime)`：builder 式覆盖 loop 的 `model` 与生成参数
+    （model 取 `provider.model`，settings 取 runtime 捕获的 `settings`），非破坏性、附加。
+  - CLI provider 选择统一经 resolver：
+    - `build_agent_loop`：无 `--model` → 离线 EchoProvider；有 `--model` → `resolve_runtime` → 真实 provider。
+    - `resolve_runtime`：用 `--model` 覆盖默认 preset 的 model，`ModelRuntimeResolver::admit(None)` 解析出 runtime。
+    - `build_provider_from_runtime`：由 runtime 的 `ProviderSnapshot` 读 `<PROVIDER>_API_KEY` 构造 `OpenAiCompatProvider`。
+    - 删除旧 `build_provider`（直接 `match_provider`）；provider 身份/api_base/model/settings 均由 runtime 决定。
+- 验证：
+  - `rtk cargo fmt --check` 通过；`clippy --all-targets --all-features -D warnings` 无问题。
+  - lure-core `agent_loop`（新增 `with_runtime` 驱动 model/settings 用例，capturing provider 断言）7 passed；
+    CLI `cli_one_shot`（新增 resolver 选择/缺 key/不可匹配 provider 用例）9 passed；全量测试通过。
+- 上游对照：
+  - 已覆盖：CLI/loop 的 provider 选择由 resolver 驱动，settings 从 config 默认 preset（temp 0.1 / max 8192）取值。
+  - 暂未覆盖：`--preset <name>` 命名 preset 入口、config 文件加载后的 preset 集合、真实 runtime 探活/降级。
+- 下一步：
+  - 补 config 文件加载 + `--preset` 命名入口，或推进 config 驱动的 `ProvidersConfig`（api_key/OAuth/local fallback）。
 
 ## Phase 5: Tool Runtime 与安全边界
 

@@ -147,8 +147,9 @@ Phase 0 已完成，确定 phase 1-4 关键上游测试的 Rust 测试落点（�
 > 已由 `UreqTransport`（ureq）落地；真实 provider smoke 为 opt-in（`provider_deepseek_smoke.rs`，
 > 仅设置 `DEEPSEEK_API_KEY` 时出网），CLI `--model <model>` 经 registry 匹配 provider 并从
 > `<PROVIDER>_API_KEY` 读取 key。stateful `ModelRuntimeResolver` 已落地
-> （preset → 不可变 runtime/snapshot + admit/refresh/invalidate 缓存）；config 驱动的完整
-> `_match_provider`（api_key/OAuth/local fallback）仍待后续。
+> （preset → 不可变 runtime/snapshot + admit/refresh/invalidate 缓存），并已接入 CLI/AgentLoop
+> 的 provider 选择路径（`AgentLoop::with_runtime` 注入 model/settings）；config 驱动的完整
+> `_match_provider`（api_key/OAuth/local fallback）与 `--preset` 命名入口仍待后续。
 
 ## Phase 3 明细映射
 

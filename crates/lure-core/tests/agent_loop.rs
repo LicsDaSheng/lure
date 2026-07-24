@@ -6,10 +6,15 @@
 //! 暂未映射：streaming、tool 执行循环、goal/subagent、consolidation —— 属后续 phase。
 
 use std::cell::RefCell;
+use std::rc::Rc;
 
 use lure_core::agent::{AgentError, AgentLoop, ContextBuilder, ProgressEvent};
 use lure_core::bus::InboundMessage;
-use lure_core::provider::{CompletionRequest, LlmProvider, LlmResponse, ProviderError};
+use lure_core::config::Config;
+use lure_core::provider::{
+    CompletionRequest, GenerationSettings, LlmProvider, LlmResponse, ModelRuntimeResolver,
+    ProviderError,
+};
 use lure_core::session::SessionManager;
 use tempfile::TempDir;
 
@@ -66,6 +71,56 @@ impl LlmProvider for ReasoningProvider {
             usage: Default::default(),
         })
     }
+}
+
+/// 记录最近一次 `CompletionRequest`（用于断言 model/settings 来自 runtime）。
+struct CapturingProvider {
+    last: Rc<RefCell<Option<CompletionRequest>>>,
+}
+
+impl LlmProvider for CapturingProvider {
+    fn default_model(&self) -> &str {
+        "capturing-default"
+    }
+
+    fn complete(&self, request: &CompletionRequest) -> Result<LlmResponse, ProviderError> {
+        *self.last.borrow_mut() = Some(request.clone());
+        Ok(LlmResponse::text("ok"))
+    }
+}
+
+#[test]
+fn with_runtime_drives_model_and_settings_for_provider_call() {
+    // resolver 从 config 解析出的 runtime 应决定 provider 调用的 model 与生成参数。
+    let mut config = Config::default();
+    config.agents.defaults.model = "deepseek-chat".to_string();
+    config.agents.defaults.max_tokens = 1234;
+    config.agents.defaults.temperature = 0.42;
+    let runtime = ModelRuntimeResolver::new(config).admit(None).unwrap();
+
+    let captured = Rc::new(RefCell::new(None));
+    let provider = CapturingProvider {
+        last: Rc::clone(&captured),
+    };
+
+    let dir = tempfile::tempdir().unwrap();
+    let sessions = SessionManager::new(dir.path()).unwrap();
+    let mut agent_loop = AgentLoop::new(Box::new(provider), sessions, ContextBuilder::new(None))
+        .with_runtime(&runtime);
+
+    let input = InboundMessage::new("cli", "direct", "hi".to_string());
+    agent_loop.process(&input).unwrap();
+
+    let request = captured.borrow().clone().expect("provider 应被调用一次");
+    assert_eq!(request.model, "deepseek-chat");
+    assert_eq!(
+        request.settings,
+        GenerationSettings {
+            temperature: 0.42,
+            max_tokens: 1234,
+            reasoning_effort: None,
+        }
+    );
 }
 
 fn loop_with(provider: Box<dyn LlmProvider>) -> (TempDir, AgentLoop) {

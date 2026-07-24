@@ -1,10 +1,11 @@
 //! `lure-cli`：Rust 版 `nanobot` 复刻的命令行入口。
 //!
 //! `lure agent -m "..."` 跑完 agent loop 并保存 turn；`lure agent` 进入交互模式。
-//! 默认走 EchoProvider（离线占位）；
-//! 指定 `--model <model>` 时经 registry 匹配 provider、从 `<PROVIDER>_API_KEY` 读取
-//! key，用真实 OpenAI-compatible provider 出网（例如
-//! `--model deepseek-v4-pro` → deepseek + `DEEPSEEK_API_KEY`）。
+//! 默认走 EchoProvider（离线占位）；provider 选择统一经 `ModelRuntimeResolver`：
+//! 指定 `--model <model>` 时由 resolver 解析出不可变 runtime（provider 身份 + 生成
+//! 参数），据此从 `<PROVIDER>_API_KEY` 读取 key 构造真实 OpenAI-compatible provider，
+//! 并把 runtime 的 model/settings 注入 loop（例如 `--model deepseek-v4-pro`
+//! → deepseek + `DEEPSEEK_API_KEY`）。
 
 use std::io::{self, BufRead, Write};
 use std::path::PathBuf;
@@ -12,9 +13,10 @@ use std::process::ExitCode;
 
 use lure_core::agent::{AgentLoop, ContextBuilder};
 use lure_core::bus::InboundMessage;
-use lure_core::config::default_workspace;
+use lure_core::config::{default_workspace, Config};
 use lure_core::provider::{
-    match_provider, EchoProvider, LlmProvider, OpenAiCompatProvider, UreqTransport,
+    EchoProvider, LlmProvider, LlmRuntime, ModelRuntimeResolver, OpenAiCompatProvider,
+    UreqTransport,
 };
 use lure_core::session::SessionManager;
 
@@ -94,9 +96,8 @@ fn run_agent(args: &[String]) -> Result<AgentRun, String> {
         .map(PathBuf::from)
         .unwrap_or_else(default_workspace);
 
-    let provider = build_provider(model.as_deref())?;
     let sessions = SessionManager::new(&workspace).map_err(|e| e.to_string())?;
-    let mut agent_loop = AgentLoop::new(provider, sessions, ContextBuilder::new(None));
+    let mut agent_loop = build_agent_loop(model.as_deref(), sessions)?;
     let (channel, chat_id) = split_session_id(&session_id);
 
     match message {
@@ -187,27 +188,50 @@ fn is_exit_command(command: &str) -> bool {
     )
 }
 
-/// 构建 provider：无 `--model` 走离线 EchoProvider；指定 `--model` 时经 registry 匹配
-/// provider，从 `<PROVIDER>_API_KEY` 读取 key，返回真实 OpenAI-compatible provider。
-fn build_provider(model: Option<&str>) -> Result<Box<dyn LlmProvider>, String> {
+/// 构建 agent loop：provider 选择路径统一经 `ModelRuntimeResolver`。
+///
+/// 无 `--model` 走离线 EchoProvider（占位）；指定 `--model` 时由 resolver 解析出
+/// 不可变 runtime（provider 身份/api_base/model + 生成参数），据此构造真实
+/// OpenAI-compatible provider 并把 runtime 的 model/settings 注入 loop。
+fn build_agent_loop(model: Option<&str>, sessions: SessionManager) -> Result<AgentLoop, String> {
+    let context = ContextBuilder::new(None);
+
     let Some(model) = model else {
-        return Ok(Box::new(EchoProvider::new()));
+        return Ok(AgentLoop::new(
+            Box::new(EchoProvider::new()),
+            sessions,
+            context,
+        ));
     };
 
-    let spec = match_provider(model, "auto")
-        .ok_or_else(|| format!("无法为模型 '{model}' 匹配 provider"))?;
-    let env_key = format!("{}_API_KEY", spec.name.to_uppercase());
+    let runtime = resolve_runtime(model)?;
+    let provider = build_provider_from_runtime(&runtime)?;
+    Ok(AgentLoop::new(provider, sessions, context).with_runtime(&runtime))
+}
+
+/// 用 `--model` 覆盖默认 preset 的 model，经 resolver 解析出不可变 runtime。
+fn resolve_runtime(model: &str) -> Result<LlmRuntime, String> {
+    let mut config = Config::default();
+    config.agents.defaults.model = model.to_string();
+    config.agents.defaults.provider = "auto".to_string();
+
+    ModelRuntimeResolver::new(config)
+        .admit(None)
+        .map_err(|e| e.to_string())
+}
+
+/// 由 runtime 的 provider 快照构造真实 provider：从 `<PROVIDER>_API_KEY` 读取 key。
+fn build_provider_from_runtime(runtime: &LlmRuntime) -> Result<Box<dyn LlmProvider>, String> {
+    let provider_name = &runtime.provider.provider_name;
+    let env_key = format!("{}_API_KEY", provider_name.to_uppercase());
     let api_key = std::env::var(&env_key).map_err(|_| {
-        format!(
-            "缺少环境变量 {env_key}（provider '{}' 需要 API key）",
-            spec.name
-        )
+        format!("缺少环境变量 {env_key}（provider '{provider_name}' 需要 API key）")
     })?;
 
     Ok(Box::new(OpenAiCompatProvider::new(
-        spec.default_api_base,
+        &runtime.provider.api_base,
         Some(api_key),
-        model,
+        &runtime.provider.model,
         UreqTransport::new(),
     )))
 }
