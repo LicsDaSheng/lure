@@ -9,6 +9,8 @@
 pub enum ProgressKind {
     /// 本轮开始处理。
     Started,
+    /// 流式内容增量。
+    ContentDelta,
     /// 调用了某个工具。
     ToolInvoked,
     /// 产生最终回复。

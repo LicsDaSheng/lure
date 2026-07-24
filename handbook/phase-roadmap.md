@@ -74,8 +74,8 @@
 ## Phase 4: Provider 与模型运行时
 
 - 状态：`partial`
-- 已落地：preset 解析顺序、OpenAI-compatible 请求/响应/错误分类、provider registry 选择顺序、`UreqTransport` 真实同步传输、stateful `ModelRuntimeResolver`（admit/refresh/invalidate + 不可变快照）接入 AgentLoop/CLI、config 驱动 `ProvidersConfig`（api_base 覆盖 / enabled 过滤 / api_key 解析）、CLI `--config`/`--preset`/`--model`。
-- 待补：真实 provider smoke（opt-in）、OAuth/local fallback、`max_completion_tokens`/streaming/重试。
+- 已落地：preset 解析顺序、OpenAI-compatible 请求/响应/错误分类、SSE 流式消费（增量回调 + 内容/tool_calls 组装）、provider registry 选择顺序、`UreqTransport` 真实同步/增量传输、stateful `ModelRuntimeResolver`（admit/refresh/invalidate + 不可变快照）接入 AgentLoop/CLI、config 驱动 `ProvidersConfig`（api_base 覆盖 / enabled 过滤 / api_key 解析）、CLI `--config`/`--preset`/`--model`。
+- 待补：真实 provider smoke（opt-in）、OAuth/local fallback、`max_completion_tokens`/流式 usage/重试。
 - 目标：建立 provider registry、model preset、运行时解析和 OpenAI-compatible 的最小真实调用边界。
 - 上游参考：
   - `nanobot/providers/`

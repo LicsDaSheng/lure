@@ -4,6 +4,7 @@
 //! 响应仍作为 `Ok(HttpResponse)` 返回（由上层按状态码分类），仅连接/超时等传输层失败
 //! 才返回 `Err`。
 
+use std::io::{BufRead, BufReader, Read};
 use std::time::Duration;
 
 use crate::provider::http::{HttpRequest, HttpResponse, HttpTransport};
@@ -57,5 +58,34 @@ impl HttpTransport for UreqTransport {
             // 连接/超时等传输层失败。
             Err(ureq::Error::Transport(transport)) => Err(transport.to_string()),
         }
+    }
+
+    fn post_json_streaming(
+        &self,
+        request: &HttpRequest,
+        on_line: &mut dyn FnMut(&str),
+    ) -> Result<u16, String> {
+        let body = serde_json::to_string(&request.body).map_err(|e| e.to_string())?;
+
+        let mut http_request = self.agent.post(&request.url);
+        for (name, value) in &request.headers {
+            http_request = http_request.set(name, value);
+        }
+
+        // 真正的增量：拿到响应体的 reader 后逐行读取、边收边发。
+        let (status, reader): (u16, Box<dyn Read + Send + Sync>) =
+            match http_request.send_string(&body) {
+                Ok(response) => (response.status(), Box::new(response.into_reader())),
+                Err(ureq::Error::Status(code, response)) => {
+                    (code, Box::new(response.into_reader()))
+                }
+                Err(ureq::Error::Transport(transport)) => return Err(transport.to_string()),
+            };
+
+        for line in BufReader::new(reader).lines() {
+            let line = line.map_err(|e| e.to_string())?;
+            on_line(&line);
+        }
+        Ok(status)
     }
 }

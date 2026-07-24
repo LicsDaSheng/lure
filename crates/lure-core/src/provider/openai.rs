@@ -5,15 +5,19 @@
 //! - 响应：`choices[0].message.content` + `.tool_calls` + `choices[0].finish_reason` + `usage`。
 //! - 错误按 HTTP 状态分类为结构化 [`ProviderError`]。
 //!
-//! Phase 4 不做：`max_completion_tokens`/模型专属覆盖、streaming、
-//! prompt caching、重试策略（见 upstream-test-ledger）。tool_calls 已解析，供
-//! Phase 5 的 agent tool-call 循环消费。
+//! `complete_streaming` 走 SSE：请求带 `stream: true`，逐行解析 `data:` 增量并回调，
+//! 组装出完整响应（内容/推理拼接、tool_calls 按 index 累积）。
+//!
+//! Phase 4 不做：`max_completion_tokens`/模型专属覆盖、prompt caching、重试策略
+//! （见 upstream-test-ledger）。tool_calls 已解析，供 agent tool-call 循环消费。
 
 use serde_json::{json, Map, Value};
 
 use crate::provider::http::{HttpRequest, HttpResponse, HttpTransport};
+use crate::provider::stream::{parse_sse_line, StreamAssembler};
 use crate::provider::types::{
-    CompletionRequest, GenerationSettings, LlmProvider, LlmResponse, ProviderError, ToolCall,
+    CompletionRequest, GenerationSettings, LlmProvider, LlmResponse, ProviderError, StreamChunk,
+    ToolCall,
 };
 
 /// 基于 [`HttpTransport`] 的 OpenAI-compatible provider。
@@ -39,6 +43,20 @@ impl<T: HttpTransport> OpenAiCompatProvider<T> {
             transport,
         }
     }
+
+    /// 构建 `/chat/completions` 请求（`stream` 控制是否要求 SSE）。
+    fn http_request(&self, request: &CompletionRequest, stream: bool) -> HttpRequest {
+        let mut body = build_chat_request(&request.model, &request.messages, &request.settings);
+        if stream {
+            body["stream"] = Value::Bool(true);
+        }
+        let url = format!("{}/chat/completions", self.base_url.trim_end_matches('/'));
+        let mut headers = vec![("content-type".to_string(), "application/json".to_string())];
+        if let Some(key) = &self.api_key {
+            headers.push(("authorization".to_string(), format!("Bearer {key}")));
+        }
+        HttpRequest { url, headers, body }
+    }
 }
 
 impl<T: HttpTransport> LlmProvider for OpenAiCompatProvider<T> {
@@ -47,21 +65,64 @@ impl<T: HttpTransport> LlmProvider for OpenAiCompatProvider<T> {
     }
 
     fn complete(&self, request: &CompletionRequest) -> Result<LlmResponse, ProviderError> {
-        let body = build_chat_request(&request.model, &request.messages, &request.settings);
-        let url = format!("{}/chat/completions", self.base_url.trim_end_matches('/'));
-
-        let mut headers = vec![("content-type".to_string(), "application/json".to_string())];
-        if let Some(key) = &self.api_key {
-            headers.push(("authorization".to_string(), format!("Bearer {key}")));
-        }
-
-        let http_request = HttpRequest { url, headers, body };
+        let http_request = self.http_request(request, false);
         let response = self
             .transport
             .post_json(&http_request)
             .map_err(ProviderError::Transport)?;
 
         parse_chat_response(&response)
+    }
+
+    fn complete_streaming(
+        &self,
+        request: &CompletionRequest,
+        on_delta: &mut dyn FnMut(&StreamChunk),
+    ) -> Result<LlmResponse, ProviderError> {
+        let http_request = self.http_request(request, true);
+
+        let mut assembler = StreamAssembler::new();
+        let mut raw = String::new();
+        // 单行解析失败按容错忽略（SSE 常含 keep-alive/注释）；累积原始文本供错误分类。
+        let status = self
+            .transport
+            .post_json_streaming(&http_request, &mut |line| {
+                raw.push_str(line);
+                raw.push('\n');
+                if let Ok(Some(chunk)) = parse_sse_line(line) {
+                    assembler.push(&chunk);
+                    on_delta(&chunk);
+                }
+            })
+            .map_err(ProviderError::Transport)?;
+
+        if let Some(error) = status_error(status, &raw) {
+            return Err(error);
+        }
+        Ok(assembler.finish())
+    }
+}
+
+/// 非 2xx 状态映射为结构化错误；2xx 返回 `None`。
+fn status_error(status: u16, body: &str) -> Option<ProviderError> {
+    match status {
+        200..=299 => None,
+        401 | 403 => Some(ProviderError::Auth {
+            status,
+            message: snippet(body),
+        }),
+        429 => Some(ProviderError::RateLimited {
+            status,
+            message: snippet(body),
+        }),
+        500..=599 => Some(ProviderError::Server {
+            status,
+            message: snippet(body),
+        }),
+        _ => Some(ProviderError::Api {
+            status,
+            message: snippet(body),
+        }),
     }
 }
 

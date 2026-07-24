@@ -7,7 +7,7 @@
 use serde_json::Value;
 
 use crate::provider::{
-    CompletionRequest, GenerationSettings, LlmProvider, LlmResponse, ProviderError,
+    CompletionRequest, GenerationSettings, LlmProvider, LlmResponse, ProviderError, StreamChunk,
 };
 
 /// 单次补全 runner。
@@ -30,5 +30,22 @@ impl<'a> AgentRunner<'a> {
             settings: self.settings.clone(),
         };
         self.provider.complete(&request)
+    }
+
+    /// 用给定 model 与消息执行一次**流式**补全：每个增量回调 `on_delta`。
+    ///
+    /// provider 未覆盖流式时回退为单块回调（见 `LlmProvider::complete_streaming`）。
+    pub fn run_streaming(
+        &self,
+        model: &str,
+        messages: Vec<Value>,
+        on_delta: &mut dyn FnMut(&StreamChunk),
+    ) -> Result<LlmResponse, ProviderError> {
+        let request = CompletionRequest {
+            model: model.to_string(),
+            messages,
+            settings: self.settings.clone(),
+        };
+        self.provider.complete_streaming(&request, on_delta)
     }
 }

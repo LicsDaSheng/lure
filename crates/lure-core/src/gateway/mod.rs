@@ -158,6 +158,7 @@ impl Gateway {
 fn progress_update(inbound: &InboundMessage, event: &ProgressEvent) -> ProgressUpdate {
     let (kind, content) = match event {
         ProgressEvent::TurnStarted { session_key } => (ProgressKind::Started, session_key.clone()),
+        ProgressEvent::ContentDelta { text } => (ProgressKind::ContentDelta, text.clone()),
         ProgressEvent::ToolInvoked { name } => (ProgressKind::ToolInvoked, name.clone()),
         ProgressEvent::FinalResponse { content } => (ProgressKind::Final, content.clone()),
     };

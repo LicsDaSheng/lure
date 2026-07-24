@@ -32,4 +32,21 @@ pub struct HttpResponse {
 pub trait HttpTransport {
     /// 发送一次 POST JSON 请求。
     fn post_json(&self, request: &HttpRequest) -> Result<HttpResponse, String>;
+
+    /// 发送一次**流式** POST：逐行读取响应体并回调 `on_line`，返回 HTTP 状态码。
+    ///
+    /// 默认实现回退到 [`post_json`](Self::post_json) 并把整段响应按行回放（非真正增量）；
+    /// 真实传输（如 `UreqTransport`）覆盖此方法以边收边发。非 2xx 响应仍返回 `Ok(status)`，
+    /// 由上层按状态码分类。
+    fn post_json_streaming(
+        &self,
+        request: &HttpRequest,
+        on_line: &mut dyn FnMut(&str),
+    ) -> Result<u16, String> {
+        let response = self.post_json(request)?;
+        for line in response.body.lines() {
+            on_line(line);
+        }
+        Ok(response.status)
+    }
 }

@@ -12,6 +12,7 @@ mod http;
 mod openai;
 pub mod registry;
 mod runtime;
+mod stream;
 mod transport;
 mod types;
 
@@ -20,7 +21,9 @@ pub use http::{HttpRequest, HttpResponse, HttpTransport};
 pub use openai::{build_chat_request, parse_chat_response, OpenAiCompatProvider};
 pub use registry::{find_by_name, match_provider, ProviderSpec, PROVIDERS};
 pub use runtime::{LlmRuntime, ModelRuntimeResolver, ProviderSnapshot, RuntimeError};
+pub use stream::{parse_sse_line, StreamAssembler};
 pub use transport::UreqTransport;
 pub use types::{
-    CompletionRequest, GenerationSettings, LlmProvider, LlmResponse, ProviderError, ToolCall,
+    CompletionRequest, GenerationSettings, LlmProvider, LlmResponse, ProviderError, StreamChunk,
+    ToolCall, ToolCallDelta,
 };

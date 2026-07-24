@@ -591,6 +591,27 @@
 - 下一步：
   - 进入 Phase 8/9，或补真实流式传输与更细粒度 progress。
 
+### 进度记录 2026-07-24（真实流式传输 + 细粒度 progress）
+
+- 状态：partial
+- 本次完成：
+  - provider SSE 流式消费：`StreamChunk`/`ToolCallDelta` + `parse_sse_line` + `StreamAssembler`
+    （内容/推理拼接、tool_calls 按 index 累积参数）；`LlmProvider::complete_streaming`（默认回退单块回调，
+    所有 provider 可被流式路径统一驱动），`OpenAiCompatProvider` 覆盖为真 SSE（`stream:true` + 逐行解析 + 状态分类）。
+  - transport：`HttpTransport::post_json_streaming`（默认按行回放；`UreqTransport` 覆盖为真·增量——
+    拿到响应体 reader 后逐行边收边发）。
+  - agent：`AgentRunner::run_streaming`，`AgentLoop::process` 改走流式驱动，每个内容增量转成
+    `ProgressEvent::ContentDelta`；`bus::ProgressKind` 增 `ContentDelta`，gateway 一并转发。
+- 验证：
+  - `rtk cargo fmt --check` 通过；`clippy --all-targets --all-features -D warnings` 无问题。
+  - 新增 `provider_stream.rs`（6：parse/顺序/内容组装/tool_calls 跨块组装/错误分类）、`agent_stream.rs`（1：ContentDelta 顺序）；
+    全量测试通过（42 套件）。
+- 上游对照：
+  - 已覆盖：SSE 流式消费 + 增量组装 + 细粒度 ContentDelta progress 经 loop/gateway 传播；真实增量 IO（ureq）。
+  - 暂未覆盖：token 级 usage/流式 usage、async 订阅、流式下的 tool 循环端到端网络验证（属 opt-in smoke）。
+- 下一步：
+  - 进入 Phase 8/9，或补流式 usage 与真实网络 opt-in smoke。
+
 ## Phase 8: Automations、Cron 与 Trigger
 
 ### Plan

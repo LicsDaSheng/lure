@@ -54,6 +54,32 @@ pub struct ToolCall {
     pub arguments: String,
 }
 
+/// 流式 tool_call 增量（OpenAI streaming `delta.tool_calls` 单项，按 `index` 累积）。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ToolCallDelta {
+    /// 该 tool_call 在本次响应中的序号。
+    pub index: usize,
+    /// tool_call id（通常只在首个增量出现）。
+    pub id: Option<String>,
+    /// 工具名（通常只在首个增量出现）。
+    pub name: Option<String>,
+    /// 参数片段（跨增量拼接为完整 JSON 字符串）。
+    pub arguments: Option<String>,
+}
+
+/// 一条流式增量（OpenAI SSE `choices[0].delta` 的解析结果）。
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct StreamChunk {
+    /// 内容文本增量。
+    pub content_delta: Option<String>,
+    /// 推理内容增量。
+    pub reasoning_delta: Option<String>,
+    /// tool_call 增量。
+    pub tool_call_deltas: Vec<ToolCallDelta>,
+    /// 结束原因（通常只在末尾出现）。
+    pub finish_reason: Option<String>,
+}
+
 /// provider 返回的补全响应。
 #[derive(Debug, Clone, PartialEq)]
 pub struct LlmResponse {
@@ -135,4 +161,25 @@ pub trait LlmProvider {
 
     /// 执行一次补全。
     fn complete(&self, request: &CompletionRequest) -> Result<LlmResponse, ProviderError>;
+
+    /// 执行一次**流式**补全：每产生一个增量调用 `on_delta`，返回组装后的完整响应。
+    ///
+    /// 默认实现回退到非流式 [`complete`](Self::complete)，并把整段内容作为**单个**增量
+    /// 回调一次——让所有 provider 都可被 streaming 调用路径统一驱动；支持真实 SSE 的
+    /// provider（如 OpenAI-compatible）覆盖此方法以逐 token 回调。
+    fn complete_streaming(
+        &self,
+        request: &CompletionRequest,
+        on_delta: &mut dyn FnMut(&StreamChunk),
+    ) -> Result<LlmResponse, ProviderError> {
+        let response = self.complete(request)?;
+        if let Some(content) = response.content.as_ref().filter(|c| !c.is_empty()) {
+            on_delta(&StreamChunk {
+                content_delta: Some(content.clone()),
+                finish_reason: Some(response.finish_reason.clone()),
+                ..StreamChunk::default()
+            });
+        }
+        Ok(response)
+    }
 }

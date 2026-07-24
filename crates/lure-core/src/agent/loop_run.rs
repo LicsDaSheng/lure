@@ -31,6 +31,11 @@ pub enum ProgressEvent {
         /// 目标 session key。
         session_key: String,
     },
+    /// 流式内容增量（streaming provider 每产生一段文本时发出）。
+    ContentDelta {
+        /// 本段增量文本。
+        text: String,
+    },
     /// 调用了某个工具（tool-call 循环中每次执行工具时发出）。
     ToolInvoked {
         /// 工具名。
@@ -201,7 +206,12 @@ impl AgentLoop {
             let messages = context.build(&history);
             let response = {
                 let runner = AgentRunner::new(self.provider.as_ref(), self.settings.clone());
-                runner.run(&self.model, messages)?
+                // 流式驱动：每个内容增量转成细粒度 ContentDelta progress。
+                runner.run_streaming(&self.model, messages, &mut |chunk| {
+                    if let Some(text) = chunk.content_delta.as_ref().filter(|t| !t.is_empty()) {
+                        progress.push(ProgressEvent::ContentDelta { text: text.clone() });
+                    }
+                })?
             };
 
             let content = response.content.clone().unwrap_or_default();

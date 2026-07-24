@@ -27,7 +27,7 @@
 | `tests/session/` | 2 | partial | 存储/clamp/cache/goal_state/list repair 已覆盖；turn continuation、weak-identity 暂缓，见下方明细 |
 | `tests/agent/` | 2,3,4,6 | partial | session/loop、stateful model runtime resolver、tool-call 循环、memory 接入 loop、legacy history migration 已覆盖；streaming、goal/subagent、真实 LLM dream 待后续 |
 | `tests/cli/` | 3 | partial | one-shot 与基础 interactive 已覆盖；上游 prompt_toolkit/progress/commands 待后续 |
-| `tests/providers/` | 4 | partial | OpenAI-compatible 请求/响应/错误、选择顺序、stateful resolver、config 驱动 provider 匹配（api_base/enabled/api_key）已覆盖；真实 provider opt-in、OAuth/local fallback 待补 |
+| `tests/providers/` | 4 | partial | OpenAI-compatible 请求/响应/错误、选择顺序、SSE 流式消费、stateful resolver、config 驱动 provider 匹配（api_base/enabled/api_key）已覆盖；真实 provider opt-in、OAuth/local fallback 待补 |
 | `tests/tools/` | 5 | partial | registry/schema/文件/shell allow-deny、tool-call 循环、config 驱动工具注册已覆盖；apply_patch/search/web/mcp/exec 平台细节待补 |
 | `tests/security/` | 5 | partial | workspace 边界已覆盖；network SSRF、启动安全待补 |
 | `tests/bus/` | 7 | partial | InboundMessage/OutboundMessage、内存队列、outbound 运行时事件（`ProgressUpdate`）已覆盖；async 队列待补 |
@@ -103,7 +103,7 @@ Phase 0 已完成，确定 phase 1-4 关键上游测试的 Rust 测试落点（�
 | 上游测试 | 归属 phase | Rust 测试 | 状态 | 说明 |
 |---|---:|---|---|---|
 | `nanobot/bus`（events/queue） | 7 | `crates/lure-core/tests/bus_events.rs` | partial | InboundMessage session_key、OutboundMessage reply、FIFO 队列已覆盖 |
-| `nanobot/bus`（progress 事件） | 7 | `crates/lure-core/tests/gateway_progress.rs` | partial | `ProgressUpdate`/`ProgressKind` + gateway 转发 Started/ToolInvoked/Final 到 channel 已覆盖；async 订阅、真实流式传输待补 |
+| `nanobot/bus`（progress 事件） | 7 | `crates/lure-core/tests/gateway_progress.rs` `agent_stream.rs` | partial | `ProgressUpdate`/`ProgressKind`（含 ContentDelta）+ gateway 转发 Started/ContentDelta/ToolInvoked/Final、streaming provider 逐增量 ContentDelta 已覆盖；async 订阅待补 |
 | `tests/channels/test_channel_validation.py` 等 | 7 | `crates/lure-core/tests/gateway_dispatch.rs` | partial | channel 配置校验（缺字段）已覆盖；TCP probe/热加载/plugin 待补 |
 | `tests/gateway/`（service 编排） | 7 | `crates/lure-core/tests/gateway_dispatch.rs` `gateway_progress.rs` | partial | InboundMessage→AgentLoop→OutboundMessage→channel 闭环、启停不丢任务、未知 channel、health、progress 事件转发已覆盖；HTTP endpoint/进程 runtime 待补 |
 
@@ -143,7 +143,7 @@ Phase 0 已完成，确定 phase 1-4 关键上游测试的 Rust 测试落点（�
 |---|---:|---|---|---|
 | `tests/config/test_model_presets.py` | 4 | `crates/lure-core/tests/config_model_presets.rs` | partial | config 层 preset 解析/校验/序列化已覆盖；`get_provider_name` 的 OAuth/local fallback 暂缓 |
 | `tests/config/` (ProvidersConfig) | 4 | `crates/lure-core/tests/config_providers.rs` | partial | config 驱动 `resolve_provider`（api_base 覆盖、auto 跳过禁用、forced 显式、api_key 解析）已覆盖；OAuth/local fallback 暂缓 |
-| `tests/providers/` (OpenAI-compatible) | 4 | `crates/lure-core/tests/provider_openai.rs` | partial | 请求 golden + 响应解析 + 错误分类已覆盖；`max_completion_tokens`/streaming/tool/重试暂缓 |
+| `tests/providers/` (OpenAI-compatible) | 4 | `crates/lure-core/tests/provider_openai.rs` `provider_stream.rs` | partial | 请求 golden + 响应解析 + 错误分类、SSE 流式（增量回调/内容+tool_calls 组装/错误分类）已覆盖；`max_completion_tokens`/重试暂缓 |
 | `tests/providers/` (selection order) | 4 | `crates/lure-core/tests/provider_registry.rs` | partial | forced/前缀/关键字选择顺序已覆盖；config 驱动 api_base/enabled/api_key 已由 `config_providers.rs` 覆盖，OAuth/local fallback 暂缓 |
 | `tests/agent/test_model_runtime_resolver.py` | 4 | `crates/lure-core/tests/model_runtime_resolver.rs` | partial | stateful resolver 生命周期（admit/refresh/invalidate + preset tracking + 不可变 `LlmRuntime`/`ProviderSnapshot`）已覆盖；上游源码未 vendored，按本 ledger 记录语义建立事实来源，真实 runtime 探活/降级仍待补 |
 
