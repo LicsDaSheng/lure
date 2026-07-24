@@ -25,10 +25,10 @@
 |---|---:|---|---|
 | `tests/config/` | 1 | partial | 核心 loader/paths/save 已覆盖；migration/env/gateway 相关暂缓，见下方明细 |
 | `tests/session/` | 2 | partial | 存储/clamp/cache/goal_state/list repair 已覆盖；turn continuation、weak-identity 暂缓，见下方明细 |
-| `tests/agent/` | 2,3,4,6 | partial | session/loop/memory/legacy history migration 已覆盖；provider runtime、tool 上下文、dream LLM 待后续 |
+| `tests/agent/` | 2,3,4,6 | partial | session/loop、stateful model runtime resolver、tool-call 循环、memory 接入 loop、legacy history migration 已覆盖；streaming、goal/subagent、真实 LLM dream 待后续 |
 | `tests/cli/` | 3 | partial | one-shot 与基础 interactive 已覆盖；上游 prompt_toolkit/progress/commands 待后续 |
-| `tests/providers/` | 4 | partial | OpenAI-compatible 请求/响应/错误 + 选择顺序已覆盖；registry 全量、真实 provider opt-in 待补 |
-| `tests/tools/` | 5 | partial | registry/schema/文件/shell allow-deny 已覆盖；apply_patch/search/web/mcp/exec 平台细节待补 |
+| `tests/providers/` | 4 | partial | OpenAI-compatible 请求/响应/错误、选择顺序、stateful resolver、config 驱动 provider 匹配（api_base/enabled/api_key）已覆盖；真实 provider opt-in、OAuth/local fallback 待补 |
+| `tests/tools/` | 5 | partial | registry/schema/文件/shell allow-deny、tool-call 循环、config 驱动工具注册已覆盖；apply_patch/search/web/mcp/exec 平台细节待补 |
 | `tests/security/` | 5 | partial | workspace 边界已覆盖；network SSRF、启动安全待补 |
 | `tests/bus/` | 7 | partial | InboundMessage/OutboundMessage 与内存队列已覆盖；outbound runtime 事件、async 队列待补 |
 | `tests/channels/` | 7 | partial | channel 契约与配置校验已覆盖；manager 热加载、plugin、具体平台待补 |
