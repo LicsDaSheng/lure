@@ -6,13 +6,17 @@
 //! 测试拓扑：server 持有的 `AgentLoop` 不要求 `Send`，故 server 留在主线程，
 //! HTTP 客户端跑在子线程；主线程按请求数调用 `handle_next` 逐条应答。
 
+use std::cell::RefCell;
 use std::net::SocketAddr;
 use std::thread;
 
 use lure_core::agent::{AgentLoop, ContextBuilder};
-use lure_core::api::{ChatServer, ServerConfig};
-use lure_core::provider::EchoProvider;
+use lure_core::api::{ChatRunError, ChatRunner, ChatServer, ServerConfig};
+use lure_core::provider::{
+    CompletionRequest, EchoProvider, LlmProvider, LlmResponse, ProviderError, StreamChunk, ToolCall,
+};
 use lure_core::session::SessionManager;
+use lure_core::tool::{Tool, ToolRegistry, ToolResult};
 use serde_json::{json, Value};
 use tempfile::TempDir;
 
@@ -121,6 +125,300 @@ fn streaming_emits_sse_chunk_then_finish_then_done() {
     assert_eq!(f1["choices"][0]["delta"], json!({}));
 
     // 帧 2：终止哨兵。
+    assert_eq!(frames[2], "data: [DONE]");
+}
+
+/// 逐块回调多个内容增量的 fake streaming provider。
+struct MultiDeltaProvider {
+    deltas: Vec<String>,
+}
+
+impl LlmProvider for MultiDeltaProvider {
+    fn default_model(&self) -> &str {
+        "echo"
+    }
+
+    fn complete(&self, _request: &CompletionRequest) -> Result<LlmResponse, ProviderError> {
+        Ok(LlmResponse::text(self.deltas.concat()))
+    }
+
+    fn complete_streaming(
+        &self,
+        _request: &CompletionRequest,
+        on_delta: &mut dyn FnMut(&StreamChunk),
+    ) -> Result<LlmResponse, ProviderError> {
+        for delta in &self.deltas {
+            on_delta(&StreamChunk {
+                content_delta: Some(delta.clone()),
+                reasoning_delta: None,
+                tool_call_deltas: Vec::new(),
+                finish_reason: None,
+            });
+        }
+        Ok(LlmResponse::text(self.deltas.concat()))
+    }
+}
+
+/// 发一个 SSE 请求，返回 `(content_type, 已 trim 的非空帧列表)`。
+fn post_stream(addr: SocketAddr, body: Value) -> (String, Vec<String>) {
+    let url = format!("http://{addr}/v1/chat/completions");
+    let resp = ureq::post(&url)
+        .set("Content-Type", "application/json")
+        .send_string(&body.to_string())
+        .unwrap();
+    let content_type = resp.header("Content-Type").unwrap_or_default().to_string();
+    let raw = resp.into_string().unwrap();
+    let frames = raw
+        .split("\n\n")
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+        .collect();
+    (content_type, frames)
+}
+
+/// 解析一条 `data: {json}` 帧的 JSON 负载。
+fn frame_json(frame: &str) -> Value {
+    serde_json::from_str(frame.strip_prefix("data: ").unwrap()).unwrap()
+}
+
+#[test]
+fn streaming_emits_one_chunk_per_content_delta_in_order() {
+    let dir = tempfile::tempdir().unwrap();
+    let sessions = SessionManager::new(dir.path()).unwrap();
+    let provider = MultiDeltaProvider {
+        deltas: vec!["你好".to_string(), "，".to_string(), "世界".to_string()],
+    };
+    let agent_loop = AgentLoop::new(Box::new(provider), sessions, ContextBuilder::new(None));
+    let config = ServerConfig {
+        model: "echo".to_string(),
+        api_key: None,
+    };
+    let mut server = ChatServer::bind("127.0.0.1:0", agent_loop, config).unwrap();
+    let addr = server.local_addr().unwrap();
+
+    let client = thread::spawn(move || {
+        post_stream(
+            addr,
+            json!({
+                "messages": [{"role": "user", "content": "hi"}],
+                "stream": true,
+            }),
+        )
+    });
+    server.handle_next().unwrap();
+    let (content_type, frames) = client.join().unwrap();
+
+    assert!(content_type.starts_with("text/event-stream"));
+    // 3 条内容 chunk + finish chunk + [DONE]。
+    assert_eq!(frames.len(), 5, "帧序列: {frames:?}");
+
+    // 每个内容增量恰好一条 chunk，内容逐一相等、顺序一致。
+    for (i, expected) in ["你好", "，", "世界"].iter().enumerate() {
+        let f = frame_json(&frames[i]);
+        assert_eq!(f["object"], "chat.completion.chunk");
+        assert_eq!(f["choices"][0]["delta"]["content"], *expected);
+        assert!(f["choices"][0]["finish_reason"].is_null());
+    }
+
+    // 倒数第二帧：finish chunk。
+    let finish = frame_json(&frames[3]);
+    assert_eq!(finish["choices"][0]["finish_reason"], "stop");
+    assert_eq!(finish["choices"][0]["delta"], json!({}));
+
+    // 末帧：终止哨兵。
+    assert_eq!(frames[4], "data: [DONE]");
+}
+
+#[test]
+fn streaming_chunks_share_one_chatcmpl_id() {
+    let dir = tempfile::tempdir().unwrap();
+    let sessions = SessionManager::new(dir.path()).unwrap();
+    let provider = MultiDeltaProvider {
+        deltas: vec!["a".to_string(), "b".to_string()],
+    };
+    let agent_loop = AgentLoop::new(Box::new(provider), sessions, ContextBuilder::new(None));
+    let config = ServerConfig {
+        model: "echo".to_string(),
+        api_key: None,
+    };
+    let mut server = ChatServer::bind("127.0.0.1:0", agent_loop, config).unwrap();
+    let addr = server.local_addr().unwrap();
+
+    let client = thread::spawn(move || {
+        post_stream(
+            addr,
+            json!({
+                "messages": [{"role": "user", "content": "hi"}],
+                "stream": true,
+            }),
+        )
+    });
+    server.handle_next().unwrap();
+    let (_content_type, frames) = client.join().unwrap();
+
+    // 除 [DONE] 外所有 chunk 共享同一个以 chatcmpl- 开头的 id。
+    let ids: Vec<String> = frames
+        .iter()
+        .filter(|f| *f != "data: [DONE]")
+        .map(|f| frame_json(f)["id"].as_str().unwrap().to_string())
+        .collect();
+    assert!(!ids.is_empty());
+    assert!(ids[0].starts_with("chatcmpl-"), "id 前缀: {}", ids[0]);
+    assert!(ids.iter().all(|id| *id == ids[0]), "id 不一致: {ids:?}");
+}
+
+/// 内存 echo tool（tool-call 多轮测试用）。
+struct EchoTool;
+
+impl Tool for EchoTool {
+    fn name(&self) -> &str {
+        "echo"
+    }
+    fn description(&self) -> &str {
+        "echo back the text argument"
+    }
+    fn parameters(&self) -> Value {
+        json!({"type": "object", "properties": {"text": {"type": "string"}}})
+    }
+    fn execute(&self, args: &Value) -> ToolResult {
+        let text = args.get("text").and_then(Value::as_str).unwrap_or("");
+        ToolResult::ok(format!("tool-echo: {text}"))
+    }
+}
+
+/// 第一轮返回「内容 + tool_call」，第二轮返回最终内容的 fake provider。
+struct ToolThenFinalProvider {
+    step: RefCell<usize>,
+}
+
+impl LlmProvider for ToolThenFinalProvider {
+    fn default_model(&self) -> &str {
+        "echo"
+    }
+
+    fn complete(&self, _request: &CompletionRequest) -> Result<LlmResponse, ProviderError> {
+        let mut step = self.step.borrow_mut();
+        let resp = if *step == 0 {
+            LlmResponse {
+                content: Some("part-a".to_string()),
+                reasoning_content: None,
+                finish_reason: "tool_calls".to_string(),
+                usage: Default::default(),
+                tool_calls: vec![ToolCall {
+                    id: "call_1".to_string(),
+                    name: "echo".to_string(),
+                    arguments: r#"{"text":"x"}"#.to_string(),
+                }],
+            }
+        } else {
+            LlmResponse::text("part-b")
+        };
+        *step += 1;
+        Ok(resp)
+    }
+}
+
+#[test]
+fn streaming_across_tool_rounds_keeps_stream_open_until_final_finish() {
+    let dir = tempfile::tempdir().unwrap();
+    let sessions = SessionManager::new(dir.path()).unwrap();
+    let mut registry = ToolRegistry::new();
+    registry.register(Box::new(EchoTool));
+    let provider = ToolThenFinalProvider {
+        step: RefCell::new(0),
+    };
+    let agent_loop = AgentLoop::new(Box::new(provider), sessions, ContextBuilder::new(None))
+        .with_tools(registry);
+    let config = ServerConfig {
+        model: "echo".to_string(),
+        api_key: None,
+    };
+    let mut server = ChatServer::bind("127.0.0.1:0", agent_loop, config).unwrap();
+    let addr = server.local_addr().unwrap();
+
+    let client = thread::spawn(move || {
+        post_stream(
+            addr,
+            json!({
+                "messages": [{"role": "user", "content": "go"}],
+                "stream": true,
+            }),
+        )
+    });
+    server.handle_next().unwrap();
+    let (_content_type, frames) = client.join().unwrap();
+
+    // 两轮各产生一条内容 chunk（part-a、part-b），中间段不关闭流；
+    // finish + [DONE] 只在最后各一次。
+    let contents: Vec<String> = frames
+        .iter()
+        .filter(|f| *f != "data: [DONE]")
+        .filter_map(|f| {
+            frame_json(f)["choices"][0]["delta"]["content"]
+                .as_str()
+                .map(str::to_string)
+        })
+        .collect();
+    assert_eq!(contents, vec!["part-a", "part-b"]);
+
+    let finish_count = frames
+        .iter()
+        .filter(|f| *f != "data: [DONE]")
+        .filter(|f| frame_json(f)["choices"][0]["finish_reason"] == "stop")
+        .count();
+    assert_eq!(finish_count, 1, "finish chunk 应恰好一次: {frames:?}");
+    assert_eq!(
+        frames.iter().filter(|f| *f == "data: [DONE]").count(),
+        1,
+        "[DONE] 应恰好一次"
+    );
+    assert_eq!(frames.last().unwrap(), "data: [DONE]");
+}
+
+/// 只实现 `run` 的 fake runner（验证 `run_streaming` 默认回退）。
+struct SingleShotRunner(String);
+
+impl ChatRunner for SingleShotRunner {
+    fn run(&mut self, _session_key: &str, _text: &str) -> Result<String, ChatRunError> {
+        Ok(self.0.clone())
+    }
+}
+
+#[test]
+fn default_run_streaming_fallback_emits_single_content_chunk() {
+    let config = ServerConfig {
+        model: "echo".to_string(),
+        api_key: None,
+    };
+    let mut server = ChatServer::bind(
+        "127.0.0.1:0",
+        SingleShotRunner("only-once".to_string()),
+        config,
+    )
+    .unwrap();
+    let addr = server.local_addr().unwrap();
+
+    let client = thread::spawn(move || {
+        post_stream(
+            addr,
+            json!({
+                "messages": [{"role": "user", "content": "hi"}],
+                "stream": true,
+            }),
+        )
+    });
+    server.handle_next().unwrap();
+    let (content_type, frames) = client.join().unwrap();
+
+    assert!(content_type.starts_with("text/event-stream"));
+    // 单条内容 chunk + finish chunk + [DONE]。
+    assert_eq!(frames.len(), 3, "帧序列: {frames:?}");
+    let f0 = frame_json(&frames[0]);
+    assert_eq!(f0["choices"][0]["delta"]["content"], "only-once");
+    assert!(f0["choices"][0]["finish_reason"].is_null());
+    let f1 = frame_json(&frames[1]);
+    assert_eq!(f1["choices"][0]["finish_reason"], "stop");
     assert_eq!(frames[2], "data: [DONE]");
 }
 
