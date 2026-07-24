@@ -695,6 +695,33 @@
 - 下一步：
   - 进入 Phase 10：WebUI 后端服务协议、session list/thread API、WebSocket stream 协议与前端测试映射。
 
+### 进度记录 2026-07-24
+
+- 状态：partial
+- 本次完成（真实 HTTP server 接线）：
+  - `lure-core::api::server`：最小**同步** HTTP server（`tiny_http`），把传输无关 api 表面接到真实端点。
+    - `POST /v1/chat/completions`：读取 body → `parse_chat_request` → `validate_model` → 调注入的
+      `ChatRunner` → 非流式 JSON 或 SSE 流（`stream:true` 时按 `sse_chunks` 发内容 chunk → finish chunk → `[DONE]`）。
+    - `GET /health`：返回 `{"status":"ok"}`（不鉴权）。
+    - 鉴权走 `authorize`（Bearer key，未配置放行，配置后 401）；错误响应走 `error_body`，状态码稳定（400/401/404/500）。
+  - `ChatRunner` trait 抽象 runner，为 `AgentLoop` 提供实现（构造 `InboundMessage`，`channel="api"`、
+    `chat_id="default"`、`session_key_override` 由 `api_session_key` 派生）。
+  - 测试拓扑：`AgentLoop` 无 `Send` 界，server 留在测试主线程，`handle_next()` 逐条阻塞应答；
+    HTTP 客户端跑子线程，请求/应答 ping-pong 天然串行。
+- 验证：
+  - `rtk cargo fmt --check` 通过；`rtk cargo clippy --all-targets --all-features -- -D warnings` 无问题。
+  - `rtk env -u DEEPSEEK_API_KEY cargo test --all-targets --all-features` 通过（163 passed，含新增 api_server 6 个）。
+- 上游对照：
+  - 已覆盖：`test_openai_api.py`（error json、chat completion 形状/usage、单条 user 校验、model
+    不匹配、鉴权、固定 session）、`test_api_stream.py`（SSE 事件顺序）、真实 HTTP server 接线。
+  - 暂未覆盖（记入 ledger）：
+    - `/v1/models`、media 上传、并发 session lock、逐 token SSE（当前按 `sse_chunks` 发单条内容 chunk）。
+    - SDK facade（`nanobot/sdk`）与其 streaming client。
+    - API runtime 进程生命周期（与 gateway runtime 的隔离目前体现在固定 session key 命名空间）。
+- 下一步：
+  - Phase 9 剩余外围（`/v1/models`、multipart/media 上传、并发 session lock、逐 token SSE），
+    或 Phase 8（cron/trigger）盘点。
+
 ## Phase 10: WebUI 与前端集成
 
 ### Plan

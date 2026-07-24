@@ -163,8 +163,9 @@
 ## Phase 9: OpenAI-compatible API 与 SDK 表面
 
 - 状态：`partial`
-- 已落地：传输无关的 chat completions 请求/响应/校验/鉴权/session 表面、SSE 事件顺序。
-- 待补：真实 HTTP server 接线、`/v1/models`、media、真实流式传输与 agent 接线。
+- 已落地：传输无关的 chat completions 请求/响应/校验/鉴权/session 表面、SSE 事件顺序；
+  真实 HTTP server 接线（`ChatServer` / `ChatRunner` / `ServerConfig`）。
+- 待补：`/v1/models`、media、并发 session lock、逐 token SSE、SDK facade。
 - 目标：实现 `/v1/chat/completions` 等 API 兼容层和 SDK 可调用表面。
 - 上游参考：
   - `nanobot/api/`

@@ -81,11 +81,11 @@ Phase 0 已完成，确定 phase 1-4 关键上游测试的 Rust 测试落点（�
 
 | 上游测试 | 归属 phase | Rust 测试 | 状态 | 说明 |
 |---|---:|---|---|---|
-| `tests/test_openai_api.py` | 9 | `crates/lure-core/tests/api_openai.rs` | partial | error json、chat completion 形状/usage、单条 user 校验、model 不匹配、鉴权、固定 session 已覆盖；真实 HTTP server/媒体/并发锁待补 |
-| `tests/test_api_stream.py` | 9 | `crates/lure-core/tests/api_openai.rs` | partial | SSE 事件顺序（内容→finish→[DONE]）已覆盖；真实流式传输待补 |
+| `tests/test_openai_api.py` | 9 | `crates/lure-core/tests/api_openai.rs` `api_server.rs` | partial | error json、chat completion 形状/usage、单条 user 校验、model 不匹配、鉴权、固定 session、真实 HTTP server 已覆盖；媒体/并发锁待补 |
+| `tests/test_api_stream.py` | 9 | `crates/lure-core/tests/api_openai.rs` `api_server.rs` | partial | SSE 事件顺序（内容→finish→[DONE]）、真实 HTTP SSE 已覆盖；逐 token 流式待补 |
 
-> 注：Phase 9 为传输无关的 OpenAI-compatible 表面（上游 aiohttp）；真实 HTTP server、
-> SDK facade、/v1/models、API runtime 进程生命周期留待后续。
+> 注：Phase 9 传输无关表面与真实 HTTP server 均已落地；SDK facade、/v1/models、
+> API runtime 进程生命周期、逐 token SSE 留待后续。
 
 ## Phase 8 明细映射
 

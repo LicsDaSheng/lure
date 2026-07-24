@@ -9,7 +9,8 @@
 按阶段推进，每个阶段先形成窄而可运行的纵向切片，再逐步展开。`partial` 表示核心切片已落地、部分外围能力按台账明确暂缓。
 
 当前 11 个阶段均已形成可运行切片。近期把 Phase 4/5/6 的「原语齐全但未接线」缺口逐个打通，
-让 agent loop 与 CLI 成为真正可用的整机，并补齐了 Phase 7 的事件传播与端到端流式：
+让 agent loop 与 CLI 成为真正可用的整机，并补齐了 Phase 7 的事件传播与端到端流式，
+以及 Phase 9 的 HTTP server 接线：
 - **Phase 4**：stateful `ModelRuntimeResolver`（preset → 不可变 runtime + admit/refresh/invalidate）
   接入 AgentLoop/CLI provider 选择路径；config 驱动的 `ProvidersConfig`（api_base 覆盖 / enabled 过滤 /
   api_key 解析）；CLI 补 `--config`/`--preset`；**SSE 流式消费**（`complete_streaming` + 增量组装，含 tool_calls 跨块拼装）。
@@ -18,8 +19,12 @@
 - **Phase 6**：长期记忆接入 AgentLoop（记忆块注入 + `history.jsonl` 记录 + `consolidate` 接口），CLI 常驻挂载。
 - **Phase 7**：gateway 把 agent 的 progress 事件流（Started/ContentDelta/ToolInvoked/Final）转发到 channel；
   loop 走流式驱动、逐增量发 `ContentDelta`，`UreqTransport` 真·增量边收边发。
+- **Phase 9**：`lure-core::api::server` 提供最小同步 HTTP server（`ChatServer` / `ChatRunner` / `ServerConfig`），
+  把传输无关的 OpenAI-compatible 表面接到真实端点：`POST /v1/chat/completions`（非流式 JSON / SSE 流）
+  与 `GET /health`；鉴权、解析、model 校验、响应构造全部复用 `api` 现有函数，零逻辑复制。
 
-下一步可选：进入 Phase 9（OpenAI-compatible API 表面，把流式接到 server 侧），或 Phase 8（cron/trigger）盘点。
+下一步可选：Phase 9 剩余外围（`/v1/models`、multipart/media 上传、并发 session lock、逐 token SSE），
+或 Phase 8（cron/trigger）盘点。
 
 | 阶段 | 内容 | 状态 |
 |---|---|---|
