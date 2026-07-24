@@ -492,6 +492,25 @@
 - 下一步：
   - 进入 Phase 7：message bus、InboundMessage/OutboundMessage、channel trait 与最小 gateway。
 
+### 进度记录 2026-07-24（memory 接入 agent loop）
+
+- 状态：partial
+- 本次完成（把已就绪的 memory primitives 串进闭环）：
+  - `AgentLoop::with_memory(MemoryStore)`：每轮把 `get_memory_context()` 注入 context（system→memory→历史，
+    本轮内稳定），user 内容与最终 assistant 内容追加到 `history.jsonl`（按 session 归属，供 dream）。
+  - `AgentLoop::consolidate(&runner)`：委托 `MemoryStore::consolidate`，未挂 memory 或无未处理历史返回 None。
+  - `AgentError` 新增 `Memory(io::Error)` 变体；history 追加失败形成结构化错误。
+  - 未挂 memory 时行为不变（无 history.jsonl、consolidate 返回 None），向后兼容。
+- 验证：
+  - `rtk cargo fmt --check` 通过；`clippy --all-targets --all-features -D warnings` 无问题。
+  - 新增 `agent_memory.rs`（4：记忆块注入、history.jsonl 追加、consolidate 更新 MEMORY.md、无 memory 终态）；
+    全量测试通过（39 套件）。
+- 上游对照：
+  - 已覆盖：memory 注入 + history 记录 + dream 触发接口（fake runner），agent loop 现具长期记忆闭环。
+  - 暂未覆盖：CLI 侧 memory 注册、dream 自动触发策略（阈值/定时）、真实 LLM dream、SOUL/USER 整合。
+- 下一步：
+  - CLI `build_agent_loop` 注册 `MemoryStore` 并定 dream 触发策略，或进入 Phase 7。
+
 ## Phase 7: Bus、Channels 与 Gateway
 
 ### Plan

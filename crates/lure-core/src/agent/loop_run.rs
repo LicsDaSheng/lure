@@ -14,6 +14,7 @@ use serde_json::{json, Map, Value};
 use crate::agent::context::ContextBuilder;
 use crate::agent::runner::AgentRunner;
 use crate::bus::InboundMessage;
+use crate::memory::{ConsolidationOutcome, DreamRunner, MemoryStore};
 use crate::provider::{GenerationSettings, LlmProvider, LlmRuntime, ProviderError, ToolCall};
 use crate::session::{SessionError, SessionManager};
 use crate::tool::ToolRegistry;
@@ -55,6 +56,8 @@ pub enum AgentError {
     Provider(ProviderError),
     /// session 读写失败。
     Session(SessionError),
+    /// memory（history.jsonl 等）读写失败。
+    Memory(std::io::Error),
 }
 
 impl fmt::Display for AgentError {
@@ -62,6 +65,7 @@ impl fmt::Display for AgentError {
         match self {
             AgentError::Provider(e) => write!(f, "agent provider 错误: {e}"),
             AgentError::Session(e) => write!(f, "agent session 错误: {e}"),
+            AgentError::Memory(e) => write!(f, "agent memory 错误: {e}"),
         }
     }
 }
@@ -71,6 +75,7 @@ impl std::error::Error for AgentError {
         match self {
             AgentError::Provider(e) => Some(e),
             AgentError::Session(e) => Some(e),
+            AgentError::Memory(e) => Some(e),
         }
     }
 }
@@ -95,6 +100,7 @@ pub struct AgentLoop {
     settings: GenerationSettings,
     model: String,
     tools: Option<ToolRegistry>,
+    memory: Option<MemoryStore>,
 }
 
 impl AgentLoop {
@@ -112,6 +118,7 @@ impl AgentLoop {
             settings: GenerationSettings::default(),
             model,
             tools: None,
+            memory: None,
         }
     }
 
@@ -121,6 +128,18 @@ impl AgentLoop {
     pub fn with_tools(mut self, tools: ToolRegistry) -> Self {
         self.tools = Some(tools);
         self
+    }
+
+    /// 挂载长期记忆存储：每轮注入记忆块到 context，并把 user/assistant turn 追加到
+    /// `history.jsonl`（供 dream consolidation）。
+    pub fn with_memory(mut self, memory: MemoryStore) -> Self {
+        self.memory = Some(memory);
+        self
+    }
+
+    /// 用可替换 [`DreamRunner`] 整合未处理历史；未挂 memory 或无未处理历史返回 `None`。
+    pub fn consolidate<R: DreamRunner>(&self, runner: &R) -> Option<ConsolidationOutcome> {
+        self.memory.as_ref()?.consolidate(runner)
     }
 
     /// 用 `ModelRuntimeResolver` 产出的 [`LlmRuntime`] 覆盖 model 与生成参数。
@@ -154,10 +173,19 @@ impl AgentLoop {
             session_key: key.clone(),
         }];
 
-        // 追加 user turn。
+        // 追加 user turn，并把 user 内容记入 history.jsonl（供 dream consolidation）。
         self.sessions
             .get_or_create(&key)?
             .add_message("user", &input.content);
+        append_memory_history(self.memory.as_ref(), &key, &input.content)?;
+
+        // 注入长期记忆块（本轮内稳定）：system → memory → 历史。
+        let context = match self.memory.as_ref().map(MemoryStore::get_memory_context) {
+            Some(memory_context) if !memory_context.is_empty() => {
+                self.context.clone().with_memory(Some(memory_context))
+            }
+            _ => self.context.clone(),
+        };
 
         let mut final_content = String::new();
         let mut final_reasoning = None;
@@ -165,7 +193,7 @@ impl AgentLoop {
         for _ in 0..MAX_TOOL_ITERATIONS {
             // 构建 context（历史含此前所有 turn），调 provider。
             let history = self.sessions.get_or_create(&key)?.get_history(0);
-            let messages = self.context.build(&history);
+            let messages = context.build(&history);
             let response = {
                 let runner = AgentRunner::new(self.provider.as_ref(), self.settings.clone());
                 runner.run(&self.model, messages)?
@@ -179,6 +207,7 @@ impl AgentLoop {
                 // 终态：追加最终 assistant turn（reasoning 一并持久化，仅供展示）。
                 persist_assistant(&mut self.sessions, &key, &content, &reasoning, &[])?;
                 self.sessions.save(&key, false)?;
+                append_memory_history(self.memory.as_ref(), &key, &content)?;
                 progress.push(ProgressEvent::FinalResponse {
                     content: content.clone(),
                 });
@@ -213,6 +242,7 @@ impl AgentLoop {
 
         // 达到迭代上限：保存并返回最后一轮的 assistant 内容。
         self.sessions.save(&key, false)?;
+        append_memory_history(self.memory.as_ref(), &key, &final_content)?;
         progress.push(ProgressEvent::FinalResponse {
             content: final_content.clone(),
         });
@@ -222,6 +252,20 @@ impl AgentLoop {
             progress,
         })
     }
+}
+
+/// 若挂载了 memory，把一条内容追加到 `history.jsonl`（按 session 归属）。
+fn append_memory_history(
+    memory: Option<&MemoryStore>,
+    key: &str,
+    content: &str,
+) -> Result<(), AgentError> {
+    if let Some(memory) = memory {
+        memory
+            .append_history(content, Some(key))
+            .map_err(AgentError::Memory)?;
+    }
+    Ok(())
 }
 
 /// 持久化 assistant turn；`reasoning_content` 与 `tool_calls` 作为附加字段一并保存。
