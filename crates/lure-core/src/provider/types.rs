@@ -43,6 +43,17 @@ pub struct CompletionRequest {
     pub settings: GenerationSettings,
 }
 
+/// provider 请求的一次工具调用（OpenAI function-calling 形状）。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ToolCall {
+    /// tool_call id（回灌 tool 结果时用作 `tool_call_id`）。
+    pub id: String,
+    /// 目标工具名。
+    pub name: String,
+    /// 原始参数 JSON 字符串（OpenAI 以字符串返回；由调用方解析）。
+    pub arguments: String,
+}
+
 /// provider 返回的补全响应。
 #[derive(Debug, Clone, PartialEq)]
 pub struct LlmResponse {
@@ -54,6 +65,8 @@ pub struct LlmResponse {
     pub finish_reason: String,
     /// 用量统计。
     pub usage: Map<String, Value>,
+    /// 请求的工具调用（无则为空）。
+    pub tool_calls: Vec<ToolCall>,
 }
 
 impl LlmResponse {
@@ -64,6 +77,7 @@ impl LlmResponse {
             reasoning_content: None,
             finish_reason: "stop".to_string(),
             usage: Map::new(),
+            tool_calls: Vec::new(),
         }
     }
 }

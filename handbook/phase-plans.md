@@ -408,6 +408,28 @@
 - 下一步：
   - 进入 Phase 6：memory store、history、dream consolidation（fake runner）、context 注入。
 
+### 进度记录 2026-07-24（tool-call 循环接入 agent loop）
+
+- 状态：partial
+- 本次完成（把已就绪的 tool primitives 串成可用链路）：
+  - provider：`LlmResponse` 新增 `tool_calls: Vec<ToolCall>`；`parse_chat_response` 解析
+    `message.tool_calls`（id/function.name/function.arguments）。
+  - `ContextBuilder::project_message`：透传 `tool_calls`（assistant）与 `tool_call_id`（tool），
+    使多轮 tool 上下文能正确回放给 provider。
+  - `AgentLoop`：新增 `with_tools(registry)` 与 `MAX_TOOL_ITERATIONS`；`process` 变为 tool-call 循环：
+    无 tool_calls（或未挂 registry）为终态；否则持久化带 `tool_calls` 的 assistant turn、逐个执行工具、
+    把结果作为 `tool` turn 回灌历史，至多 8 轮。参数非法/未知工具/工具错误统一转文本回灌供模型自纠。
+- 验证：
+  - `rtk cargo fmt --check` 通过；`clippy --all-targets --all-features -D warnings` 无问题。
+  - 新增 `agent_tool_loop.rs`（4：单轮执行+历史顺序+上下文回放、迭代上限、未知工具恢复、无 registry 终态）；
+    provider 新增 2 解析用例；全量测试通过（37 套件）。
+- 上游对照：
+  - 已覆盖：provider tool_calls 解析 + agent tool-call 迭代闭环（fake provider + 内存 echo tool，不触网）。
+  - 暂未覆盖：CLI 侧工具注册（file/shell 工具 + 来自 config 的 exec 策略绑定）、并行 tool、streaming、
+    tool 上下文变量注入完整链路。
+- 下一步：
+  - CLI `build_agent_loop` 注册 workspace 绑定的 file/shell 工具（exec 策略来源待定），或进入 Phase 6。
+
 ## Phase 6: Memory、Dream 与长期上下文
 
 ### Plan

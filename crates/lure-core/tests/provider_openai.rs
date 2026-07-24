@@ -7,8 +7,8 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use lure_core::provider::{
-    build_chat_request, CompletionRequest, GenerationSettings, HttpRequest, HttpResponse,
-    HttpTransport, LlmProvider, OpenAiCompatProvider, ProviderError,
+    build_chat_request, parse_chat_response, CompletionRequest, GenerationSettings, HttpRequest,
+    HttpResponse, HttpTransport, LlmProvider, OpenAiCompatProvider, ProviderError, ToolCall,
 };
 use serde_json::json;
 
@@ -235,4 +235,49 @@ fn malformed_and_missing_choices_are_response_errors() {
         provider_error(200, "{}"),
         ProviderError::Response(_)
     ));
+}
+
+#[test]
+fn parse_response_extracts_tool_calls() {
+    let body = json!({
+        "choices": [{
+            "message": {
+                "content": null,
+                "tool_calls": [{
+                    "id": "call_1",
+                    "type": "function",
+                    "function": {"name": "read_file", "arguments": "{\"path\":\"a.txt\"}"}
+                }]
+            },
+            "finish_reason": "tool_calls"
+        }]
+    })
+    .to_string();
+    let response = HttpResponse { status: 200, body };
+
+    let parsed = parse_chat_response(&response).unwrap();
+
+    assert_eq!(parsed.finish_reason, "tool_calls");
+    assert!(parsed.content.is_none());
+    assert_eq!(
+        parsed.tool_calls,
+        vec![ToolCall {
+            id: "call_1".to_string(),
+            name: "read_file".to_string(),
+            arguments: "{\"path\":\"a.txt\"}".to_string(),
+        }]
+    );
+}
+
+#[test]
+fn parse_response_without_tool_calls_yields_empty_vec() {
+    let body = json!({
+        "choices": [{"message": {"content": "hi"}, "finish_reason": "stop"}]
+    })
+    .to_string();
+    let response = HttpResponse { status: 200, body };
+
+    let parsed = parse_chat_response(&response).unwrap();
+    assert_eq!(parsed.content.as_deref(), Some("hi"));
+    assert!(parsed.tool_calls.is_empty());
 }

@@ -2,17 +2,18 @@
 //!
 //! 对齐上游 `nanobot/providers/openai_compat_provider.py` 的核心请求/响应形状：
 //! - 请求体：`{model, messages, temperature, max_tokens}`，POST 到 `{base}/chat/completions`。
-//! - 响应：`choices[0].message.content` + `choices[0].finish_reason` + `usage`。
+//! - 响应：`choices[0].message.content` + `.tool_calls` + `choices[0].finish_reason` + `usage`。
 //! - 错误按 HTTP 状态分类为结构化 [`ProviderError`]。
 //!
-//! Phase 4 不做：`max_completion_tokens`/模型专属覆盖、streaming、tool call、
-//! prompt caching、重试策略（见 upstream-test-ledger）。
+//! Phase 4 不做：`max_completion_tokens`/模型专属覆盖、streaming、
+//! prompt caching、重试策略（见 upstream-test-ledger）。tool_calls 已解析，供
+//! Phase 5 的 agent tool-call 循环消费。
 
 use serde_json::{json, Map, Value};
 
 use crate::provider::http::{HttpRequest, HttpResponse, HttpTransport};
 use crate::provider::types::{
-    CompletionRequest, GenerationSettings, LlmProvider, LlmResponse, ProviderError,
+    CompletionRequest, GenerationSettings, LlmProvider, LlmResponse, ProviderError, ToolCall,
 };
 
 /// 基于 [`HttpTransport`] 的 OpenAI-compatible provider。
@@ -125,6 +126,8 @@ pub fn parse_chat_response(response: &HttpResponse) -> Result<LlmResponse, Provi
         .and_then(Value::as_str)
         .map(str::to_string);
 
+    let tool_calls = parse_tool_calls(message);
+
     let finish_reason = choice
         .get("finish_reason")
         .and_then(Value::as_str)
@@ -142,7 +145,35 @@ pub fn parse_chat_response(response: &HttpResponse) -> Result<LlmResponse, Provi
         reasoning_content,
         finish_reason,
         usage,
+        tool_calls,
     })
+}
+
+/// 从 `message.tool_calls` 解析工具调用；缺失或非数组时返回空。
+fn parse_tool_calls(message: Option<&Value>) -> Vec<ToolCall> {
+    message
+        .and_then(|m| m.get("tool_calls"))
+        .and_then(Value::as_array)
+        .map(|calls| {
+            calls
+                .iter()
+                .filter_map(|call| {
+                    let function = call.get("function")?;
+                    let name = function.get("name").and_then(Value::as_str)?;
+                    let id = call.get("id").and_then(Value::as_str).unwrap_or_default();
+                    let arguments = function
+                        .get("arguments")
+                        .and_then(Value::as_str)
+                        .unwrap_or_default();
+                    Some(ToolCall {
+                        id: id.to_string(),
+                        name: name.to_string(),
+                        arguments: arguments.to_string(),
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 /// 截断过长的错误响应体，避免污染错误消息。

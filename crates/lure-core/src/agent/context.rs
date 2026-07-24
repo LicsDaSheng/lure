@@ -44,12 +44,23 @@ impl ContextBuilder {
     }
 }
 
-/// 只保留 `role` 与 `content`，丢弃 timestamp 等内部字段。
+/// 投影为 provider 输入消息：保留 `role`/`content`，并透传 tool-call 循环所需的
+/// `tool_calls`（assistant 请求的工具）与 `tool_call_id`（tool 结果的归属）。
+///
+/// 其余内部字段（timestamp、reasoning_content 等）不回放给 provider。
 fn project_message(message: &Value) -> Value {
     let role = message
         .get("role")
         .and_then(Value::as_str)
         .unwrap_or("user");
     let content = message.get("content").cloned().unwrap_or_else(|| json!(""));
-    json!({"role": role, "content": content})
+    let mut out = json!({"role": role, "content": content});
+    let obj = out.as_object_mut().expect("json object");
+    if let Some(tool_calls) = message.get("tool_calls") {
+        obj.insert("tool_calls".to_string(), tool_calls.clone());
+    }
+    if let Some(tool_call_id) = message.get("tool_call_id") {
+        obj.insert("tool_call_id".to_string(), tool_call_id.clone());
+    }
+    out
 }

@@ -69,6 +69,7 @@ impl LlmProvider for ReasoningProvider {
             reasoning_content: Some("思考过程".to_string()),
             finish_reason: "stop".to_string(),
             usage: Default::default(),
+            tool_calls: Vec::new(),
         })
     }
 }

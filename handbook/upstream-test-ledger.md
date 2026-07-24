@@ -157,7 +157,8 @@ Phase 0 已完成，确定 phase 1-4 关键上游测试的 Rust 测试落点（�
 
 | 上游测试 | 归属 phase | Rust 测试 | 状态 | 说明 |
 |---|---:|---|---|---|
-| `tests/agent/test_loop_runner_integration.py` | 3 | `crates/lure-core/tests/agent_loop.rs` | partial | 最小闭环（输入/最终回复/turn 保存/历史可读/结构化错误）已覆盖；streaming、tool 循环、goal/subagent、consolidation 属 Phase 4/5/6 |
+| `tests/agent/test_loop_runner_integration.py` | 3 | `crates/lure-core/tests/agent_loop.rs` | partial | 最小闭环（输入/最终回复/turn 保存/历史可读/结构化错误）已覆盖；streaming、goal/subagent、consolidation 属 Phase 4/6 |
+| `tests/agent/` (tool-call loop) | 5 | `crates/lure-core/tests/agent_tool_loop.rs` | partial | provider tool_calls 解析 + `AgentLoop` tool-call 迭代（执行/tool turn 回灌/上限/未知工具恢复/无 registry 终态）已覆盖；并行 tool、streaming、CLI 工具注册待后续 |
 | `tests/cli/` (agent direct) | 3 | `crates/lure-cli/tests/cli_one_shot.rs` | partial | `agent -m` one-shot、基础 interactive REPL、`--session`、`--config`/`--preset`/`--model`（经 resolver 选 provider）、EOF/退出命令已覆盖；prompt_toolkit、stream/progress 渲染、slash commands 待后续 |
 
 > 注：Phase 3 provider 采用同步 trait + `EchoProvider` 占位；上游 async provider 与

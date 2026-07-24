@@ -9,13 +9,18 @@
 
 use std::fmt;
 
-use serde_json::{Map, Value};
+use serde_json::{json, Map, Value};
 
 use crate::agent::context::ContextBuilder;
 use crate::agent::runner::AgentRunner;
 use crate::bus::InboundMessage;
-use crate::provider::{GenerationSettings, LlmProvider, LlmRuntime, ProviderError};
+use crate::provider::{GenerationSettings, LlmProvider, LlmRuntime, ProviderError, ToolCall};
 use crate::session::{SessionError, SessionManager};
+use crate::tool::ToolRegistry;
+
+/// tool-call 循环的最大迭代数：每次迭代一次 provider 调用；达到上限即停止，
+/// 避免模型反复请求工具导致死循环。
+pub const MAX_TOOL_ITERATIONS: usize = 8;
 
 /// 结构化 progress 事件。
 #[derive(Debug, Clone, PartialEq)]
@@ -89,6 +94,7 @@ pub struct AgentLoop {
     context: ContextBuilder,
     settings: GenerationSettings,
     model: String,
+    tools: Option<ToolRegistry>,
 }
 
 impl AgentLoop {
@@ -105,7 +111,16 @@ impl AgentLoop {
             context,
             settings: GenerationSettings::default(),
             model,
+            tools: None,
         }
+    }
+
+    /// 挂载工具注册表，启用 tool-call 循环。
+    ///
+    /// 未挂载时即便 provider 返回 `tool_calls` 也直接作为终态（向后兼容 Phase 3）。
+    pub fn with_tools(mut self, tools: ToolRegistry) -> Self {
+        self.tools = Some(tools);
+        self
     }
 
     /// 用 `ModelRuntimeResolver` 产出的 [`LlmRuntime`] 覆盖 model 与生成参数。
@@ -128,54 +143,158 @@ impl AgentLoop {
         &mut self.sessions
     }
 
-    /// 处理一条 inbound 消息，跑完最小闭环并返回产出。
+    /// 处理一条 inbound 消息，跑完（可能多轮 tool-call 的）闭环并返回产出。
+    ///
+    /// 每轮：构建 context → 调 provider。无 `tool_calls`（或未挂载 registry）即为终态：
+    /// 追加最终 assistant turn 返回。否则追加带 `tool_calls` 的 assistant turn，执行每个
+    /// 工具并把结果作为 `tool` turn 回灌历史，进入下一轮；至多 [`MAX_TOOL_ITERATIONS`] 轮。
     pub fn process(&mut self, input: &InboundMessage) -> Result<TurnOutcome, AgentError> {
         let key = input.session_key();
         let mut progress = vec![ProgressEvent::TurnStarted {
             session_key: key.clone(),
         }];
 
-        // 1) 追加 user turn。
+        // 追加 user turn。
         self.sessions
             .get_or_create(&key)?
             .add_message("user", &input.content);
 
-        // 2) 构建 context（历史此时已含 user turn）。
-        let history = self.sessions.get_or_create(&key)?.get_history(0);
-        let messages = self.context.build(&history);
+        let mut final_content = String::new();
+        let mut final_reasoning = None;
 
-        // 3) 调 runner/provider（借用在此块内结束）。
-        let (content, reasoning) = {
-            let runner = AgentRunner::new(self.provider.as_ref(), self.settings.clone());
-            let response = runner.run(&self.model, messages)?;
-            (
-                response.content.unwrap_or_default(),
-                response.reasoning_content,
-            )
-        };
+        for _ in 0..MAX_TOOL_ITERATIONS {
+            // 构建 context（历史含此前所有 turn），调 provider。
+            let history = self.sessions.get_or_create(&key)?.get_history(0);
+            let messages = self.context.build(&history);
+            let response = {
+                let runner = AgentRunner::new(self.provider.as_ref(), self.settings.clone());
+                runner.run(&self.model, messages)?
+            };
 
-        // 4) 追加 assistant turn 并保存；reasoning_content 一并持久化（供 WebUI 展示，
-        //    但不会经 context 投影回放给 provider）。
-        let reasoning = reasoning.filter(|r| !r.is_empty());
-        let mut extra = Map::new();
-        if let Some(reasoning) = &reasoning {
-            extra.insert(
-                "reasoning_content".to_string(),
-                Value::String(reasoning.clone()),
-            );
+            let content = response.content.clone().unwrap_or_default();
+            let reasoning = response.reasoning_content.clone().filter(|r| !r.is_empty());
+            let run_tools = self.tools.is_some() && !response.tool_calls.is_empty();
+
+            if !run_tools {
+                // 终态：追加最终 assistant turn（reasoning 一并持久化，仅供展示）。
+                persist_assistant(&mut self.sessions, &key, &content, &reasoning, &[])?;
+                self.sessions.save(&key, false)?;
+                progress.push(ProgressEvent::FinalResponse {
+                    content: content.clone(),
+                });
+                return Ok(TurnOutcome {
+                    final_content: content,
+                    reasoning,
+                    progress,
+                });
+            }
+
+            // tool round：先持久化带 tool_calls 的 assistant turn。
+            let tool_calls = response.tool_calls.clone();
+            persist_assistant(&mut self.sessions, &key, &content, &reasoning, &tool_calls)?;
+
+            // 执行所有工具（借用 registry；此段不改动 session）。
+            let results: Vec<(String, String)> = tool_calls
+                .iter()
+                .map(|call| {
+                    let registry = self.tools.as_ref().expect("run_tools 已确保存在");
+                    (call.id.clone(), execute_tool(registry, call))
+                })
+                .collect();
+
+            // 把工具结果作为 tool turn 回灌历史。
+            for (tool_call_id, result) in results {
+                persist_tool_result(&mut self.sessions, &key, &tool_call_id, &result)?;
+            }
+
+            final_content = content;
+            final_reasoning = reasoning;
         }
-        self.sessions
-            .get_or_create(&key)?
-            .add_message_with("assistant", &content, extra);
-        self.sessions.save(&key, false)?;
 
+        // 达到迭代上限：保存并返回最后一轮的 assistant 内容。
+        self.sessions.save(&key, false)?;
         progress.push(ProgressEvent::FinalResponse {
-            content: content.clone(),
+            content: final_content.clone(),
         });
         Ok(TurnOutcome {
-            final_content: content,
-            reasoning,
+            final_content,
+            reasoning: final_reasoning,
             progress,
         })
     }
+}
+
+/// 持久化 assistant turn；`reasoning_content` 与 `tool_calls` 作为附加字段一并保存。
+fn persist_assistant(
+    sessions: &mut SessionManager,
+    key: &str,
+    content: &str,
+    reasoning: &Option<String>,
+    tool_calls: &[ToolCall],
+) -> Result<(), SessionError> {
+    let mut extra = Map::new();
+    if let Some(reasoning) = reasoning {
+        extra.insert(
+            "reasoning_content".to_string(),
+            Value::String(reasoning.clone()),
+        );
+    }
+    if !tool_calls.is_empty() {
+        extra.insert("tool_calls".to_string(), tool_calls_to_json(tool_calls));
+    }
+    sessions
+        .get_or_create(key)?
+        .add_message_with("assistant", content, extra);
+    Ok(())
+}
+
+/// 持久化一条 tool 结果 turn（role `tool` + `tool_call_id`）。
+fn persist_tool_result(
+    sessions: &mut SessionManager,
+    key: &str,
+    tool_call_id: &str,
+    content: &str,
+) -> Result<(), SessionError> {
+    let mut extra = Map::new();
+    extra.insert(
+        "tool_call_id".to_string(),
+        Value::String(tool_call_id.to_string()),
+    );
+    sessions
+        .get_or_create(key)?
+        .add_message_with("tool", content, extra);
+    Ok(())
+}
+
+/// 解析参数并派发工具，返回结果文本；参数非法或工具错误均以文本回灌（结构化 is_error
+/// 由工具层负责，这里统一转成可回灌的文本供模型自我纠正）。
+fn execute_tool(registry: &ToolRegistry, call: &ToolCall) -> String {
+    let args = if call.arguments.trim().is_empty() {
+        json!({})
+    } else {
+        match serde_json::from_str::<Value>(&call.arguments) {
+            Ok(value) => value,
+            Err(e) => return format!("工具 '{}' 参数不是合法 JSON: {e}", call.name),
+        }
+    };
+    match registry.execute(&call.name, &args) {
+        Ok(result) => result.content,
+        Err(e) => e.to_string(),
+    }
+}
+
+/// 把 [`ToolCall`] 还原成 OpenAI function-calling 的 `tool_calls` 数组，供回灌 provider。
+fn tool_calls_to_json(tool_calls: &[ToolCall]) -> Value {
+    Value::Array(
+        tool_calls
+            .iter()
+            .map(|call| {
+                json!({
+                    "id": call.id,
+                    "type": "function",
+                    "function": {"name": call.name, "arguments": call.arguments},
+                })
+            })
+            .collect(),
+    )
 }
