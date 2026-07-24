@@ -314,9 +314,29 @@
     CLI `cli_one_shot`（新增 resolver 选择/缺 key/不可匹配 provider 用例）9 passed；全量测试通过。
 - 上游对照：
   - 已覆盖：CLI/loop 的 provider 选择由 resolver 驱动，settings 从 config 默认 preset（temp 0.1 / max 8192）取值。
-  - 暂未覆盖：`--preset <name>` 命名 preset 入口、config 文件加载后的 preset 集合、真实 runtime 探活/降级。
+  - 暂未覆盖：`--preset <name>` 命名 preset 入口、config 文件加载后的 preset 集合（已在下一条记录完成）、真实 runtime 探活/降级。
 - 下一步：
-  - 补 config 文件加载 + `--preset` 命名入口，或推进 config 驱动的 `ProvidersConfig`（api_key/OAuth/local fallback）。
+  - 补 config 文件加载 + `--preset` 命名入口（已完成），或推进 config 驱动的 `ProvidersConfig`（api_key/OAuth/local fallback）。
+
+### 进度记录 2026-07-24（--preset 与 config 文件加载）
+
+- 状态：partial
+- 本次完成：
+  - CLI 新增 `--config/-c <path>` 与 `--preset/-p <name>`：
+    - `load_cli_config`：加载 `--config`（缺省 `default_config_path` = `~/.nanobot/config.json`）；文件不存在回落默认配置。
+    - `resolve_runtime(config, preset, model)`：`--preset` 选中命名 preset（`admit(Some(name))`）；
+      `--model` 覆盖默认 preset 的 model 并强制 `provider=auto`（`admit(None)`）；二者互斥，同时给出报错。
+    - `build_agent_loop`：无 `--preset`/`--model` 仍走离线 EchoProvider；否则加载 config → resolver → 真实 provider。
+- 验证：
+  - `rtk cargo fmt --check` 通过；`clippy --all-targets --all-features -D warnings` 无问题。
+  - CLI `cli_one_shot` 新增用例（config 文件命名 preset 选中并报缺 key、未知 preset NotFound、`--preset`/`--model` 互斥）
+    12 passed；全量测试通过（35 套件）。
+- 上游对照：
+  - 已覆盖：config 文件加载 + 命名 preset 选中入口，命名 preset 经 resolver 解析为不可变 runtime。
+  - 暂未覆盖：`--model` 与 `--preset` 组合覆盖（当前互斥）、config 驱动的 `ProvidersConfig`
+    （api_key/OAuth/local fallback）、真实 runtime 探活/降级。
+- 下一步：
+  - 推进 config 驱动的 `ProvidersConfig`（`_match_provider` 的 api_key/OAuth/local fallback），或进入 Phase 5 tool 运行时。
 
 ## Phase 5: Tool Runtime 与安全边界
 

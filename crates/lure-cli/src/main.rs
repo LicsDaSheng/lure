@@ -1,11 +1,12 @@
 //! `lure-cli`：Rust 版 `nanobot` 复刻的命令行入口。
 //!
 //! `lure agent -m "..."` 跑完 agent loop 并保存 turn；`lure agent` 进入交互模式。
-//! 默认走 EchoProvider（离线占位）；provider 选择统一经 `ModelRuntimeResolver`：
-//! 指定 `--model <model>` 时由 resolver 解析出不可变 runtime（provider 身份 + 生成
-//! 参数），据此从 `<PROVIDER>_API_KEY` 读取 key 构造真实 OpenAI-compatible provider，
-//! 并把 runtime 的 model/settings 注入 loop（例如 `--model deepseek-v4-pro`
-//! → deepseek + `DEEPSEEK_API_KEY`）。
+//! 默认走 EchoProvider（离线占位）；provider 选择统一经 `ModelRuntimeResolver`。
+//! 指定 `--preset <name>`（从 `--config` 加载的 config 选中命名 preset）或
+//! `--model <model>`（覆盖默认 preset 的 model，二者互斥）时，由 resolver 解析出不可变
+//! runtime（provider 身份 + 生成参数），据此从 `<PROVIDER>_API_KEY` 读取 key 构造真实
+//! OpenAI-compatible provider，并把 runtime 的 model/settings 注入 loop（例如
+//! `--model deepseek-v4-pro` → deepseek + `DEEPSEEK_API_KEY`）。
 
 use std::io::{self, BufRead, Write};
 use std::path::PathBuf;
@@ -13,7 +14,7 @@ use std::process::ExitCode;
 
 use lure_core::agent::{AgentLoop, ContextBuilder};
 use lure_core::bus::InboundMessage;
-use lure_core::config::{default_workspace, Config};
+use lure_core::config::{default_config_path, default_workspace, load_config, Config};
 use lure_core::provider::{
     EchoProvider, LlmProvider, LlmRuntime, ModelRuntimeResolver, OpenAiCompatProvider,
     UreqTransport,
@@ -59,11 +60,17 @@ enum AgentRun {
     Interactive,
 }
 
-/// 解析并执行 `agent [-m <message>] [--session <id>] [--workspace <path>] [--model <model>] [--show-reasoning]`。
+/// 解析并执行 `agent [-m <message>] [--session <id>] [--workspace <path>]
+/// [--config <path>] [--preset <name>] [--model <model>] [--show-reasoning]`。
+///
+/// `--preset` 与 `--model` 互斥：前者从加载的 config 选中命名 preset，后者覆盖默认
+/// preset 的 model。
 fn run_agent(args: &[String]) -> Result<AgentRun, String> {
     let mut message: Option<String> = None;
     let mut session_id = String::from("cli:direct");
     let mut workspace: Option<String> = None;
+    let mut config_path: Option<String> = None;
+    let mut preset: Option<String> = None;
     let mut model: Option<String> = None;
     let mut show_reasoning = false;
 
@@ -82,6 +89,14 @@ fn run_agent(args: &[String]) -> Result<AgentRun, String> {
                 index += 1;
                 workspace = Some(args.get(index).ok_or("--workspace 缺少路径")?.clone());
             }
+            "-c" | "--config" => {
+                index += 1;
+                config_path = Some(args.get(index).ok_or("--config 缺少路径")?.clone());
+            }
+            "-p" | "--preset" => {
+                index += 1;
+                preset = Some(args.get(index).ok_or("--preset 缺少 preset 名")?.clone());
+            }
             "--model" => {
                 index += 1;
                 model = Some(args.get(index).ok_or("--model 缺少模型名")?.clone());
@@ -97,7 +112,12 @@ fn run_agent(args: &[String]) -> Result<AgentRun, String> {
         .unwrap_or_else(default_workspace);
 
     let sessions = SessionManager::new(&workspace).map_err(|e| e.to_string())?;
-    let mut agent_loop = build_agent_loop(model.as_deref(), sessions)?;
+    let mut agent_loop = build_agent_loop(
+        config_path.as_deref(),
+        preset.as_deref(),
+        model.as_deref(),
+        sessions,
+    )?;
     let (channel, chat_id) = split_session_id(&session_id);
 
     match message {
@@ -190,33 +210,62 @@ fn is_exit_command(command: &str) -> bool {
 
 /// 构建 agent loop：provider 选择路径统一经 `ModelRuntimeResolver`。
 ///
-/// 无 `--model` 走离线 EchoProvider（占位）；指定 `--model` 时由 resolver 解析出
-/// 不可变 runtime（provider 身份/api_base/model + 生成参数），据此构造真实
-/// OpenAI-compatible provider 并把 runtime 的 model/settings 注入 loop。
-fn build_agent_loop(model: Option<&str>, sessions: SessionManager) -> Result<AgentLoop, String> {
+/// 未指定 `--preset`/`--model` 时走离线 EchoProvider（占位）；否则加载 config 文件，
+/// 由 resolver 解析出不可变 runtime（provider 身份/api_base/model + 生成参数），据此
+/// 构造真实 OpenAI-compatible provider 并把 runtime 的 model/settings 注入 loop。
+fn build_agent_loop(
+    config_path: Option<&str>,
+    preset: Option<&str>,
+    model: Option<&str>,
+    sessions: SessionManager,
+) -> Result<AgentLoop, String> {
     let context = ContextBuilder::new(None);
 
-    let Some(model) = model else {
+    if preset.is_none() && model.is_none() {
         return Ok(AgentLoop::new(
             Box::new(EchoProvider::new()),
             sessions,
             context,
         ));
-    };
+    }
 
-    let runtime = resolve_runtime(model)?;
+    let config = load_cli_config(config_path)?;
+    let runtime = resolve_runtime(config, preset, model)?;
     let provider = build_provider_from_runtime(&runtime)?;
     Ok(AgentLoop::new(provider, sessions, context).with_runtime(&runtime))
 }
 
-/// 用 `--model` 覆盖默认 preset 的 model，经 resolver 解析出不可变 runtime。
-fn resolve_runtime(model: &str) -> Result<LlmRuntime, String> {
-    let mut config = Config::default();
-    config.agents.defaults.model = model.to_string();
-    config.agents.defaults.provider = "auto".to_string();
+/// 加载 config 文件（缺省用 `default_config_path`）；文件不存在时回落到默认配置。
+fn load_cli_config(config_path: Option<&str>) -> Result<Config, String> {
+    let path = config_path
+        .map(PathBuf::from)
+        .unwrap_or_else(default_config_path);
+    load_config(&path).map_err(|e| e.to_string())
+}
+
+/// 从 config + flag 解析出不可变 runtime。
+///
+/// `--preset` 与 `--model` 互斥：`--preset` 选中命名 preset；`--model` 覆盖默认 preset
+/// 的 model（并强制 `provider=auto` 走 registry 匹配）。
+fn resolve_runtime(
+    mut config: Config,
+    preset: Option<&str>,
+    model: Option<&str>,
+) -> Result<LlmRuntime, String> {
+    let selected = match (preset, model) {
+        (Some(_), Some(_)) => return Err("--preset 与 --model 互斥，只能二选一".to_string()),
+        (Some(name), None) => Some(name.to_string()),
+        (None, Some(model)) => {
+            config.agents.defaults.model = model.to_string();
+            config.agents.defaults.provider = "auto".to_string();
+            None
+        }
+        // build_agent_loop 已拦截二者皆无的情况。
+        (None, None) => None,
+    };
 
     ModelRuntimeResolver::new(config)
-        .admit(None)
+        .admit(selected.as_deref())
         .map_err(|e| e.to_string())
 }
 

@@ -130,6 +130,100 @@ fn model_flag_unmatchable_provider_fails_via_resolver() {
 }
 
 #[test]
+fn preset_flag_admits_named_preset_from_config_file() {
+    // config 文件里的命名 preset 应被 resolver 选中：fast → deepseek，缺 key 报对应 env 变量。
+    let dir = tempdir().unwrap();
+    let config_path = dir.path().join("config.json");
+    std::fs::write(
+        &config_path,
+        r#"{"modelPresets":{"fast":{"model":"deepseek-chat","provider":"auto"}}}"#,
+    )
+    .unwrap();
+
+    let output = lure()
+        .args([
+            "agent",
+            "-m",
+            "hello",
+            "--config",
+            config_path.to_str().unwrap(),
+            "--preset",
+            "fast",
+            "--workspace",
+            dir.path().to_str().unwrap(),
+        ])
+        .env_remove("DEEPSEEK_API_KEY")
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert!(
+        stderr.contains("DEEPSEEK_API_KEY"),
+        "stderr 应提示缺少 DEEPSEEK_API_KEY，实际: {stderr}"
+    );
+}
+
+#[test]
+fn preset_flag_unknown_preset_reports_not_found() {
+    let dir = tempdir().unwrap();
+    let config_path = dir.path().join("config.json");
+    std::fs::write(
+        &config_path,
+        r#"{"modelPresets":{"fast":{"model":"deepseek-chat","provider":"auto"}}}"#,
+    )
+    .unwrap();
+
+    let output = lure()
+        .args([
+            "agent",
+            "-m",
+            "hello",
+            "--config",
+            config_path.to_str().unwrap(),
+            "--preset",
+            "nope",
+            "--workspace",
+            dir.path().to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert!(
+        stderr.contains("nope"),
+        "stderr 应提示 preset 'nope' 不存在，实际: {stderr}"
+    );
+}
+
+#[test]
+fn preset_and_model_flags_are_mutually_exclusive() {
+    let dir = tempdir().unwrap();
+    let output = lure()
+        .args([
+            "agent",
+            "-m",
+            "hello",
+            "--preset",
+            "fast",
+            "--model",
+            "deepseek-chat",
+            "--workspace",
+            dir.path().to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert!(
+        stderr.contains("--preset") && stderr.contains("--model"),
+        "stderr 应提示 --preset 与 --model 互斥，实际: {stderr}"
+    );
+}
+
+#[test]
 fn interactive_mode_processes_multiple_turns_until_exit() {
     let dir = tempdir().unwrap();
     let mut child = lure()

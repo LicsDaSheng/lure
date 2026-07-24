@@ -90,11 +90,16 @@ cargo run --bin lure -- agent -m "你好" --workspace /path/to/workspace
 # 交互模式：持续复用同一 session；输入 exit、quit、/exit、/quit 或 :q 退出
 cargo run --bin lure -- agent --workspace /path/to/workspace --session cli:direct
 
+# 真实 provider：provider 选择经 ModelRuntimeResolver
+#   --model 覆盖默认 preset 的 model；--preset 从 --config 加载的 config 选中命名 preset（二者互斥）
+cargo run --bin lure -- agent -m "你好" --model deepseek-v4-pro          # 需 DEEPSEEK_API_KEY
+cargo run --bin lure -- agent -m "你好" --config ~/.nanobot/config.json --preset fast
+
 # 无子命令：打印版本
 cargo run --bin lure
 ```
 
-`--workspace` 缺省时使用 `~/.nanobot/workspace`（对齐上游默认路径）。会话以 JSONL 持久化在 `<workspace>/sessions/` 下，文件名为 session key 的 base64url 编码。
+`--workspace` 缺省时使用 `~/.nanobot/workspace`，`--config` 缺省时使用 `~/.nanobot/config.json`（对齐上游默认路径）。会话以 JSONL 持久化在 `<workspace>/sessions/` 下，文件名为 session key 的 base64url 编码。指定 `--model`/`--preset` 时，provider 身份、api_base、model 与生成参数均由 resolver 解析出的不可变 runtime 决定。
 
 ## 贡献约定
 
