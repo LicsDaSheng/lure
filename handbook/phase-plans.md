@@ -338,6 +338,29 @@
 - 下一步：
   - 推进 config 驱动的 `ProvidersConfig`（`_match_provider` 的 api_key/OAuth/local fallback），或进入 Phase 5 tool 运行时。
 
+### 进度记录 2026-07-24（config 驱动 ProvidersConfig）
+
+- 状态：partial
+- 本次完成：
+  - schema 新增 `ProviderConfig`（`apiKey`/`apiBase`/`enabled`，camelCase + snake 别名，`enabled` 默认 true）
+    与 `Config.providers: BTreeMap<String, ProviderConfig>`；导出 `ProviderConfig`/`ResolvedProvider`。
+  - `Config::resolve_provider(model, forced)`（config 驱动切片，复用 `registry::find_by_name`/`PROVIDERS`）：
+    - forced/前缀为显式意图，禁用不影响；auto 关键字匹配时跳过 config 中被禁用的 provider。
+    - 生效 `api_base` 优先 `providers.<name>.apiBase`，否则 registry 默认。
+    - `provider_api_key(name)` 暴露 config 显式 key。
+  - resolver：`build` 改用 `config.resolve_provider`，`ProviderSnapshot` 的 provider 名/api_base 走 config 覆盖。
+  - CLI：`build_provider_from_runtime(config, runtime)` 的 api_key 解析改为 config 优先、env 回落。
+- 验证：
+  - `rtk cargo fmt --check` 通过；`clippy --all-targets --all-features -D warnings` 无问题。
+  - 新增 `config_providers.rs`（8 passed：api_base 覆盖/回落、auto 跳过禁用、forced 显式、api_key、serde 默认）；
+    resolver 新增 2 用例（api_base 覆盖、禁用 provider → ProviderNotFound）；CLI 新增 config apiKey+apiBase 用例；
+    全量测试通过（36 套件）。
+- 上游对照：
+  - 已覆盖：`_match_provider` 的 config 驱动核心切片（api_base 覆盖、enabled 过滤、api_key 解析）。
+  - 暂未覆盖：provider 的 OAuth 凭据、local fallback、transcription-only 过滤；`--model`/`--preset` 组合覆盖。
+- 下一步：
+  - 进入 Phase 5 tool 运行时盘点，或继续补 provider 的 OAuth/local fallback。
+
 ## Phase 5: Tool Runtime 与安全边界
 
 ### Plan

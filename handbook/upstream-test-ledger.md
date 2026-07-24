@@ -138,9 +138,10 @@ Phase 0 已完成，确定 phase 1-4 关键上游测试的 Rust 测试落点（�
 
 | 上游测试 | 归属 phase | Rust 测试 | 状态 | 说明 |
 |---|---:|---|---|---|
-| `tests/config/test_model_presets.py` | 4 | `crates/lure-core/tests/config_model_presets.rs` | partial | config 层 preset 解析/校验/序列化已覆盖；`_match_provider`/`get_provider_name`（依赖 `ProvidersConfig`）暂缓 |
+| `tests/config/test_model_presets.py` | 4 | `crates/lure-core/tests/config_model_presets.rs` | partial | config 层 preset 解析/校验/序列化已覆盖；`get_provider_name` 的 OAuth/local fallback 暂缓 |
+| `tests/config/` (ProvidersConfig) | 4 | `crates/lure-core/tests/config_providers.rs` | partial | config 驱动 `resolve_provider`（api_base 覆盖、auto 跳过禁用、forced 显式、api_key 解析）已覆盖；OAuth/local fallback 暂缓 |
 | `tests/providers/` (OpenAI-compatible) | 4 | `crates/lure-core/tests/provider_openai.rs` | partial | 请求 golden + 响应解析 + 错误分类已覆盖；`max_completion_tokens`/streaming/tool/重试暂缓 |
-| `tests/providers/` (selection order) | 4 | `crates/lure-core/tests/provider_registry.rs` | partial | forced/前缀/关键字选择顺序已覆盖；config 驱动 api_key/OAuth/local fallback 暂缓 |
+| `tests/providers/` (selection order) | 4 | `crates/lure-core/tests/provider_registry.rs` | partial | forced/前缀/关键字选择顺序已覆盖；config 驱动 api_base/enabled/api_key 已由 `config_providers.rs` 覆盖，OAuth/local fallback 暂缓 |
 | `tests/agent/test_model_runtime_resolver.py` | 4 | `crates/lure-core/tests/model_runtime_resolver.rs` | partial | stateful resolver 生命周期（admit/refresh/invalidate + preset tracking + 不可变 `LlmRuntime`/`ProviderSnapshot`）已覆盖；上游源码未 vendored，按本 ledger 记录语义建立事实来源，真实 runtime 探活/降级仍待补 |
 
 > 注：Phase 4 provider 通过 `HttpTransport` 抽象，单测用假传输不触网。真实同步 HTTP 传输
@@ -148,8 +149,9 @@ Phase 0 已完成，确定 phase 1-4 关键上游测试的 Rust 测试落点（�
 > 仅设置 `DEEPSEEK_API_KEY` 时出网），CLI `--model <model>` 经 registry 匹配 provider 并从
 > `<PROVIDER>_API_KEY` 读取 key。stateful `ModelRuntimeResolver` 已落地
 > （preset → 不可变 runtime/snapshot + admit/refresh/invalidate 缓存），并已接入 CLI/AgentLoop
-> 的 provider 选择路径（`AgentLoop::with_runtime` 注入 model/settings）；config 驱动的完整
-> `_match_provider`（api_key/OAuth/local fallback）与 `--preset` 命名入口仍待后续。
+> 的 provider 选择路径（`AgentLoop::with_runtime` 注入 model/settings），且已补 `--preset`
+> 命名入口与 config 驱动 `resolve_provider`（api_base 覆盖、auto 跳过禁用 provider、api_key
+> config 优先 env 回落）；provider 的 OAuth 凭据与 local fallback 仍待后续。
 
 ## Phase 3 明细映射
 

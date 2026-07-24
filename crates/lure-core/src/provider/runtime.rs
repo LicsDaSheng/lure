@@ -16,7 +16,6 @@ use std::collections::HashMap;
 
 use crate::config::{Config, PresetError, DEFAULT_PRESET_NAME};
 
-use super::registry::match_provider;
 use super::types::GenerationSettings;
 
 /// 解析时刻捕获的 provider 身份快照（不可变）。
@@ -162,12 +161,13 @@ impl ModelRuntimeResolver {
         };
         let preset = self.config.resolve_preset(requested)?;
 
-        let spec = match_provider(&preset.model, &preset.provider).ok_or_else(|| {
-            RuntimeError::ProviderNotFound {
+        let resolved = self
+            .config
+            .resolve_provider(&preset.model, &preset.provider)
+            .ok_or_else(|| RuntimeError::ProviderNotFound {
                 model: preset.model.clone(),
                 provider: preset.provider.clone(),
-            }
-        })?;
+            })?;
 
         let generation = self.next_generation;
         self.next_generation += 1;
@@ -175,8 +175,8 @@ impl ModelRuntimeResolver {
         Ok(LlmRuntime {
             preset_name: canonical.to_string(),
             provider: ProviderSnapshot {
-                provider_name: spec.name.to_string(),
-                api_base: spec.default_api_base.to_string(),
+                provider_name: resolved.name,
+                api_base: resolved.api_base,
                 model: preset.model.clone(),
             },
             settings: GenerationSettings {

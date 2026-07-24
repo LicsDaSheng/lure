@@ -230,8 +230,8 @@ fn build_agent_loop(
     }
 
     let config = load_cli_config(config_path)?;
-    let runtime = resolve_runtime(config, preset, model)?;
-    let provider = build_provider_from_runtime(&runtime)?;
+    let runtime = resolve_runtime(config.clone(), preset, model)?;
+    let provider = build_provider_from_runtime(&config, &runtime)?;
     Ok(AgentLoop::new(provider, sessions, context).with_runtime(&runtime))
 }
 
@@ -269,13 +269,22 @@ fn resolve_runtime(
         .map_err(|e| e.to_string())
 }
 
-/// 由 runtime 的 provider 快照构造真实 provider：从 `<PROVIDER>_API_KEY` 读取 key。
-fn build_provider_from_runtime(runtime: &LlmRuntime) -> Result<Box<dyn LlmProvider>, String> {
+/// 由 runtime 的 provider 快照构造真实 provider。
+///
+/// api_key 解析：优先 `config.providers.<name>.apiKey`，否则回落环境变量
+/// `<PROVIDER>_API_KEY`；api_base/model 取 runtime 快照（已含 config 覆盖）。
+fn build_provider_from_runtime(
+    config: &Config,
+    runtime: &LlmRuntime,
+) -> Result<Box<dyn LlmProvider>, String> {
     let provider_name = &runtime.provider.provider_name;
     let env_key = format!("{}_API_KEY", provider_name.to_uppercase());
-    let api_key = std::env::var(&env_key).map_err(|_| {
-        format!("缺少环境变量 {env_key}（provider '{provider_name}' 需要 API key）")
-    })?;
+    let api_key = config
+        .provider_api_key(provider_name)
+        .or_else(|| std::env::var(&env_key).ok())
+        .ok_or_else(|| {
+            format!("缺少 API key：config.providers.{provider_name}.apiKey 或环境变量 {env_key}")
+        })?;
 
     Ok(Box::new(OpenAiCompatProvider::new(
         &runtime.provider.api_base,

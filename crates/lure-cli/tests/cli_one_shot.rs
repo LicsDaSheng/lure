@@ -198,6 +198,46 @@ fn preset_flag_unknown_preset_reports_not_found() {
 }
 
 #[test]
+fn preset_uses_config_api_key_and_api_base_override() {
+    // config 提供 apiKey 与 apiBase：resolver 应用 base 覆盖、CLI 用 config key（不再要 env）。
+    // apiBase 指向本地未监听端口，出网即刻失败——证明已越过缺 key 检查、走到真实传输。
+    let dir = tempdir().unwrap();
+    let config_path = dir.path().join("config.json");
+    std::fs::write(
+        &config_path,
+        r#"{"providers":{"deepseek":{"apiKey":"sk-test","apiBase":"http://127.0.0.1:1/v1"}},"modelPresets":{"fast":{"model":"deepseek-chat","provider":"auto"}}}"#,
+    )
+    .unwrap();
+
+    let output = lure()
+        .args([
+            "agent",
+            "-m",
+            "hello",
+            "--config",
+            config_path.to_str().unwrap(),
+            "--preset",
+            "fast",
+            "--workspace",
+            dir.path().to_str().unwrap(),
+        ])
+        .env_remove("DEEPSEEK_API_KEY")
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert!(
+        !stderr.contains("DEEPSEEK_API_KEY"),
+        "config 提供 key 后不应再报缺 env key，实际: {stderr}"
+    );
+    assert!(
+        stderr.contains("传输"),
+        "应走到真实传输并失败，实际: {stderr}"
+    );
+}
+
+#[test]
 fn preset_and_model_flags_are_mutually_exclusive() {
     let dir = tempdir().unwrap();
     let output = lure()

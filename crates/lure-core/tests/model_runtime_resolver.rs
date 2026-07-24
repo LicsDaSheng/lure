@@ -174,6 +174,43 @@ fn switching_presets_tracks_active_and_caches_each() {
 }
 
 #[test]
+fn admit_applies_provider_api_base_override_from_config() {
+    let mut config = config_with_preset("fast", preset("deepseek-chat", "auto"));
+    config.providers.insert(
+        "deepseek".to_string(),
+        lure_core::config::ProviderConfig {
+            api_base: Some("https://proxy.example/v1".to_string()),
+            ..lure_core::config::ProviderConfig::default()
+        },
+    );
+
+    let mut resolver = ModelRuntimeResolver::new(config);
+    let runtime = resolver.admit(Some("fast")).unwrap();
+
+    assert_eq!(runtime.provider.provider_name, "deepseek");
+    assert_eq!(runtime.provider.api_base, "https://proxy.example/v1");
+}
+
+#[test]
+fn admit_errors_when_matched_provider_disabled() {
+    let mut config = config_with_preset("smart", preset("gpt-4o", "auto"));
+    config.providers.insert(
+        "openai".to_string(),
+        lure_core::config::ProviderConfig {
+            enabled: false,
+            ..lure_core::config::ProviderConfig::default()
+        },
+    );
+
+    let mut resolver = ModelRuntimeResolver::new(config);
+    let err = resolver.admit(Some("smart")).unwrap_err();
+    assert!(
+        matches!(&err, RuntimeError::ProviderNotFound { .. }),
+        "unexpected error: {err:?}"
+    );
+}
+
+#[test]
 fn admit_none_follows_agent_default_preset_pointer() {
     let mut config = config_with_preset("fast", preset("deepseek-chat", "auto"));
     config.agents.defaults.model_preset = Some("fast".to_string());
