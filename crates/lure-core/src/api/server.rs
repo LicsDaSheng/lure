@@ -18,7 +18,7 @@ use tiny_http::{Header, Method, Request, Response, Server};
 use crate::agent::AgentLoop;
 use crate::api::openai::{
     api_session_key, authorize, chat_completion_response, error_body, generate_completion_id,
-    parse_chat_request, sse_chunks, validate_model,
+    models_response, parse_chat_request, sse_chunks, validate_model,
 };
 use crate::bus::InboundMessage;
 
@@ -115,6 +115,7 @@ impl<R: ChatRunner> ChatServer<R> {
             (Method::Get, "/health") => {
                 respond_json(request, 200, serde_json::json!({"status": "ok"}))
             }
+            (Method::Get, "/v1/models") => self.handle_models(request),
             (Method::Post, "/v1/chat/completions") => self.handle_chat(request),
             _ => respond_json(
                 request,
@@ -122,6 +123,15 @@ impl<R: ChatRunner> ChatServer<R> {
                 error_body(404, "Not Found", "invalid_request_error"),
             ),
         }
+    }
+
+    /// 处理 `/v1/models`：鉴权 → 返回单条已配置模型。
+    fn handle_models(&mut self, request: Request) -> std::io::Result<()> {
+        let auth = header_value(&request, "Authorization");
+        if let Err(e) = authorize(self.config.api_key.as_deref(), auth.as_deref()) {
+            return respond_json(request, e.status, e.body());
+        }
+        respond_json(request, 200, models_response(&self.config.model))
     }
 
     /// 处理 chat completions：鉴权 → 解析 → 校验 model → 调 runner → 响应。

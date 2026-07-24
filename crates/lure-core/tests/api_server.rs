@@ -193,6 +193,72 @@ fn missing_or_wrong_bearer_key_returns_401_then_valid_passes() {
     assert_eq!(v["choices"][0]["message"]["content"], "echo: hi");
 }
 
+/// 在子线程发一个 GET 请求，返回 `(status, body)`。
+fn get(addr: SocketAddr, path: &str, auth: Option<&str>) -> (u16, String) {
+    let url = format!("http://{addr}{path}");
+    let mut req = ureq::get(&url);
+    if let Some(token) = auth {
+        req = req.set("Authorization", token);
+    }
+    match req.call() {
+        Ok(resp) => (resp.status(), resp.into_string().unwrap()),
+        Err(ureq::Error::Status(code, resp)) => (code, resp.into_string().unwrap()),
+        Err(e) => panic!("传输错误: {e}"),
+    }
+}
+
+#[test]
+fn models_returns_configured_model_shape() {
+    let dir = tempfile::tempdir().unwrap();
+    let (mut server, addr) = bind_server(&dir, None);
+
+    let client = thread::spawn(move || get(addr, "/v1/models", None));
+    server.handle_next().unwrap();
+    let (status, body) = client.join().unwrap();
+
+    assert_eq!(status, 200);
+    let v: Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(v["object"], "list");
+    assert_eq!(v["data"][0]["id"], "echo");
+    assert_eq!(v["data"][0]["object"], "model");
+    assert_eq!(v["data"][0]["created"], 0);
+    assert_eq!(v["data"][0]["owned_by"], "nanobot");
+}
+
+#[test]
+fn models_requires_auth_when_api_key_configured() {
+    let dir = tempfile::tempdir().unwrap();
+    let (mut server, addr) = bind_server(&dir, Some("secret"));
+
+    let client = thread::spawn(move || {
+        // 无 Authorization → 401。
+        let missing = get(addr, "/v1/models", None);
+        // 错误 Bearer key → 401。
+        let wrong = get(addr, "/v1/models", Some("Bearer nope"));
+        // 正确 Bearer key → 200。
+        let ok = get(addr, "/v1/models", Some("Bearer secret"));
+        (missing, wrong, ok)
+    });
+    server.handle_next().unwrap();
+    server.handle_next().unwrap();
+    server.handle_next().unwrap();
+    let ((missing_status, missing_body), (wrong_status, wrong_body), (ok_status, _)) =
+        client.join().unwrap();
+
+    assert_eq!(missing_status, 401);
+    let mv: Value = serde_json::from_str(&missing_body).unwrap();
+    assert!(mv["error"]["message"]
+        .as_str()
+        .unwrap()
+        .starts_with("Missing Authorization"));
+
+    assert_eq!(wrong_status, 401);
+    let wv: Value = serde_json::from_str(&wrong_body).unwrap();
+    assert_eq!(wv["error"]["message"], "Invalid API key");
+
+    assert_eq!(ok_status, 200);
+}
+
 #[test]
 fn health_returns_ok_without_auth() {
     let dir = tempfile::tempdir().unwrap();

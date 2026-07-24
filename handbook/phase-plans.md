@@ -719,8 +719,26 @@
     - SDK facade（`nanobot/sdk`）与其 streaming client。
     - API runtime 进程生命周期（与 gateway runtime 的隔离目前体现在固定 session key 命名空间）。
 - 下一步：
-  - Phase 9 剩余外围（`/v1/models`、multipart/media 上传、并发 session lock、逐 token SSE），
+  - Phase 9 剩余外围（multipart/media 上传、并发 session lock、逐 token SSE），
     或 Phase 8（cron/trigger）盘点。
+
+### 进度记录 2026-07-24（GET /v1/models 回补）
+
+- 状态：partial
+- 本次完成：
+  - `api::models_response(model)`：传输无关响应构造，`{"object":"list","data":[{id, object:"model", created:0, owned_by:"nanobot"}]}`，严格对齐上游 `handle_models`。
+  - `ChatServer` 路由新增 `GET /v1/models` 分支与 `handle_models`：复用 `authorize` 鉴权与 `error_body` 错误响应，零逻辑复制。
+- 验证：
+  - `rtk cargo fmt --check` 通过；`clippy --all-targets --all-features -D warnings` 无问题。
+  - `rtk env -u DEEPSEEK_API_KEY cargo test --all-targets --all-features` 通过（245 passed，43 套件）；
+    api_server 新增 2 用例（8 passed）：响应全字段形状、鉴权缺失/错误 401 + 正确 200。
+- 上游对照：
+  - 已覆盖：`tests/test_openai_api.py` 的 `test_models_endpoint`（200 + `object=="list"` + `data[0].id`）
+    与 `test_api_key_protects_api_routes_but_not_health` 中 `/v1/models` 的 401/200 分支。
+  - 暂未覆盖（记入 ledger）：media 上传、并发 session lock、逐 token SSE、SDK facade。
+- 下一步：
+  - Phase 9 剩余外围（并发 session lock 有上游 `test_api_lock_*` 对应，价值较高；逐 token SSE 需把
+    `ContentDelta` 事件链接线到 SSE 响应），或 Phase 8（cron 表达式调度）。
 
 ## Phase 10: WebUI 与前端集成
 

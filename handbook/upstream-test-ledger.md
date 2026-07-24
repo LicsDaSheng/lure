@@ -37,7 +37,7 @@
 | `tests/triggers/` | 8 | partial | at-least-once/忙等/limit 已覆盖；文件 inbox 布局、trigger 定义存储待补 |
 | `tests/webui/` | 10 | partial | session list/thread/status/WS 事件已覆盖；settings/transcript/token usage/媒体等大表面待补 |
 | `webui/src/tests/` | 10 | deferred | 前端行为测试，属外部前端构建资产，后续决定复用或重写 |
-| `tests/test_openai_api.py` | 9 | partial | 请求/响应/校验/鉴权/session 已覆盖；真实 HTTP server、/v1/models、media 待补 |
+|| `tests/test_openai_api.py` | 9 | partial | 请求/响应/校验/鉴权/session、真实 HTTP server、`/v1/models` 已覆盖；media 待补 |
 | `tests/test_api_stream.py` | 9 | partial | SSE 事件顺序已覆盖；真实流式传输与 agent 接线待补 |
 | `tests/test_document_parsing.py` | 5 | todo | 文档读取可作为工具/文档能力子阶段 |
 | `tests/test_docker.sh` | 11 | partial | Dockerfile/compose 骨架已提供；真实 docker build 属 CI 外部工具 |
@@ -81,10 +81,10 @@ Phase 0 已完成，确定 phase 1-4 关键上游测试的 Rust 测试落点（�
 
 | 上游测试 | 归属 phase | Rust 测试 | 状态 | 说明 |
 |---|---:|---|---|---|
-| `tests/test_openai_api.py` | 9 | `crates/lure-core/tests/api_openai.rs` `api_server.rs` | partial | error json、chat completion 形状/usage、单条 user 校验、model 不匹配、鉴权、固定 session、真实 HTTP server 已覆盖；媒体/并发锁待补 |
+|| `tests/test_openai_api.py` | 9 | `crates/lure-core/tests/api_openai.rs` `api_server.rs` | partial | error json、chat completion 形状/usage、单条 user 校验、model 不匹配、鉴权、固定 session、真实 HTTP server、`/v1/models`（形状+鉴权）已覆盖；媒体/并发锁待补 |
 | `tests/test_api_stream.py` | 9 | `crates/lure-core/tests/api_openai.rs` `api_server.rs` | partial | SSE 事件顺序（内容→finish→[DONE]）、真实 HTTP SSE 已覆盖；逐 token 流式待补 |
 
-> 注：Phase 9 传输无关表面与真实 HTTP server 均已落地；SDK facade、/v1/models、
+> 注：Phase 9 传输无关表面与真实 HTTP server（含 `/v1/models`、`/health`）均已落地；SDK facade、
 > API runtime 进程生命周期、逐 token SSE 留待后续。
 
 ## Phase 8 明细映射

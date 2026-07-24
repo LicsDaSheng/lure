@@ -193,6 +193,21 @@ pub fn chat_completion_response(content: &str, model: &str, usage: &Map<String, 
     })
 }
 
+/// 构造 `/v1/models` 响应体：单条已配置模型（对齐上游 `handle_models`）。
+///
+/// `owned_by` 固定为 `"nanobot"`，`created` 固定为 `0`。
+pub fn models_response(model: &str) -> Value {
+    json!({
+        "object": "list",
+        "data": [{
+            "id": model,
+            "object": "model",
+            "created": 0,
+            "owned_by": "nanobot",
+        }]
+    })
+}
+
 /// 构造 streaming SSE 事件序列：内容 chunk → finish chunk → `[DONE]`。
 pub fn sse_chunks(content: &str, model: &str, chunk_id: &str) -> Vec<String> {
     vec![
