@@ -272,6 +272,32 @@
 - 下一步：
   - 进入 Phase 5：tool trait/schema/registry、文件与 shell 工具最小集、workspace 安全策略。
 
+### 进度记录 2026-07-24（stateful ModelRuntimeResolver 回补）
+
+- 状态：partial
+- 本次完成：
+  - `provider::runtime`：新增不可变 `ProviderSnapshot`（provider 名/api_base/model）与
+    `LlmRuntime`（preset 名 + snapshot + `GenerationSettings` + `generation` 代次）。
+  - `ModelRuntimeResolver`：
+    - `admit(name)`：解析 canonical preset → 匹配 provider（复用 `registry::match_provider`）→
+      构建不可变 runtime，按 preset 名缓存并选中；命中缓存复用同一快照（generation 不变）。
+    - `refresh(name)`：强制重建并选中，`generation` 递增。
+    - `invalidate(preset)`：丢弃缓存；若正是 active 则清空 active。
+    - `active()`：当前 admitted runtime。
+    - preset 归一沿用 config 规则（None→defaults.model_preset；空/`default`→隐式默认；命名查表）。
+  - 结构化 `RuntimeError`：`Preset(PresetError)` 与 `ProviderNotFound { model, provider }`。
+- 验证：
+  - `rtk cargo fmt --check` 通过；`clippy --all-targets --all-features -D warnings` 无问题。
+  - `rtk cargo test -p lure-core --test model_runtime_resolver` 通过（10 passed，均不触网）；
+    全量 `cargo test --all-targets --all-features` 通过。
+- 上游对照：
+  - 已覆盖：`test_model_runtime_resolver.py` 记录的 admit/refresh/invalidate + preset tracking +
+    不可变 `LlmRuntime`/`ProviderSnapshot` 捕获语义（上游源码未 vendored，按 ledger 建立事实来源）。
+  - 暂未覆盖：真实 runtime 探活/降级、config 驱动 `_match_provider`（api_key/OAuth/local fallback）、
+    resolver 与 AgentLoop 的接线（当前 CLI 仍走 `build_provider` 直接构造）。
+- 下一步：
+  - 将 resolver 接入 AgentLoop/CLI 的 provider 选择路径，或补 config 驱动的 `ProvidersConfig` 匹配。
+
 ## Phase 5: Tool Runtime 与安全边界
 
 ### Plan
