@@ -6,7 +6,8 @@
 //! `--model <model>`（覆盖默认 preset 的 model，二者互斥）时，由 resolver 解析出不可变
 //! runtime（provider 身份 + 生成参数），据此从 `<PROVIDER>_API_KEY` 读取 key 构造真实
 //! OpenAI-compatible provider，并把 runtime 的 model/settings 注入 loop（例如
-//! `--model deepseek-v4-pro` → deepseek + `DEEPSEEK_API_KEY`）。
+//! `--model deepseek-v4-pro` → deepseek + `DEEPSEEK_API_KEY`）。两个分支都挂载
+//! workspace 绑定的长期记忆（注入记忆块 + 记录 `history.jsonl`）。
 
 use std::io::{self, BufRead, Write};
 use std::path::{Path, PathBuf};
@@ -15,6 +16,7 @@ use std::process::ExitCode;
 use lure_core::agent::{AgentLoop, ContextBuilder};
 use lure_core::bus::InboundMessage;
 use lure_core::config::{default_config_path, default_workspace, load_config, Config};
+use lure_core::memory::MemoryStore;
 use lure_core::provider::{
     EchoProvider, LlmProvider, LlmRuntime, ModelRuntimeResolver, OpenAiCompatProvider,
     UreqTransport,
@@ -223,13 +225,13 @@ fn build_agent_loop(
     sessions: SessionManager,
 ) -> Result<AgentLoop, String> {
     let context = ContextBuilder::new(None);
+    // 长期记忆是核心能力，两个分支都挂载：注入记忆块 + 记录 history.jsonl。
+    let memory = MemoryStore::new(workspace).map_err(|e| format!("初始化 memory 失败: {e}"))?;
 
     if preset.is_none() && model.is_none() {
-        return Ok(AgentLoop::new(
-            Box::new(EchoProvider::new()),
-            sessions,
-            context,
-        ));
+        return Ok(
+            AgentLoop::new(Box::new(EchoProvider::new()), sessions, context).with_memory(memory),
+        );
     }
 
     let config = load_cli_config(config_path)?;
@@ -240,7 +242,8 @@ fn build_agent_loop(
     let provider = build_provider_from_runtime(&config, &runtime)?;
     Ok(AgentLoop::new(provider, sessions, context)
         .with_runtime(&runtime)
-        .with_tools(tools))
+        .with_tools(tools)
+        .with_memory(memory))
 }
 
 /// 加载 config 文件（缺省用 `default_config_path`）；文件不存在时回落到默认配置。

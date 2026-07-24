@@ -109,6 +109,8 @@ cargo run --bin lure
 }
 ```
 
+CLI 默认挂载 workspace 绑定的长期记忆：每轮把 `MEMORY.md` 的记忆块注入上下文，并把 user/assistant 内容记入 `history.jsonl`（供后续 dream consolidation）。
+
 ## 贡献约定
 
 - 默认使用中文沟通、提交信息、文档与注释。

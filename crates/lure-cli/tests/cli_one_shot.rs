@@ -39,6 +39,38 @@ fn agent_one_shot_prints_reply_and_persists_session() {
 }
 
 #[test]
+fn agent_one_shot_records_history_to_memory() {
+    // CLI 挂载了 MemoryStore：一次对话后 user/assistant 内容应记入 history.jsonl。
+    let dir = tempdir().unwrap();
+    let output = lure()
+        .args([
+            "agent",
+            "-m",
+            "hello",
+            "--workspace",
+            dir.path().to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+
+    let store = lure_core::memory::MemoryStore::new(dir.path()).unwrap();
+    let contents: Vec<String> = store
+        .read_recent_history_for_prompt(0, None)
+        .iter()
+        .map(|e| e.content.clone())
+        .collect();
+    assert!(
+        contents.iter().any(|c| c.contains("hello")),
+        "history 应含 user 内容: {contents:?}"
+    );
+    assert!(
+        contents.iter().any(|c| c.contains("echo: hello")),
+        "history 应含 assistant 内容: {contents:?}"
+    );
+}
+
+#[test]
 fn no_subcommand_prints_version() {
     let output = lure().output().unwrap();
     assert!(output.status.success());

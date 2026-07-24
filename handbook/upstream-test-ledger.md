@@ -116,7 +116,7 @@ Phase 0 已完成，确定 phase 1-4 关键上游测试的 Rust 测试落点（�
 | `tests/agent/test_memory_store.py` | 6 | `crates/lure-core/tests/memory_store.rs` | partial | memory/soul/user 读写、history cursor、strip、session 过滤、reopen、legacy `HISTORY.md` 迁移已覆盖；compact/并发锁待补 |
 | `tests/agent/test_dream.py` | 6 | `crates/lure-core/tests/memory_dream.rs` | partial | dream 触发/写回/幂等/cursor 推进用 fake runner 覆盖；真实 LLM dream、SOUL/USER 整合、批次策略暂缓 |
 | `tests/agent/test_context_builder.py` | 6 | `crates/lure-core/tests/memory_context.rs` | partial | memory 注入顺序（system→memory→历史）已覆盖；runtime context 块、富历史处理待补 |
-| `tests/agent/` (memory 接入 loop) | 6 | `crates/lure-core/tests/agent_memory.rs` | partial | `AgentLoop::with_memory`（记忆块注入、user/assistant 追加 history.jsonl）+ `consolidate`（fake runner）已覆盖；CLI 注册、dream 触发策略、真实 LLM dream 待后续 |
+| `tests/agent/` (memory 接入 loop) | 6 | `crates/lure-core/tests/agent_memory.rs` | partial | `AgentLoop::with_memory`（记忆块注入、user/assistant 追加 history.jsonl）+ `consolidate`（fake runner）已覆盖；CLI 已挂载 memory（`cli_one_shot.rs` 验证 history 记录）；dream 触发策略、真实 LLM dream 待后续 |
 
 > 注：Phase 6 dream 把 LLM 抽象为可替换 `DreamRunner`，测试不接真实 LLM；GitStore 版本化、
 > autocompact、unified session 内部会话过滤留待后续。

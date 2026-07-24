@@ -511,6 +511,23 @@
 - 下一步：
   - CLI `build_agent_loop` 注册 `MemoryStore` 并定 dream 触发策略，或进入 Phase 7。
 
+### 进度记录 2026-07-24（CLI memory 注册）
+
+- 状态：partial
+- 本次完成：
+  - CLI `build_agent_loop`：两个分支（离线 EchoProvider + 真实 provider）都 `MemoryStore::new(workspace)`
+    并 `.with_memory(memory)`，长期记忆作为核心能力常驻——注入记忆块 + 记录 `history.jsonl`。
+  - memory 初始化失败形成 CLI 错误字符串（fail-fast）。
+- 验证：
+  - `rtk cargo fmt --check` 通过；`clippy --all-targets --all-features -D warnings` 无问题。
+  - CLI 新增用例：`agent -m hello`（离线 echo，可无网络跑完 turn）后 `history.jsonl` 记录 user/assistant；
+    全量测试通过（39 套件）。
+- 上游对照：
+  - 已覆盖：CLI 挂载 memory，真实 CLI 现具长期记忆闭环（跨轮记忆注入 + history 记录）。
+  - 暂未覆盖：dream 自动触发策略（需真实 LLM DreamRunner）、SOUL/USER 整合、memory 开关配置。
+- 下一步：
+  - 进入 Phase 7（bus/channel/gateway 盘点），或补真实 LLM dream + 触发策略。
+
 ## Phase 7: Bus、Channels 与 Gateway
 
 ### Plan
