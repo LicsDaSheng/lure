@@ -25,7 +25,7 @@
 |---|---:|---|---|
 | `tests/config/` | 1 | partial | 核心 loader/paths/save 已覆盖；migration/env/gateway 相关暂缓，见下方明细 |
 | `tests/session/` | 2 | partial | 存储/clamp/cache/goal_state/list repair 已覆盖；turn continuation、weak-identity 暂缓，见下方明细 |
-| `tests/agent/` | 2,3,4,6 | partial | session/loop、stateful model runtime resolver、tool-call 循环、memory 接入 loop、legacy history migration 已覆盖；streaming、goal/subagent、真实 LLM dream 待后续 |
+| `tests/agent/` | 2,3,4,6 | partial | session/loop、stateful model runtime resolver、tool-call 循环、SSE 流式驱动、memory 接入 loop、legacy history migration 已覆盖；goal/subagent、真实 LLM dream 待后续 |
 | `tests/cli/` | 3 | partial | one-shot 与基础 interactive 已覆盖；上游 prompt_toolkit/progress/commands 待后续 |
 | `tests/providers/` | 4 | partial | OpenAI-compatible 请求/响应/错误、选择顺序、SSE 流式消费、stateful resolver、config 驱动 provider 匹配（api_base/enabled/api_key）已覆盖；真实 provider opt-in、OAuth/local fallback 待补 |
 | `tests/tools/` | 5 | partial | registry/schema/文件/shell allow-deny、tool-call 循环、config 驱动工具注册已覆盖；apply_patch/search/web/mcp/exec 平台细节待补 |
@@ -161,7 +161,7 @@ Phase 0 已完成，确定 phase 1-4 关键上游测试的 Rust 测试落点（�
 | 上游测试 | 归属 phase | Rust 测试 | 状态 | 说明 |
 |---|---:|---|---|---|
 | `tests/agent/test_loop_runner_integration.py` | 3 | `crates/lure-core/tests/agent_loop.rs` | partial | 最小闭环（输入/最终回复/turn 保存/历史可读/结构化错误）已覆盖；streaming、goal/subagent、consolidation 属 Phase 4/6 |
-| `tests/agent/` (tool-call loop) | 5 | `crates/lure-core/tests/agent_tool_loop.rs` | partial | provider tool_calls 解析 + `AgentLoop` tool-call 迭代（执行/tool turn 回灌/上限/未知工具恢复/无 registry 终态）已覆盖；并行 tool、streaming、CLI 工具注册待后续 |
+| `tests/agent/` (tool-call loop) | 5 | `crates/lure-core/tests/agent_tool_loop.rs` | partial | provider tool_calls 解析 + `AgentLoop` tool-call 迭代（执行/tool turn 回灌/上限/未知工具恢复/无 registry 终态）已覆盖；CLI 工具注册、SSE 流式 tool_calls 组装均已落地，并行 tool 待后续 |
 | `tests/cli/` (agent direct) | 3 | `crates/lure-cli/tests/cli_one_shot.rs` | partial | `agent -m` one-shot、基础 interactive REPL、`--session`、`--config`/`--preset`/`--model`（经 resolver 选 provider）、EOF/退出命令已覆盖；prompt_toolkit、stream/progress 渲染、slash commands 待后续 |
 
 > 注：Phase 3 provider 采用同步 trait + `EchoProvider` 占位；上游 async provider 与

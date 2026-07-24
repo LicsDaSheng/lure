@@ -9,15 +9,17 @@
 按阶段推进，每个阶段先形成窄而可运行的纵向切片，再逐步展开。`partial` 表示核心切片已落地、部分外围能力按台账明确暂缓。
 
 当前 11 个阶段均已形成可运行切片。近期把 Phase 4/5/6 的「原语齐全但未接线」缺口逐个打通，
-让 agent loop 与 CLI 成为真正可用的整机：
+让 agent loop 与 CLI 成为真正可用的整机，并补齐了 Phase 7 的事件传播与端到端流式：
 - **Phase 4**：stateful `ModelRuntimeResolver`（preset → 不可变 runtime + admit/refresh/invalidate）
   接入 AgentLoop/CLI provider 选择路径；config 驱动的 `ProvidersConfig`（api_base 覆盖 / enabled 过滤 /
-  api_key 解析）；CLI 补 `--config`/`--preset`。
+  api_key 解析）；CLI 补 `--config`/`--preset`；**SSE 流式消费**（`complete_streaming` + 增量组装，含 tool_calls 跨块拼装）。
 - **Phase 5**：tool-call 循环（provider `tool_calls` → registry 执行 → tool turn 回灌，至多 8 轮）接入
   AgentLoop；config 驱动 `registry_from_config` + CLI 工具注册（文件工具默认、exec opt-in）。
 - **Phase 6**：长期记忆接入 AgentLoop（记忆块注入 + `history.jsonl` 记录 + `consolidate` 接口），CLI 常驻挂载。
+- **Phase 7**：gateway 把 agent 的 progress 事件流（Started/ContentDelta/ToolInvoked/Final）转发到 channel；
+  loop 走流式驱动、逐增量发 `ContentDelta`，`UreqTransport` 真·增量边收边发。
 
-下一步可选：Phase 7 的 progress/outbound 事件传播，或进入 Phase 9（OpenAI-compatible API 表面）。
+下一步可选：进入 Phase 9（OpenAI-compatible API 表面，把流式接到 server 侧），或 Phase 8（cron/trigger）盘点。
 
 | 阶段 | 内容 | 状态 |
 |---|---|---|
@@ -25,10 +27,10 @@
 | Phase 1 | 配置 schema、路径解析与读写 | `partial` |
 | Phase 2 | Session 存储、缓存、goal 派生视图与 legacy stem 迁移 | `partial` |
 | Phase 3 | Agent Loop 最小纵向闭环（CLI one-shot + 基础 interactive） | `partial` |
-| Phase 4 | Provider preset 解析、OpenAI-compatible provider、stateful resolver 与 config 驱动 provider 匹配 | `partial` |
+| Phase 4 | Provider preset 解析、OpenAI-compatible provider、SSE 流式、stateful resolver 与 config 驱动 provider 匹配 | `partial` |
 | Phase 5 | Tool 运行时、workspace 安全边界、tool-call 循环与 CLI 工具注册 | `partial` |
 | Phase 6 | Memory 存储、history、dream consolidation 与 loop/CLI 记忆接入 | `partial` |
-| Phase 7 | Bus、channel 契约与最小 gateway（同步内存编排闭环） | `partial` |
+| Phase 7 | Bus、channel 契约、gateway 编排闭环与 progress 事件传播 | `partial` |
 | Phase 8 | Cron store、session 投递、heartbeat 与 trigger | `partial` |
 | Phase 9 | OpenAI-compatible API 表面 | `partial` |
 | Phase 10 | WebUI 后端服务协议 | `partial` |
