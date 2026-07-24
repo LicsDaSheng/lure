@@ -26,7 +26,7 @@
 | `tests/config/` | 1 | partial | 核心 loader/paths/save 已覆盖；migration/env/gateway 相关暂缓，见下方明细 |
 | `tests/session/` | 2 | partial | 存储/clamp/cache/goal_state/list repair 已覆盖；turn continuation、weak-identity 暂缓，见下方明细 |
 | `tests/agent/` | 2,3,4,6 | partial | session/loop/memory/legacy history migration 已覆盖；provider runtime、tool 上下文、dream LLM 待后续 |
-| `tests/cli/` | 3 | partial | one-shot 已覆盖；interactive/commands 待后续 |
+| `tests/cli/` | 3 | partial | one-shot 与基础 interactive 已覆盖；上游 prompt_toolkit/progress/commands 待后续 |
 | `tests/providers/` | 4 | partial | OpenAI-compatible 请求/响应/错误 + 选择顺序已覆盖；registry 全量、真实 provider opt-in 待补 |
 | `tests/tools/` | 5 | partial | registry/schema/文件/shell allow-deny 已覆盖；apply_patch/search/web/mcp/exec 平台细节待补 |
 | `tests/security/` | 5 | partial | workspace 边界已覆盖；network SSRF、启动安全待补 |
@@ -154,7 +154,7 @@ Phase 0 已完成，确定 phase 1-4 关键上游测试的 Rust 测试落点（�
 | 上游测试 | 归属 phase | Rust 测试 | 状态 | 说明 |
 |---|---:|---|---|---|
 | `tests/agent/test_loop_runner_integration.py` | 3 | `crates/lure-core/tests/agent_loop.rs` | partial | 最小闭环（输入/最终回复/turn 保存/历史可读/结构化错误）已覆盖；streaming、tool 循环、goal/subagent、consolidation 属 Phase 4/5/6 |
-| `tests/cli/` (one-shot) | 3 | `crates/lure-cli/tests/cli_one_shot.rs` | partial | `agent -m` one-shot、无子命令输出版本、缺参失败已覆盖；interactive/commands 待后续 |
+| `tests/cli/` (agent direct) | 3 | `crates/lure-cli/tests/cli_one_shot.rs` | partial | `agent -m` one-shot、基础 interactive REPL、`--session`、EOF/退出命令已覆盖；prompt_toolkit、stream/progress 渲染、slash commands 待后续 |
 
 > 注：Phase 3 provider 采用同步 trait + `EchoProvider` 占位；上游 async provider 与
 > 真实 OpenAI-compatible 调用归 Phase 4，届时收敛 provider 契约。

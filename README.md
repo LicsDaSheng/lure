@@ -8,20 +8,25 @@
 
 按阶段推进，每个阶段先形成窄而可运行的纵向切片，再逐步展开。`partial` 表示核心切片已落地、部分外围能力按台账明确暂缓。
 
+当前 11 个阶段均已形成可运行切片；最近完成了 legacy session/memory 迁移回补：
+workspace 内旧版有损 session 文件名会迁移到 canonical base64url 文件，`memory/HISTORY.md`
+会一次性迁移为 `memory/history.jsonl` 并备份原文件。下一步优先收敛 Phase 4 的
+stateful `ModelRuntimeResolver`，为真实 provider/API/Gateway 接线打稳基础。
+
 | 阶段 | 内容 | 状态 |
 |---|---|---|
 | Phase 0 | 项目骨架与复刻边界（Cargo workspace） | `done` |
 | Phase 1 | 配置 schema、路径解析与读写 | `partial` |
-| Phase 2 | Session 存储、缓存与 goal 派生视图 | `partial` |
-| Phase 3 | Agent Loop 最小纵向闭环（CLI one-shot） | `partial` |
+| Phase 2 | Session 存储、缓存、goal 派生视图与 legacy stem 迁移 | `partial` |
+| Phase 3 | Agent Loop 最小纵向闭环（CLI one-shot + 基础 interactive） | `partial` |
 | Phase 4 | Provider preset 解析与 OpenAI-compatible provider | `partial` |
 | Phase 5 | Tool 运行时与 workspace 安全边界 | `partial` |
-| Phase 6 | Memory 存储、history 与 dream consolidation | `partial` |
+| Phase 6 | Memory 存储、history、legacy HISTORY.md 迁移与 dream consolidation | `partial` |
 | Phase 7 | Bus、channel 契约与最小 gateway | `partial` |
 | Phase 8 | Cron store、session 投递、heartbeat 与 trigger | `partial` |
 | Phase 9 | OpenAI-compatible API 表面 | `partial` |
 | Phase 10 | WebUI 后端服务协议 | `partial` |
-| Phase 11 | 打包、Docker 骨架与 config 迁移 | `partial` |
+| Phase 11 | 打包、Docker 骨架、config 与基础 legacy fixture 迁移 | `partial` |
 
 详细阶段计划、验收标准与上游测试映射见 [handbook/](handbook/)：
 - [phase-roadmap.md](handbook/phase-roadmap.md)：阶段拆分与状态
@@ -40,12 +45,12 @@ lure/
     ├── lure-core/                 # 核心领域库
     │   └── src/
     │       ├── config/            # 配置 schema / 路径 / 读写 / preset / 迁移
-    │       ├── session/           # session key / 存储 / 缓存 / goal 派生视图
+    │       ├── session/           # session key / 存储 / 缓存 / goal 派生视图 / legacy 迁移
     │       ├── provider/          # LLM provider 契约 / OpenAI-compatible / registry
     │       ├── agent/             # 最小 loop / runner / context 闭环
     │       ├── security/          # workspace 路径边界
     │       ├── tool/              # tool trait / registry / 文件与 shell 工具
-    │       ├── memory/            # 长期记忆 / history / dream consolidation
+    │       ├── memory/            # 长期记忆 / history / legacy HISTORY.md 迁移 / dream consolidation
     │       ├── bus/               # InboundMessage / OutboundMessage / 消息总线
     │       ├── channel/           # channel 契约
     │       ├── gateway/           # 最小 gateway 编排
@@ -70,6 +75,9 @@ cargo clippy --all-targets --all-features -- -D warnings
 ```
 
 > 本仓库约定所有 shell 命令通过 `rtk` 执行（在原始命令前加 `rtk`），例如 `rtk cargo test`。
+> `provider_deepseek_smoke` 是显式 opt-in 真实网络测试；如果环境中设置了
+> `DEEPSEEK_API_KEY`，全量测试会尝试出网。做本地无网络验证时可使用：
+> `rtk env -u DEEPSEEK_API_KEY cargo test --all-targets --all-features`。
 
 ## CLI 用法
 
@@ -78,6 +86,9 @@ Phase 3 已打通 CLI 到 session 的最小闭环。当前使用占位 `EchoProv
 ```bash
 # 一次性对话：跑完 agent loop，保存 user/assistant turn 并输出回复
 cargo run --bin lure -- agent -m "你好" --workspace /path/to/workspace
+
+# 交互模式：持续复用同一 session；输入 exit、quit、/exit、/quit 或 :q 退出
+cargo run --bin lure -- agent --workspace /path/to/workspace --session cli:direct
 
 # 无子命令：打印版本
 cargo run --bin lure

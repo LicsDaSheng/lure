@@ -203,9 +203,26 @@
     - tool 执行循环、goal/subagent、consolidation：属 Phase 5/6。
     - 真实 provider（`get_default_model`/`chat_with_retry` 真实实现）：属 Phase 4，现以 `EchoProvider` 占位。
     - 完整 `InboundMessage`（sender/metadata/附件）与 bus：属 Phase 7。
-    - interactive CLI（`test_cli_input.py` 等）：先覆盖 one-shot。
+    - 上游 prompt_toolkit 交互输入、stream/progress 渲染、slash commands：基础 REPL 已覆盖，高级交互待后续。
 - 下一步：
   - 进入 Phase 4：provider registry、model runtime resolver、OpenAI-compatible 最小真实调用与 golden test。
+
+### 进度记录 2026-07-23（CLI interactive 回补）
+
+- 状态：partial
+- 本次完成：
+  - `lure agent` 无 `-m/--message` 时进入基础 interactive REPL。
+  - 支持持续复用同一 session 多轮对话，空行忽略，EOF 正常退出。
+  - 支持上游退出命令集合：`exit`、`quit`、`/exit`、`/quit`、`:q`。
+  - `agent` 新增 `--session/-s`，无冒号时按上游规则映射为 `cli:<id>`；`--workspace` 补充 `-w` 别名。
+  - one-shot 与 interactive 共用同一 `AgentLoop`/session/provider 构造路径。
+- 验证：
+  - `rtk cargo test -p lure-cli --test cli_one_shot -- --nocapture` 通过（7 passed）。
+- 上游对照：
+  - 已覆盖：`tests/cli/` 中 agent direct 的 one-shot、基础 interactive 输入/退出/session 复用语义。
+  - 暂未覆盖：prompt_toolkit 历史/快捷键/粘贴体验、stream/progress 渲染、bus async 消费、slash commands。
+- 下一步：
+  - 收敛 Phase 4 stateful `ModelRuntimeResolver`，再逐步接上 streaming/progress 与真实 runtime。
 
 ## Phase 4: Provider 与模型运行时
 

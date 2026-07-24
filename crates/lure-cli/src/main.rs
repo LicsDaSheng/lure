@@ -1,10 +1,12 @@
 //! `lure-cli`：Rust 版 `nanobot` 复刻的命令行入口。
 //!
-//! `lure agent -m "..."` 跑完 agent loop 并保存 turn。默认走 EchoProvider（离线占位）；
+//! `lure agent -m "..."` 跑完 agent loop 并保存 turn；`lure agent` 进入交互模式。
+//! 默认走 EchoProvider（离线占位）；
 //! 指定 `--model <model>` 时经 registry 匹配 provider、从 `<PROVIDER>_API_KEY` 读取
 //! key，用真实 OpenAI-compatible provider 出网（例如
 //! `--model deepseek-v4-pro` → deepseek + `DEEPSEEK_API_KEY`）。
 
+use std::io::{self, BufRead, Write};
 use std::path::PathBuf;
 use std::process::ExitCode;
 
@@ -21,12 +23,14 @@ fn main() -> ExitCode {
 
     match args.first().map(String::as_str) {
         Some("agent") => match run_agent(&args[1..]) {
-            Ok(reply) => {
-                // 思维链走 stderr（保持 stdout 为纯答案、可脚本化），答案走 stdout。
-                if let Some(reasoning) = reply.reasoning {
-                    eprintln!("💭 思维链:\n{reasoning}\n");
+            Ok(run) => {
+                if let AgentRun::Single(reply) = run {
+                    // 思维链走 stderr（保持 stdout 为纯答案、可脚本化），答案走 stdout。
+                    if let Some(reasoning) = reply.reasoning {
+                        eprintln!("💭 思维链:\n{reasoning}\n");
+                    }
+                    println!("{}", reply.final_content);
                 }
-                println!("{}", reply.final_content);
                 ExitCode::SUCCESS
             }
             Err(message) => {
@@ -48,9 +52,15 @@ struct AgentReply {
     reasoning: Option<String>,
 }
 
-/// 解析并执行 `agent -m <message> [--workspace <path>] [--model <model>] [--show-reasoning]`。
-fn run_agent(args: &[String]) -> Result<AgentReply, String> {
+enum AgentRun {
+    Single(AgentReply),
+    Interactive,
+}
+
+/// 解析并执行 `agent [-m <message>] [--session <id>] [--workspace <path>] [--model <model>] [--show-reasoning]`。
+fn run_agent(args: &[String]) -> Result<AgentRun, String> {
     let mut message: Option<String> = None;
+    let mut session_id = String::from("cli:direct");
     let mut workspace: Option<String> = None;
     let mut model: Option<String> = None;
     let mut show_reasoning = false;
@@ -62,7 +72,11 @@ fn run_agent(args: &[String]) -> Result<AgentReply, String> {
                 index += 1;
                 message = Some(args.get(index).ok_or("-m 缺少消息内容")?.clone());
             }
-            "--workspace" => {
+            "-s" | "--session" => {
+                index += 1;
+                session_id = args.get(index).ok_or("--session 缺少会话 ID")?.clone();
+            }
+            "-w" | "--workspace" => {
                 index += 1;
                 workspace = Some(args.get(index).ok_or("--workspace 缺少路径")?.clone());
             }
@@ -76,7 +90,6 @@ fn run_agent(args: &[String]) -> Result<AgentReply, String> {
         index += 1;
     }
 
-    let message = message.ok_or("缺少 -m <message>")?;
     let workspace = workspace
         .map(PathBuf::from)
         .unwrap_or_else(default_workspace);
@@ -84,8 +97,29 @@ fn run_agent(args: &[String]) -> Result<AgentReply, String> {
     let provider = build_provider(model.as_deref())?;
     let sessions = SessionManager::new(&workspace).map_err(|e| e.to_string())?;
     let mut agent_loop = AgentLoop::new(provider, sessions, ContextBuilder::new(None));
+    let (channel, chat_id) = split_session_id(&session_id);
 
-    let input = InboundMessage::new("cli", "direct", message);
+    match message {
+        Some(message) => {
+            let reply =
+                process_cli_turn(&mut agent_loop, &channel, &chat_id, message, show_reasoning)?;
+            Ok(AgentRun::Single(reply))
+        }
+        None => {
+            run_interactive(agent_loop, &channel, &chat_id, show_reasoning)?;
+            Ok(AgentRun::Interactive)
+        }
+    }
+}
+
+fn process_cli_turn(
+    agent_loop: &mut AgentLoop,
+    channel: &str,
+    chat_id: &str,
+    message: String,
+    show_reasoning: bool,
+) -> Result<AgentReply, String> {
+    let input = InboundMessage::new(channel, chat_id, message);
     let outcome = agent_loop.process(&input).map_err(|e| e.to_string())?;
     Ok(AgentReply {
         final_content: outcome.final_content,
@@ -95,6 +129,62 @@ fn run_agent(args: &[String]) -> Result<AgentReply, String> {
             None
         },
     })
+}
+
+fn run_interactive(
+    mut agent_loop: AgentLoop,
+    channel: &str,
+    chat_id: &str,
+    show_reasoning: bool,
+) -> Result<(), String> {
+    println!(
+        "Lure interactive mode ({channel}:{chat_id}) — type exit, quit, /exit, /quit, or :q to quit"
+    );
+
+    let stdin = io::stdin();
+    let mut lines = stdin.lock().lines();
+    loop {
+        print!("You: ");
+        io::stdout()
+            .flush()
+            .map_err(|e| format!("刷新输出失败: {e}"))?;
+
+        let Some(line) = lines.next() else {
+            println!();
+            println!("Goodbye!");
+            break;
+        };
+        let line = line.map_err(|e| format!("读取输入失败: {e}"))?;
+        let command = line.trim();
+        if command.is_empty() {
+            continue;
+        }
+        if is_exit_command(command) {
+            println!("Goodbye!");
+            break;
+        }
+
+        let reply = process_cli_turn(&mut agent_loop, channel, chat_id, line, show_reasoning)?;
+        if let Some(reasoning) = reply.reasoning {
+            eprintln!("💭 思维链:\n{reasoning}\n");
+        }
+        println!("Assistant: {}", reply.final_content);
+    }
+    Ok(())
+}
+
+fn split_session_id(session_id: &str) -> (String, String) {
+    match session_id.split_once(':') {
+        Some((channel, chat_id)) => (channel.to_string(), chat_id.to_string()),
+        None => ("cli".to_string(), session_id.to_string()),
+    }
+}
+
+fn is_exit_command(command: &str) -> bool {
+    matches!(
+        command.to_ascii_lowercase().as_str(),
+        "exit" | "quit" | "/exit" | "/quit" | ":q"
+    )
 }
 
 /// 构建 provider：无 `--model` 走离线 EchoProvider；指定 `--model` 时经 registry 匹配
