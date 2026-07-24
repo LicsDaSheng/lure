@@ -2,7 +2,7 @@
 //!
 //! 对齐上游 `nanobot/gateway` 的职责边界，但收敛为同步最小编排：注册 channel、
 //! 生命周期启停、把 inbound 经 AgentLoop 处理为 outbound 并路由到目标 channel、
-//! 暴露健康状态。
+//! 把 agent 的 progress 事件流（Started/ToolInvoked/Final）转发给 channel、暴露健康状态。
 //!
 //! Phase 7 不做：真实 HTTP health endpoint、进程管理 runtime、async 调度、
 //! channel 热加载（见 upstream-test-ledger）。
@@ -10,8 +10,8 @@
 use std::collections::HashMap;
 use std::fmt;
 
-use crate::agent::{AgentError, AgentLoop};
-use crate::bus::{InboundMessage, MessageBus, OutboundMessage};
+use crate::agent::{AgentError, AgentLoop, ProgressEvent};
+use crate::bus::{InboundMessage, MessageBus, OutboundMessage, ProgressKind, ProgressUpdate};
 use crate::channel::{Channel, ChannelError};
 
 /// gateway 编排错误。
@@ -107,6 +107,11 @@ impl Gateway {
         let mut processed = 0;
         while let Some(inbound) = self.bus.consume_inbound() {
             let outcome = self.agent.process(&inbound).map_err(GatewayError::Agent)?;
+            // 先把 progress 事件流转发给目标 channel（outbound 运行时事件）。
+            for event in &outcome.progress {
+                let update = progress_update(&inbound, event);
+                self.route_progress(&inbound.channel, &update)?;
+            }
             let outbound = OutboundMessage::reply(&inbound, outcome.final_content);
             self.route(&outbound)?;
             processed += 1;
@@ -134,4 +139,32 @@ impl Gateway {
             None => Err(GatewayError::UnknownChannel(outbound.channel.clone())),
         }
     }
+
+    fn route_progress(
+        &self,
+        channel_name: &str,
+        update: &ProgressUpdate,
+    ) -> Result<(), GatewayError> {
+        match self.channels.get(channel_name) {
+            Some(channel) => channel
+                .deliver_progress(update)
+                .map_err(GatewayError::Channel),
+            None => Err(GatewayError::UnknownChannel(channel_name.to_string())),
+        }
+    }
+}
+
+/// 把 agent 的 [`ProgressEvent`] 加上路由信息映射为传输无关的 [`ProgressUpdate`]。
+fn progress_update(inbound: &InboundMessage, event: &ProgressEvent) -> ProgressUpdate {
+    let (kind, content) = match event {
+        ProgressEvent::TurnStarted { session_key } => (ProgressKind::Started, session_key.clone()),
+        ProgressEvent::ToolInvoked { name } => (ProgressKind::ToolInvoked, name.clone()),
+        ProgressEvent::FinalResponse { content } => (ProgressKind::Final, content.clone()),
+    };
+    ProgressUpdate::new(
+        inbound.channel.clone(),
+        inbound.chat_id.clone(),
+        kind,
+        content,
+    )
 }

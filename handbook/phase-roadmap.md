@@ -126,8 +126,8 @@
 ## Phase 7: Bus、Channels 与 Gateway
 
 - 状态：`partial`
-- 已落地：`InboundMessage`/`OutboundMessage` 契约、`MessageBus`（FIFO inbound/outbound 队列）、`Channel` trait + 配置校验、`Gateway` 同步编排闭环（注册/启停不丢任务/inbound→AgentLoop→outbound→路由/未知 channel/health）。
-- 待补：progress/outbound 运行时事件传播、channel 热加载与具体平台、真实 HTTP health endpoint、进程管理 runtime（后二者属 Phase 9/10 transport）。
+- 已落地：`InboundMessage`/`OutboundMessage` 契约、`MessageBus`（FIFO inbound/outbound 队列）、`ProgressUpdate`/`ProgressKind` 运行时事件、`Channel` trait（含 `deliver_progress`）+ 配置校验、`Gateway` 同步编排闭环（注册/启停不丢任务/inbound→AgentLoop→outbound→路由/progress 转发/未知 channel/health）。
+- 待补：channel 热加载与具体平台、async 订阅/真实流式传输、真实 HTTP health endpoint、进程管理 runtime（后二者属 Phase 9/10 transport）。
 - 目标：把 CLI 之外的入口抽象到 message bus/channel contract，并实现 gateway 最小常驻进程。
 - 上游参考：
   - `nanobot/bus/`

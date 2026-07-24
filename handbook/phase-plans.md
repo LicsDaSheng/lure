@@ -571,6 +571,26 @@
 - 下一步：
   - 进入 Phase 8：cron job store、session-bound delivery、heartbeat、local trigger。
 
+### 进度记录 2026-07-24（progress/outbound 事件传播）
+
+- 状态：partial
+- 本次完成：
+  - `agent::ProgressEvent` 新增 `ToolInvoked { name }`，tool-call 循环每次执行工具时发出。
+  - `bus::ProgressUpdate`（channel/chat_id/kind/content）+ `ProgressKind`（Started/ToolInvoked/Final），
+    传输无关的 outbound 运行时事件。
+  - `Channel` trait 新增 `deliver_progress`（默认 no-op）；`RecordingChannel` 记录 progress（共享 `ProgressLog`）。
+  - `Gateway::dispatch_pending`：处理后把 `outcome.progress` 逐条映射为 `ProgressUpdate` 转发给目标 channel，
+    再投递最终 outbound；未注册 channel 的 progress 也走结构化 `UnknownChannel`。
+- 验证：
+  - `rtk cargo fmt --check` 通过；`clippy --all-targets --all-features -D warnings` 无问题。
+  - 新增 `gateway_progress.rs`（2：echo Started/Final 转发 + 路由信息、tool 轮 ToolInvoked 转发）；
+    `agent_tool_loop.rs` 新增 ToolInvoked 发出用例；全量测试通过（40 套件）。
+- 上游对照：
+  - 已覆盖：agent progress 事件流经 gateway 转发到 channel（Started/ToolInvoked/Final），Phase 10 WebUI 进度流可复用。
+  - 暂未覆盖：async 订阅/真实流式传输、更细粒度 progress（token 级 streaming）、channel 侧 typing 指示等平台语义。
+- 下一步：
+  - 进入 Phase 8/9，或补真实流式传输与更细粒度 progress。
+
 ## Phase 8: Automations、Cron 与 Trigger
 
 ### Plan

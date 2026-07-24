@@ -31,6 +31,11 @@ pub enum ProgressEvent {
         /// 目标 session key。
         session_key: String,
     },
+    /// 调用了某个工具（tool-call 循环中每次执行工具时发出）。
+    ToolInvoked {
+        /// 工具名。
+        name: String,
+    },
     /// 产生最终回复。
     FinalResponse {
         /// 最终回复文本。
@@ -223,6 +228,11 @@ impl AgentLoop {
             persist_assistant(&mut self.sessions, &key, &content, &reasoning, &tool_calls)?;
 
             // 执行所有工具（借用 registry；此段不改动 session）。
+            for call in &tool_calls {
+                progress.push(ProgressEvent::ToolInvoked {
+                    name: call.name.clone(),
+                });
+            }
             let results: Vec<(String, String)> = tool_calls
                 .iter()
                 .map(|call| {

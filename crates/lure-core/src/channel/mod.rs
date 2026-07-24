@@ -6,4 +6,4 @@
 
 mod contract;
 
-pub use contract::{Channel, ChannelError, DeliveryLog, RecordingChannel};
+pub use contract::{Channel, ChannelError, DeliveryLog, ProgressLog, RecordingChannel};

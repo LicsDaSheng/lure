@@ -7,7 +7,7 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use lure_core::agent::{AgentLoop, ContextBuilder, MAX_TOOL_ITERATIONS};
+use lure_core::agent::{AgentLoop, ContextBuilder, ProgressEvent, MAX_TOOL_ITERATIONS};
 use lure_core::bus::InboundMessage;
 use lure_core::provider::{CompletionRequest, LlmProvider, LlmResponse, ProviderError, ToolCall};
 use lure_core::session::SessionManager;
@@ -168,6 +168,27 @@ fn single_tool_round_executes_and_returns_final_reply() {
     assert_eq!(roles, vec!["user", "assistant", "tool", "assistant"]);
     assert_eq!(history[2]["tool_call_id"], "call_1");
     assert_eq!(history[3]["content"], "done");
+}
+
+#[test]
+fn tool_round_emits_tool_invoked_progress() {
+    let (_dir, mut agent_loop, _calls, _seen) = setup(vec![
+        tool_call_response("call_1", "echo", r#"{"text":"hi"}"#),
+        LlmResponse::text("done"),
+    ]);
+
+    let outcome = agent_loop
+        .process(&InboundMessage::new("cli", "direct", "go"))
+        .unwrap();
+
+    assert!(
+        outcome
+            .progress
+            .iter()
+            .any(|e| matches!(e, ProgressEvent::ToolInvoked { name } if name == "echo")),
+        "progress 应含 ToolInvoked(echo): {:?}",
+        outcome.progress
+    );
 }
 
 #[test]

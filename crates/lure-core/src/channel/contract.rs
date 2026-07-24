@@ -4,10 +4,13 @@ use std::cell::RefCell;
 use std::fmt;
 use std::rc::Rc;
 
-use crate::bus::OutboundMessage;
+use crate::bus::{OutboundMessage, ProgressUpdate};
 
 /// 共享的投递记录日志。
 pub type DeliveryLog = Rc<RefCell<Vec<OutboundMessage>>>;
+
+/// 共享的 progress 记录日志。
+pub type ProgressLog = Rc<RefCell<Vec<ProgressUpdate>>>;
 
 /// channel 相关错误。
 #[derive(Debug, Clone, PartialEq)]
@@ -53,6 +56,11 @@ pub trait Channel {
 
     /// 投递一条 outbound 消息到平台。
     fn deliver(&self, message: &OutboundMessage) -> Result<(), ChannelError>;
+
+    /// 转发一条运行时 progress 更新（默认 no-op：不支持进度的 channel 可忽略）。
+    fn deliver_progress(&self, _update: &ProgressUpdate) -> Result<(), ChannelError> {
+        Ok(())
+    }
 }
 
 /// 记录投递内容的测试用 channel。
@@ -60,6 +68,7 @@ pub struct RecordingChannel {
     name: String,
     missing_fields: Vec<String>,
     delivered: DeliveryLog,
+    progress: ProgressLog,
 }
 
 impl RecordingChannel {
@@ -69,6 +78,7 @@ impl RecordingChannel {
             name: name.into(),
             missing_fields: Vec::new(),
             delivered: Rc::new(RefCell::new(Vec::new())),
+            progress: Rc::new(RefCell::new(Vec::new())),
         }
     }
 
@@ -81,6 +91,11 @@ impl RecordingChannel {
     /// 返回共享的投递日志（移入 gateway 后仍可从测试侧查询）。
     pub fn delivery_log(&self) -> DeliveryLog {
         Rc::clone(&self.delivered)
+    }
+
+    /// 返回共享的 progress 日志（移入 gateway 后仍可从测试侧查询）。
+    pub fn progress_log(&self) -> ProgressLog {
+        Rc::clone(&self.progress)
     }
 
     /// 已投递的消息快照。
@@ -107,6 +122,11 @@ impl Channel for RecordingChannel {
 
     fn deliver(&self, message: &OutboundMessage) -> Result<(), ChannelError> {
         self.delivered.borrow_mut().push(message.clone());
+        Ok(())
+    }
+
+    fn deliver_progress(&self, update: &ProgressUpdate) -> Result<(), ChannelError> {
+        self.progress.borrow_mut().push(update.clone());
         Ok(())
     }
 }
