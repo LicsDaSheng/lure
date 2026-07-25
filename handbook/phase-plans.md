@@ -361,6 +361,29 @@
 - 下一步：
   - 进入 Phase 5 tool 运行时盘点，或继续补 provider 的 OAuth/local fallback。
 
+### 进度记录 2026-07-25（provider 流式 usage 捕获，TDD）
+
+- 状态：partial
+- 依据：上游 `openai_compat_provider`（流式请求带 `stream_options.include_usage`，从末帧
+  `_extract_usage(chunk)` 捕获 usage）。补齐后与 loop 侧 usage 累加打通——流式跑也有 usage。
+  说明：上游 API server 的 SSE 并不向客户端发 usage chunk（`_last_usage` 仅用于非流式 JSON），
+  故本次落地的是**provider 消费上游 LLM SSE 的 usage 捕获**，而非 server 侧对客户端发 usage 帧。
+- 本次完成：
+  - `StreamChunk` 新增 `usage` 字段（`Map`，`Value` 非 `Eq` 故去掉 `Eq` 派生，保留 `PartialEq`）。
+  - `parse_sse_line` 在 `choices` 为空的早返回前先取顶层 `usage`（否则 `include_usage` 末帧
+    的 usage 会随空 choices 丢弃）；`StreamAssembler` 取最后一个非空 usage 折入 `finish()`。
+  - `http_request(stream=true)` 追加 `stream_options: {include_usage: true}`。
+- 验证：
+  - `rtk cargo fmt --all`；`clippy --workspace --all-targets -D warnings` 无问题。
+  - `rtk cargo test --workspace` 通过（266 passed，45 套件）：`provider_stream.rs` 新增 3 例
+    （usage-only 末帧解析、末帧 usage 折入 response、请求含 `stream_options.include_usage`）。
+- 上游对照：
+  - 已覆盖：流式 usage 捕获 + include_usage 请求选项。
+  - 暂未覆盖：cached_tokens 嵌套路径提取（上游 `_get_nested_int`）、多 provider 家族
+    （anthropic/bedrock/gemini）usage 归一。
+- 下一步：
+  - 进入 Phase 5/6（文件工具 edit/search、memory 缺口），或补 usage 嵌套字段提取。
+
 ## Phase 5: Tool Runtime 与安全边界
 
 ### Plan

@@ -195,9 +195,7 @@ impl LlmProvider for MultiDeltaProvider {
         for delta in &self.deltas {
             on_delta(&StreamChunk {
                 content_delta: Some(delta.clone()),
-                reasoning_delta: None,
-                tool_call_deltas: Vec::new(),
-                finish_reason: None,
+                ..StreamChunk::default()
             });
         }
         Ok(LlmResponse::text(self.deltas.concat()))

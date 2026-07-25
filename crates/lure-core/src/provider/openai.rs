@@ -49,6 +49,8 @@ impl<T: HttpTransport> OpenAiCompatProvider<T> {
         let mut body = build_chat_request(&request.model, &request.messages, &request.settings);
         if stream {
             body["stream"] = Value::Bool(true);
+            // 请求末帧回传 usage（对齐上游 openai_compat_provider）。
+            body["stream_options"] = serde_json::json!({"include_usage": true});
         }
         let url = format!("{}/chat/completions", self.base_url.trim_end_matches('/'));
         let mut headers = vec![("content-type".to_string(), "application/json".to_string())];

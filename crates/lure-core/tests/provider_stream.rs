@@ -3,12 +3,13 @@
 //! 用假流式传输逐行喂 SSE，不触网。对齐 `api::sse_chunks` 的 server 侧生成格式。
 
 use std::cell::RefCell;
+use std::rc::Rc;
 
 use lure_core::provider::{
     parse_sse_line, CompletionRequest, GenerationSettings, HttpRequest, HttpResponse,
     HttpTransport, LlmProvider, OpenAiCompatProvider, ProviderError, StreamChunk,
 };
-use serde_json::json;
+use serde_json::{json, Value};
 
 /// 假流式传输：按行回放预置 SSE，返回预置状态码。
 struct FakeStreamTransport {
@@ -117,6 +118,100 @@ fn complete_streaming_assembles_tool_calls_across_chunks() {
     assert_eq!(response.tool_calls[0].id, "call_1");
     assert_eq!(response.tool_calls[0].name, "echo");
     assert_eq!(response.tool_calls[0].arguments, r#"{"text":"hi"}"#);
+}
+
+#[test]
+fn parse_sse_line_extracts_usage_from_usage_only_chunk() {
+    // OpenAI `include_usage` 末帧：choices 为空，usage 在顶层。
+    let line = r#"data: {"choices":[],"usage":{"prompt_tokens":12,"completion_tokens":5,"total_tokens":17}}"#;
+    let chunk = parse_sse_line(line).unwrap().unwrap();
+    assert_eq!(
+        chunk.usage.get("prompt_tokens").and_then(Value::as_i64),
+        Some(12)
+    );
+    assert_eq!(
+        chunk.usage.get("total_tokens").and_then(Value::as_i64),
+        Some(17)
+    );
+    assert!(chunk.content_delta.is_none());
+}
+
+#[test]
+fn complete_streaming_captures_usage_from_final_chunk() {
+    let transport = FakeStreamTransport {
+        status: 200,
+        lines: vec![
+            r#"data: {"choices":[{"delta":{"content":"Hi"},"finish_reason":null}]}"#.to_string(),
+            r#"data: {"choices":[{"delta":{},"finish_reason":"stop"}]}"#.to_string(),
+            r#"data: {"choices":[],"usage":{"prompt_tokens":12,"completion_tokens":5,"total_tokens":17}}"#.to_string(),
+            "data: [DONE]".to_string(),
+        ],
+    };
+    let provider = OpenAiCompatProvider::new("https://api.test/v1", None, "gpt-4o", transport);
+
+    let response = provider
+        .complete_streaming(&request(), &mut |_chunk| {})
+        .unwrap();
+
+    assert_eq!(response.content.as_deref(), Some("Hi"));
+    assert_eq!(response.finish_reason, "stop");
+    assert_eq!(
+        response.usage.get("prompt_tokens").and_then(Value::as_i64),
+        Some(12)
+    );
+    assert_eq!(
+        response
+            .usage
+            .get("completion_tokens")
+            .and_then(Value::as_i64),
+        Some(5)
+    );
+    assert_eq!(
+        response.usage.get("total_tokens").and_then(Value::as_i64),
+        Some(17)
+    );
+}
+
+/// 记录请求 body 的流式传输（验证 stream_options）。
+struct RecordingStreamTransport {
+    seen: Rc<RefCell<Option<Value>>>,
+}
+
+impl HttpTransport for RecordingStreamTransport {
+    fn post_json(&self, _request: &HttpRequest) -> Result<HttpResponse, String> {
+        Ok(HttpResponse {
+            status: 200,
+            body: String::new(),
+        })
+    }
+
+    fn post_json_streaming(
+        &self,
+        request: &HttpRequest,
+        _on_line: &mut dyn FnMut(&str),
+    ) -> Result<u16, String> {
+        *self.seen.borrow_mut() = Some(request.body.clone());
+        Ok(200)
+    }
+}
+
+#[test]
+fn streaming_request_includes_stream_options_include_usage() {
+    // 对齐上游 openai_compat_provider：流式请求带 stream_options.include_usage=true，
+    // 上游 LLM 才会在末帧回传 usage。
+    let seen = Rc::new(RefCell::new(None));
+    let transport = RecordingStreamTransport {
+        seen: Rc::clone(&seen),
+    };
+    let provider = OpenAiCompatProvider::new("https://api.test/v1", None, "gpt-4o", transport);
+
+    provider
+        .complete_streaming(&request(), &mut |_chunk| {})
+        .unwrap();
+
+    let body = seen.borrow().clone().expect("应记录请求 body");
+    assert_eq!(body["stream"], true);
+    assert_eq!(body["stream_options"]["include_usage"], true);
 }
 
 #[test]

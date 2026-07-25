@@ -23,12 +23,24 @@ pub fn parse_sse_line(line: &str) -> Result<Option<StreamChunk>, ProviderError> 
 
     let value: Value = serde_json::from_str(data)
         .map_err(|e| ProviderError::Response(format!("SSE chunk 不是合法 JSON: {e}")))?;
+
+    // 顶层 usage 先取：`include_usage` 末帧 `choices` 为空但携带 usage，须在 choices
+    // 早返回前捕获，否则会随空 choices 一并丢弃。
+    let usage = value
+        .get("usage")
+        .and_then(Value::as_object)
+        .cloned()
+        .unwrap_or_default();
+
     let Some(choice) = value
         .get("choices")
         .and_then(Value::as_array)
         .and_then(|c| c.first())
     else {
-        return Ok(Some(StreamChunk::default()));
+        return Ok(Some(StreamChunk {
+            usage,
+            ..StreamChunk::default()
+        }));
     };
 
     let delta = choice.get("delta");
@@ -51,6 +63,7 @@ pub fn parse_sse_line(line: &str) -> Result<Option<StreamChunk>, ProviderError> 
         reasoning_delta,
         tool_call_deltas,
         finish_reason,
+        usage,
     }))
 }
 
@@ -88,6 +101,7 @@ pub struct StreamAssembler {
     reasoning: String,
     finish_reason: Option<String>,
     tool_calls: BTreeMap<usize, PartialToolCall>,
+    usage: serde_json::Map<String, Value>,
 }
 
 #[derive(Default)]
@@ -113,6 +127,10 @@ impl StreamAssembler {
         }
         if let Some(reason) = &chunk.finish_reason {
             self.finish_reason = Some(reason.clone());
+        }
+        // usage 通常仅末帧出现；取最后一个非空（对齐上游 `usage = extract(chunk) or usage`）。
+        if !chunk.usage.is_empty() {
+            self.usage = chunk.usage.clone();
         }
         for delta in &chunk.tool_call_deltas {
             let entry = self.tool_calls.entry(delta.index).or_default();
@@ -154,7 +172,7 @@ impl StreamAssembler {
             content,
             reasoning_content,
             finish_reason: self.finish_reason.unwrap_or_else(|| "stop".to_string()),
-            usage: serde_json::Map::new(),
+            usage: self.usage,
             tool_calls,
         }
     }

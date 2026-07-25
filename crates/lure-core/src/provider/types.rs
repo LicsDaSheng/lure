@@ -68,7 +68,9 @@ pub struct ToolCallDelta {
 }
 
 /// 一条流式增量（OpenAI SSE `choices[0].delta` 的解析结果）。
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+///
+/// 注：`usage` 为 `serde_json::Map`（`Value` 不实现 `Eq`），故本类型只派生 `PartialEq`。
+#[derive(Debug, Clone, PartialEq, Default)]
 pub struct StreamChunk {
     /// 内容文本增量。
     pub content_delta: Option<String>,
@@ -78,6 +80,8 @@ pub struct StreamChunk {
     pub tool_call_deltas: Vec<ToolCallDelta>,
     /// 结束原因（通常只在末尾出现）。
     pub finish_reason: Option<String>,
+    /// 顶层 usage（OpenAI `include_usage` 末帧携带，此时 `choices` 为空）。
+    pub usage: Map<String, Value>,
 }
 
 /// provider 返回的补全响应。
