@@ -451,6 +451,25 @@
 - 下一步：
   - 进入 Phase 6（memory/dream 缺口盘点），或补文件工具 edit/search 与 exec 平台细节。
 
+### 进度记录 2026-07-25（核心 loop：空工具结果替换标记，TDD）
+
+- 状态：partial
+- 依据：盘点上游 `tests/agent/test_runner_core.py` 的核心 runner 健壮性行为，先补最自足的一项。
+- 本次完成：
+  - `AgentLoop` tool-call 循环新增 `ensure_nonempty_tool_result`：工具产出空串/纯空白时，回灌历史
+    前替换为 `(<tool> completed with no output)`，避免模型看到空白 tool turn 而困惑。忠实对齐上游
+    `nanobot/utils/runtime.py::ensure_nonempty_tool_result` + `empty_tool_result_message`。
+- 验证：
+  - `rtk cargo fmt --all`；`clippy --workspace --all-targets -D warnings` 无问题。
+  - `rtk cargo test --workspace` 通过（258 passed，45 套件）：`agent_tool_loop.rs` 新增
+    `empty_tool_result_is_replaced_with_marker`（回灌上下文 + 持久化历史双验证）+ loop_run 单测 2 个。
+- 上游对照：
+  - 已覆盖：`test_runner_core::test_runner_replaces_empty_tool_result_with_marker` 的标记语义。
+  - 暂未覆盖（核心 loop 后续缺口）：空终响应静默重试 + finalization（`EMPTY_FINAL_RESPONSE_MESSAGE`
+    + `stop_reason`）、usage 跨轮累加、wall-timeout（需 async/超时基建）。
+- 下一步：
+  - 续补核心 loop 健壮性（空终响应重试 / usage 累加），或进入 Phase 6/文件工具 edit/search。
+
 ## Phase 6: Memory、Dream 与长期上下文
 
 ### Plan

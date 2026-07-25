@@ -353,9 +353,20 @@ fn execute_tool(registry: &ToolRegistry, call: &ToolCall) -> String {
             Err(e) => return format!("工具 '{}' 参数不是合法 JSON: {e}", call.name),
         }
     };
-    match registry.execute(&call.name, &args) {
+    let content = match registry.execute(&call.name, &args) {
         Ok(result) => result.content,
         Err(e) => e.to_string(),
+    };
+    ensure_nonempty_tool_result(&call.name, content)
+}
+
+/// 把语义为空（空串或纯空白）的工具结果替换为短标记，避免回灌历史时出现空白 tool turn
+/// 令模型困惑。对齐上游 `nanobot/utils/runtime.py::ensure_nonempty_tool_result`。
+fn ensure_nonempty_tool_result(tool_name: &str, content: String) -> String {
+    if content.trim().is_empty() {
+        format!("({tool_name} completed with no output)")
+    } else {
+        content
     }
 }
 
@@ -373,4 +384,29 @@ fn tool_calls_to_json(tool_calls: &[ToolCall]) -> Value {
             })
             .collect(),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn empty_and_whitespace_results_become_marker() {
+        assert_eq!(
+            ensure_nonempty_tool_result("noop", String::new()),
+            "(noop completed with no output)"
+        );
+        assert_eq!(
+            ensure_nonempty_tool_result("noop", "  \n\t ".to_string()),
+            "(noop completed with no output)"
+        );
+    }
+
+    #[test]
+    fn nonempty_result_is_unchanged() {
+        assert_eq!(
+            ensure_nonempty_tool_result("echo", "hello".to_string()),
+            "hello"
+        );
+    }
 }

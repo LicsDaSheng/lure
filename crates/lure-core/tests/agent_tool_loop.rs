@@ -235,6 +235,70 @@ fn unknown_tool_yields_error_result_and_loop_recovers() {
     assert!(calls.borrow().is_empty());
 }
 
+/// 返回空/纯空白内容的内存工具（验证空结果被替换为标记）。
+struct BlankTool;
+
+impl Tool for BlankTool {
+    fn name(&self) -> &str {
+        "blank"
+    }
+    fn description(&self) -> &str {
+        "returns empty output"
+    }
+    fn parameters(&self) -> Value {
+        json!({"type": "object", "properties": {}})
+    }
+    fn execute(&self, _args: &Value) -> ToolResult {
+        // 纯空白也应被视为空。
+        ToolResult::ok("   ")
+    }
+}
+
+#[test]
+fn empty_tool_result_is_replaced_with_marker() {
+    // 对齐上游 `ensure_nonempty_tool_result`：工具产出空/纯空白时，回灌历史前替换为
+    // `(<tool> completed with no output)`，避免模型看到空白 tool turn。
+    let dir = tempfile::tempdir().unwrap();
+    let sessions = SessionManager::new(dir.path()).unwrap();
+    let seen = Rc::new(RefCell::new(Vec::new()));
+    let provider = ScriptedToolProvider::new(
+        vec![
+            tool_call_response("call_1", "blank", "{}"),
+            LlmResponse::text("done"),
+        ],
+        Rc::clone(&seen),
+    );
+    let mut registry = ToolRegistry::new();
+    registry.register(Box::new(BlankTool));
+    let mut agent_loop = AgentLoop::new(Box::new(provider), sessions, ContextBuilder::new(None))
+        .with_tools(registry);
+
+    let outcome = agent_loop
+        .process(&InboundMessage::new("cli", "direct", "go"))
+        .unwrap();
+    assert_eq!(outcome.final_content, "done");
+
+    // 第二次上下文里 tool 结果应为标记，而非空串。
+    let second_call = &seen.borrow()[1];
+    let tool_msg = second_call
+        .iter()
+        .find(|m| m.get("role").and_then(Value::as_str) == Some("tool"))
+        .expect("应有 tool 消息");
+    assert_eq!(
+        tool_msg.get("content").and_then(Value::as_str),
+        Some("(blank completed with no output)")
+    );
+
+    // 持久化历史里的 tool turn 也应是标记。
+    let mut reloaded = SessionManager::new(dir.path()).unwrap();
+    let history = reloaded
+        .get_or_create("cli:direct")
+        .unwrap()
+        .get_history(100);
+    assert_eq!(history[2]["role"], "tool");
+    assert_eq!(history[2]["content"], "(blank completed with no output)");
+}
+
 #[test]
 fn without_registry_tool_calls_are_treated_as_final() {
     // 未注册 tool registry 时，即便 provider 返回 tool_calls 也直接作为终态。
