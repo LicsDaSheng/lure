@@ -20,6 +20,7 @@ use crate::agent::AgentLoop;
 use crate::bus::InboundMessage;
 use crate::webui::mux::{MuxSession, TurnRunner};
 use crate::webui::tokens::TokenIssuer;
+use crate::webui::transcript::TranscripStore;
 
 /// 把 [`AgentLoop`] 适配为 mux 的 [`TurnRunner`]（channel 固定 `websocket`）。
 pub struct AgentTurnRunner {
@@ -27,7 +28,6 @@ pub struct AgentTurnRunner {
 }
 
 impl AgentTurnRunner {
-    /// 包装一个构建好的 agent loop。
     pub fn new(agent: AgentLoop) -> Self {
         Self { agent }
     }
@@ -57,6 +57,7 @@ where
     listener: TcpListener,
     factory: Arc<Mutex<F>>,
     issuer: Arc<Mutex<TokenIssuer>>,
+    transcript: Option<TranscripStore>,
     // `fn() -> R` 形态：Send/Sync 只取决于 F，与 R 无关（R 在连接线程内创建使用）。
     _marker: std::marker::PhantomData<fn() -> R>,
 }
@@ -66,50 +67,61 @@ where
     F: FnMut() -> R + Send + 'static,
     R: TurnRunner,
 {
-    /// 绑定地址；`issuer` 与 HTTP server 共享（bootstrap 签发的 token 在此校验）。
-    pub fn bind(addr: &str, factory: F, issuer: Arc<Mutex<TokenIssuer>>) -> io::Result<Self> {
+    pub fn bind(
+        addr: &str,
+        factory: F,
+        issuer: Arc<Mutex<TokenIssuer>>,
+        transcript: Option<TranscripStore>,
+    ) -> io::Result<Self> {
         let listener = TcpListener::bind(addr)?;
         Ok(Self {
             listener,
             factory: Arc::new(Mutex::new(factory)),
             issuer,
+            transcript,
             _marker: std::marker::PhantomData,
         })
     }
 
-    /// 实际监听地址。
     pub fn local_addr(&self) -> io::Result<SocketAddr> {
         self.listener.local_addr()
     }
 
-    /// 接受一条连接并派生服务线程（立即返回，不等待连接结束）。
     pub fn handle_next(&mut self) -> io::Result<bool> {
         let (stream, _) = self.listener.accept()?;
         let issuer = self.issuer.clone();
         let factory = self.factory.clone();
+        let transcript = self.transcript.clone();
         thread::spawn(move || {
             let runner = factory.lock().expect("factory 锁中毒")();
-            serve_connection(stream, runner, issuer);
+            serve_connection(stream, runner, issuer, transcript);
         });
         Ok(true)
     }
 
-    /// 持续接受连接直到出错。
     pub fn serve_forever(&mut self) -> io::Result<()> {
         while self.handle_next()? {}
         Ok(())
     }
 }
 
-fn serve_connection<R: TurnRunner>(stream: TcpStream, runner: R, issuer: Arc<Mutex<TokenIssuer>>) {
+fn serve_connection<R: TurnRunner>(
+    stream: TcpStream,
+    runner: R,
+    issuer: Arc<Mutex<TokenIssuer>>,
+    transcript: Option<TranscripStore>,
+) {
     let mut ws = match accept_hdr(stream, |req: &Request, resp: Response| {
         handshake_auth(req, resp, &issuer)
     }) {
         Ok(ws) => ws,
-        Err(_) => return, // 握手失败（含 token 拒绝），连接已被 tungstenite 关闭
+        Err(_) => return,
     };
 
-    let mut mux = MuxSession::new(runner);
+    let mut mux = match transcript {
+        Some(t) => MuxSession::new_with_transcript(runner, t),
+        None => MuxSession::new(runner),
+    };
     if !send_json(&mut ws, &mux.ready_frame()) {
         return;
     }
@@ -118,10 +130,10 @@ fn serve_connection<R: TurnRunner>(stream: TcpStream, runner: R, issuer: Arc<Mut
         let text = match ws.read() {
             Ok(Message::Text(text)) => text,
             Ok(Message::Close(_)) | Err(_) => break,
-            Ok(_) => continue, // Ping/Pong/Binary：忽略（ping 由 tungstenite 自动回应）
+            Ok(_) => continue,
         };
         let Ok(frame) = serde_json::from_str::<Value>(&text) else {
-            continue; // 非 JSON 帧忽略（对齐上游 legacy 帧静默路径）
+            continue;
         };
         for outbound in mux.handle_frame(&frame) {
             if !send_json(&mut ws, &outbound) {
@@ -135,7 +147,6 @@ fn send_json(ws: &mut tungstenite::WebSocket<TcpStream>, frame: &Value) -> bool 
     ws.send(Message::Text(frame.to_string().into())).is_ok()
 }
 
-// ErrorResponse 体积由 tungstenite Callback 签名决定，无法装箱。
 #[allow(clippy::result_large_err)]
 fn handshake_auth(
     req: &Request,

@@ -17,6 +17,8 @@ pub mod http_server;
 pub mod mux;
 /// WebUI token 签发与校验。
 pub mod tokens;
+/// WebUI transcript 存储。
+pub mod transcript;
 /// WebUI WS transport：真实 WebSocket 接线 mux。
 pub mod ws_server;
 

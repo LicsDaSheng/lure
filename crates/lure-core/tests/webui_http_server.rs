@@ -54,7 +54,9 @@ fn bind_server(dir: &TempDir, assets: MapAssets) -> (WebuiServer<MapAssets>, Soc
         token_ttl_secs: 3600,
     };
     let issuer = Arc::new(Mutex::new(TokenIssuer::new(config.token_ttl_secs, 16)));
-    let server = WebuiServer::bind("127.0.0.1:0", assets, config, issuer).unwrap();
+    let transcript =
+        lure_core::webui::transcript::TranscripStore::new(dir.path().join("webui")).unwrap();
+    let server = WebuiServer::bind("127.0.0.1:0", assets, config, issuer, transcript).unwrap();
     let addr = server.local_addr().unwrap();
     (server, addr)
 }

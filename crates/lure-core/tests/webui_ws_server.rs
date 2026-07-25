@@ -34,7 +34,7 @@ fn bind(
     WsServer<impl FnMut() -> ScriptedRunner, ScriptedRunner>,
     SocketAddr,
 ) {
-    let server = WsServer::bind("127.0.0.1:0", || ScriptedRunner, issuer).unwrap();
+    let server = WsServer::bind("127.0.0.1:0", || ScriptedRunner, issuer, None).unwrap();
     let addr = server.local_addr().unwrap();
     (server, addr)
 }

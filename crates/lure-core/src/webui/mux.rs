@@ -13,6 +13,7 @@ use regex::Regex;
 use serde_json::{json, Value};
 
 use crate::agent::ProgressEvent;
+use crate::webui::transcript::TranscripStore;
 
 /// 一次 turn 的运行入口（接线层注入；真实实现适配 `AgentLoop::process_streaming`）。
 pub trait TurnRunner {
@@ -31,6 +32,7 @@ pub struct MuxSession<R: TurnRunner> {
     runner: R,
     client_id: String,
     default_chat_id: String,
+    transcript: Option<TranscripStore>,
 }
 
 impl<R: TurnRunner> MuxSession<R> {
@@ -41,6 +43,18 @@ impl<R: TurnRunner> MuxSession<R> {
             runner,
             client_id,
             default_chat_id: uuid::Uuid::new_v4().to_string(),
+            transcript: None,
+        }
+    }
+
+    /// 建立连接并挂载 transcript 存储（turn 结束时自动写入）。
+    pub fn new_with_transcript(runner: R, transcript: TranscripStore) -> Self {
+        let client_id = format!("anon-{}", &uuid::Uuid::new_v4().simple().to_string()[..12]);
+        Self {
+            runner,
+            client_id,
+            default_chat_id: uuid::Uuid::new_v4().to_string(),
+            transcript: Some(transcript),
         }
     }
 
@@ -120,6 +134,10 @@ impl<R: TurnRunner> MuxSession<R> {
 
         match result {
             Ok(text) => {
+                // 成功 turn → 写入 transcript。
+                if let Some(ref mut t) = self.transcript {
+                    let _ = t.append_turn(chat_id, content, &text);
+                }
                 out.push(json!({"event": "message", "chat_id": chat_id, "text": text}));
                 out.push(json!({"event": "turn_end", "chat_id": chat_id}));
                 out.push(json!({"event": "session_updated", "chat_id": chat_id}));

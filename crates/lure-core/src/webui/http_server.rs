@@ -22,6 +22,7 @@ use crate::session::SessionManager;
 use crate::webui::http_api::{bootstrap_payload, sessions_payload};
 use crate::webui::list_webui_sessions;
 use crate::webui::tokens::TokenIssuer;
+use crate::webui::transcript::TranscripStore;
 
 /// 静态资源提供者（desktop 侧用 rust-embed 实现；测试用内存表）。
 pub trait StaticAssets {
@@ -50,6 +51,7 @@ pub struct WebuiServer<S: StaticAssets> {
     assets: S,
     config: WebuiServerConfig,
     issuer: Arc<Mutex<TokenIssuer>>,
+    transcript: TranscripStore,
 }
 
 impl<S: StaticAssets> WebuiServer<S> {
@@ -62,6 +64,7 @@ impl<S: StaticAssets> WebuiServer<S> {
         assets: S,
         config: WebuiServerConfig,
         issuer: Arc<Mutex<TokenIssuer>>,
+        transcript: TranscripStore,
     ) -> io::Result<Self> {
         let server = Server::http(addr)
             .map_err(|e| io::Error::new(io::ErrorKind::AddrNotAvailable, e.to_string()))?;
@@ -70,6 +73,7 @@ impl<S: StaticAssets> WebuiServer<S> {
             assets,
             config,
             issuer,
+            transcript,
         })
     }
 
@@ -146,8 +150,16 @@ impl<S: StaticAssets> WebuiServer<S> {
         }
         let key = path.trim_start_matches("/api/sessions/");
         if key.ends_with("/webui-thread") {
-            // transcript 表面未落地：404，前端按 null 处理。
-            return respond_json(request, 404, serde_json::json!({"error": "not found"}));
+            let session_key = key.trim_end_matches("/webui-thread");
+            return match self.transcript.read_thread(session_key) {
+                Ok(Some(payload)) => respond_json(request, 200, payload),
+                Ok(None) => respond_json(request, 404, serde_json::json!({"error": "not found"})),
+                Err(_) => respond_json(
+                    request,
+                    500,
+                    serde_json::json!({"error": "读取 transcript 失败"}),
+                ),
+            };
         }
         if request.method() == &Method::Delete {
             let mut manager = SessionManager::new(&self.config.workspace)?;

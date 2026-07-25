@@ -107,6 +107,11 @@ fn main() -> ExitCode {
     // 共享 token 签发器：bootstrap 签发 → /api/* 与 WS 握手双侧校验。
     let issuer = Arc::new(Mutex::new(TokenIssuer::new(3600, 16)));
 
+    // transcript 存储：turn 结束时写入，webui-thread GET 读取。
+    let webui_dir = workspace.join("webui");
+    let transcript = lure_core::webui::transcript::TranscripStore::new(&webui_dir)
+        .expect("创建 webui/ transcript 目录失败");
+
     // WS server：每条连接在连接线程内构建独立 AgentLoop（复用 CLI 构建逻辑）。
     let factory = {
         let config = args.config.clone();
@@ -126,7 +131,12 @@ fn main() -> ExitCode {
             AgentTurnRunner::new(agent)
         }
     };
-    let mut ws_server = match WsServer::bind("127.0.0.1:0", factory, issuer.clone()) {
+    let mut ws_server = match WsServer::bind(
+        "127.0.0.1:0",
+        factory,
+        issuer.clone(),
+        Some(transcript.clone()),
+    ) {
         Ok(server) => server,
         Err(e) => {
             eprintln!("错误: WS server 绑定失败: {e}");
@@ -152,14 +162,19 @@ fn main() -> ExitCode {
         ws_url: format!("ws://{ws_addr}/ws"),
         token_ttl_secs: 3600,
     };
-    let mut http_server =
-        match WebuiServer::bind("127.0.0.1:0", FrontendAssets, http_config, issuer) {
-            Ok(server) => server,
-            Err(e) => {
-                eprintln!("错误: HTTP server 绑定失败: {e}");
-                return ExitCode::FAILURE;
-            }
-        };
+    let mut http_server = match WebuiServer::bind(
+        "127.0.0.1:0",
+        FrontendAssets,
+        http_config,
+        issuer,
+        transcript,
+    ) {
+        Ok(server) => server,
+        Err(e) => {
+            eprintln!("错误: HTTP server 绑定失败: {e}");
+            return ExitCode::FAILURE;
+        }
+    };
     let http_addr = match http_server.local_addr() {
         Ok(addr) => addr,
         Err(e) => {
