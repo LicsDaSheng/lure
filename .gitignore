@@ -10,3 +10,6 @@
 .env
 .env.*
 !.env.example
+# Frontend (vendored nanobot WebUI)
+frontend/webui/node_modules/
+frontend/dist/
