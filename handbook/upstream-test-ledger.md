@@ -83,9 +83,11 @@ Phase 0 已完成，确定 phase 1-4 关键上游测试的 Rust 测试落点（�
 |---|---:|---|---|---|
 || `tests/test_openai_api.py` | 9 | `crates/lure-core/tests/api_openai.rs` `api_server.rs` | partial | error json、chat completion 形状/usage、单条 user 校验、model 不匹配、鉴权、固定 session、真实 HTTP server、`/v1/models`（形状+鉴权）已覆盖；媒体/并发锁待补 |
 | `tests/test_api_stream.py` | 9 | `crates/lure-core/tests/api_openai.rs` `api_server.rs` | partial | SSE 事件顺序（内容→finish→[DONE]）、逐 token 流式（逐 delta chunk、跨 tool 轮不关流、单 id、默认回退单 chunk）已覆盖；token 级 usage 待补 |
+| `tests/test_api_lock*.py` | 9 | `crates/lure-core/tests/session_lock.rs` | partial | per-session 锁原语 `SessionLocks`（同 key 互斥/串行、不同 key 独立、RAII 释放，真多线程验证）已覆盖；接入 HTTP handler 待多线程 runner |
 
-> 注：Phase 9 传输无关表面、真实 HTTP server（含 `/v1/models`、`/health`）与逐 token SSE 均已落地；
-> SDK facade、API runtime 进程生命周期、token 级流式 usage 留待后续。
+> 注：Phase 9 传输无关表面、真实 HTTP server（含 `/v1/models`、`/health`）、逐 token SSE 与
+> per-session 并发锁原语均已落地；`SessionLocks` 接入 HTTP handler、SDK facade、API runtime
+> 进程生命周期、token 级流式 usage 留待后续。
 
 ## Phase 8 明细映射
 

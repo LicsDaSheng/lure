@@ -165,8 +165,9 @@
 - 状态：`partial`
 - 已落地：传输无关的 chat completions 请求/响应/校验/鉴权/session 表面、SSE 事件顺序；
   真实 HTTP server 接线（`ChatServer` / `ChatRunner` / `ServerConfig`），含 `GET /v1/models`
-  与 `GET /health`；**逐 token SSE**（`run_streaming` 驱动内容增量、跨 tool 轮不关流、共享单 id）。
-- 待补：media、并发 session lock、SDK facade。
+  与 `GET /health`；**逐 token SSE**（`run_streaming` 驱动内容增量、跨 tool 轮不关流、共享单 id）；
+  per-session 并发锁原语 `SessionLocks`（同 key 串行、不同 key 独立、RAII 自释放）。
+- 待补：media、SDK facade；`SessionLocks` 接入 HTTP handler 待多线程 runner。
 - 目标：实现 `/v1/chat/completions` 等 API 兼容层和 SDK 可调用表面。
 - 上游参考：
   - `nanobot/api/`

@@ -6,9 +6,11 @@
 
 pub mod goal_state;
 pub mod keys;
+mod lock;
 mod model;
 mod store;
 
 pub use keys::{session_key_for_channel, UNIFIED_SESSION_KEY};
+pub use lock::{SessionGuard, SessionLocks};
 pub use model::{Session, FILE_MAX_MESSAGES};
 pub use store::{SessionError, SessionManager, SESSION_CACHE_MAX_SIZE};

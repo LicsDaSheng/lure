@@ -24,8 +24,10 @@
   `GET /v1/models`（单条已配置模型，对齐上游 `handle_models`）与 `GET /health`；
   SSE 经 `ChatRunner::run_streaming` 驱动内容增量回调，每段文本一条 content chunk（跨 tool 轮次不关流），
   收尾 finish chunk 与 `[DONE]`；鉴权、解析、model 校验、响应构造全部复用 `api` 现有函数，零逻辑复制。
+  并发原语 `session::SessionLocks`：per-session 互斥（同 key 串行、不同 key 独立、RAII 自释放），
+  忠实移植上游 per-session `asyncio.Lock`，以真多线程测试锁定契约，为未来多线程 runner 就绪。
 
-下一步可选：Phase 9 剩余外围（multipart/media 上传、并发 session lock、SDK facade），
+下一步可选：Phase 9 剩余外围（multipart/media 上传、SDK facade），
 或 Phase 8（cron 表达式调度与 cron/trigger 工具）盘点。
 
 | 阶段 | 内容 | 状态 |

@@ -760,6 +760,28 @@
 - 下一步：
   - Phase 9 剩余外围（并发 session lock 有上游 `test_api_lock_*` 对应），或 Phase 8（cron 表达式调度）。
 
+### 进度记录 2026-07-25（per-session 并发锁原语，TDD）
+
+- 状态：partial
+- 本次完成：
+  - `session::SessionLocks`（`Mutex<HashSet<String>> + Condvar`）忠实移植上游 per-session
+    `asyncio.Lock`：`lock(key)` 阻塞串行化同 key、不同 key 独立；`try_lock(key)` 非阻塞探测；
+    RAII `SessionGuard` drop 时移除 key 并 `notify_all`，集合随释放自清理无泄漏。
+  - 从 `session` 模块导出 `SessionLocks` / `SessionGuard`。
+- 设计取舍：当前同步单请求 HTTP server 请求天然串行，锁在 HTTP 面上无法被观测，故先落地
+  可复用、可真测的**并发原语**并以真多线程验证契约；接入 handler 待 runner 具备多线程能力
+  （`AgentLoop` 目前 `!Send`），避免在单线程 handler 里塞入永不触发的死路径（YAGNI）。
+- 验证：
+  - `rtk cargo fmt --all`；`clippy --workspace --all-targets -D warnings` 无问题。
+  - `rtk cargo test --workspace` 通过（255 passed，45 套件）：新增 `session_lock.rs` 4 个真
+    多线程用例（同 key 互斥/释放重获、不同 key 独立、8 线程串行化 `max_overlap==1`、
+    不同 key Barrier(2) 并发不死锁）+ lock.rs 单测 2 个。
+- 上游对照：
+  - 已覆盖：`test_api_lock*.py` 的 per-session 互斥/独立语义（以原语层验证）。
+  - 暂未覆盖（记入 ledger）：锁接入 HTTP handler 的端到端并发、media 上传、SDK facade。
+- 下一步：
+  - Phase 9 剩余外围（multipart/media、SDK facade），或 Phase 8（cron 表达式调度）。
+
 ## Phase 10: WebUI 与前端集成
 
 ### Plan
