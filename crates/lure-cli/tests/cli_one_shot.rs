@@ -84,6 +84,77 @@ fn no_subcommand_prints_version() {
 }
 
 #[test]
+fn onboard_creates_lure_home_structure_and_default_config() {
+    let dir = tempdir().unwrap();
+    let root = dir.path().join(".lure");
+
+    let output = lure()
+        .args(["onboard", "--root", root.to_str().unwrap()])
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(stdout.contains(root.to_str().unwrap()));
+
+    assert!(root.join("config.json").is_file());
+    for top_level in ["cli-apps", "cron", "history", "webui", "workspace"] {
+        assert!(root.join(top_level).is_dir(), "缺少顶层目录: {top_level}");
+    }
+    for workspace_dir in [
+        "cron", "memory", "prompts", "sessions", "skills", "triggers",
+    ] {
+        assert!(
+            root.join("workspace").join(workspace_dir).is_dir(),
+            "缺少 workspace 目录: {workspace_dir}"
+        );
+    }
+    for workspace_file in [
+        "AGENTS.md",
+        "HEARTBEAT.md",
+        "SOUL.md",
+        "USER.md",
+        ".gitignore",
+    ] {
+        assert!(
+            root.join("workspace").join(workspace_file).is_file(),
+            "缺少 workspace 文件: {workspace_file}"
+        );
+    }
+
+    let config = lure_core::config::load_config(&root.join("config.json")).unwrap();
+    assert_eq!(
+        config.agents.defaults.workspace,
+        root.join("workspace").to_string_lossy()
+    );
+}
+
+#[test]
+fn onboard_is_idempotent_and_preserves_existing_files() {
+    let dir = tempdir().unwrap();
+    let root = dir.path().join(".lure");
+    std::fs::create_dir_all(root.join("workspace")).unwrap();
+    std::fs::write(root.join("config.json"), "custom-config").unwrap();
+    std::fs::write(root.join("workspace").join("USER.md"), "custom-user").unwrap();
+
+    let output = lure()
+        .args(["onboard", "--root", root.to_str().unwrap()])
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    assert_eq!(
+        std::fs::read_to_string(root.join("config.json")).unwrap(),
+        "custom-config"
+    );
+    assert_eq!(
+        std::fs::read_to_string(root.join("workspace").join("USER.md")).unwrap(),
+        "custom-user"
+    );
+    assert!(root.join("workspace").join("SOUL.md").is_file());
+}
+
+#[test]
 fn agent_without_model_uses_default_config_provider_and_reports_missing_key() {
     let dir = tempdir().unwrap();
     let config_path = dir.path().join("config.json");
@@ -401,6 +472,69 @@ fn interactive_mode_processes_multiple_turns_until_exit() {
     assert!(session_text.contains("\"content\":\"echo: hello\""));
     assert!(session_text.contains("\"content\":\"second\""));
     assert!(session_text.contains("\"content\":\"echo: second\""));
+}
+
+#[test]
+fn interactive_mode_processes_multibyte_utf8_turns() {
+    let dir = tempdir().unwrap();
+    let mut child = lure()
+        .args([
+            "agent",
+            "--model",
+            "echo",
+            "--workspace",
+            dir.path().to_str().unwrap(),
+        ])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    {
+        let stdin = child.stdin.as_mut().unwrap();
+        stdin
+            .write_all("你好\n你用的是什么大模型\nexit\n".as_bytes())
+            .unwrap();
+    }
+
+    let output = child.wait_with_output().unwrap();
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(stdout.contains("Assistant: echo: 你好"));
+    assert!(stdout.contains("Assistant: echo: 你用的是什么大模型"));
+}
+
+#[test]
+fn interactive_mode_tolerates_non_utf8_input_bytes() {
+    let dir = tempdir().unwrap();
+    let mut child = lure()
+        .args([
+            "agent",
+            "--model",
+            "echo",
+            "--workspace",
+            dir.path().to_str().unwrap(),
+        ])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    {
+        let stdin = child.stdin.as_mut().unwrap();
+        stdin.write_all(b"hello\ninvalid-\xff\nexit\n").unwrap();
+    }
+
+    let output = child.wait_with_output().unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(stdout.contains("Assistant: echo: hello"));
+    assert!(stdout.contains("Assistant: echo: invalid-"));
+    assert!(stdout.contains("Goodbye!"));
 }
 
 #[test]

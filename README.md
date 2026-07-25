@@ -96,16 +96,34 @@ cargo clippy --all-targets --all-features -- -D warnings
 > `DEEPSEEK_API_KEY`，全量测试会尝试出网。做本地无网络验证时可使用：
 > `rtk env -u DEEPSEEK_API_KEY cargo test --all-targets --all-features`。
 
+## Quickstart
+
+```bash
+# 初始化 Lure 自己的数据目录（结构参考 ~/.nanobot，但不复制本机私有 config 值）
+cargo run --bin lure -- onboard
+
+# 离线试跑：EchoProvider 必须显式选择，适合黑盒测试和本地 smoke
+cargo run --bin lure -- agent -m "你好" --model echo \
+  --config ~/.lure/config.json --workspace ~/.lure/workspace
+
+# 真实 provider：使用 config 默认模型；缺少 provider API key 时会直接报错
+cargo run --bin lure -- agent -m "你好" \
+  --config ~/.lure/config.json --workspace ~/.lure/workspace
+```
+
+`lure onboard` 默认创建 `~/.lure/config.json`、`~/.lure/workspace/`、`cli-apps/`、`cron/`、`history/`、`webui/`，以及 workspace 下的 `sessions/`、`prompts/`、`skills/`、`triggers/`、`cron/`、`memory/` 和基础模板文件。重复执行不会覆盖已有 `config.json`、`USER.md`、`SOUL.md` 等用户文件；测试或自定义安装可用 `--root /path/to/.lure`。
+
 ## CLI 用法
 
-Phase 3 已打通 CLI 到 session 的最小闭环。当前使用占位 `EchoProvider`（回显最近一条用户消息），真实 provider 属 Phase 4 后续接入：
+Phase 3 已打通 CLI 到 session 的最小闭环；Phase 4 后 provider 选择统一经 `ModelRuntimeResolver`。`EchoProvider` 只作为离线测试脚手架保留，必须通过 `--model echo` 显式启用：
 
 ```bash
 # 一次性对话：跑完 agent loop，保存 user/assistant turn 并输出回复
-cargo run --bin lure -- agent -m "你好" --workspace /path/to/workspace
+cargo run --bin lure -- agent -m "你好" --model echo --workspace /path/to/workspace
 
 # 交互模式：持续复用同一 session；输入 exit、quit、/exit、/quit 或 :q 退出
-cargo run --bin lure -- agent --workspace /path/to/workspace --session cli:direct
+cargo run --bin lure -- agent --model echo \
+  --config ~/.lure/config.json --workspace ~/.lure/workspace --session cli:direct
 
 # 真实 provider：provider 选择经 ModelRuntimeResolver
 #   --model 覆盖默认 preset 的 model；--preset 从 --config 加载的 config 选中命名 preset（二者互斥）
@@ -116,7 +134,7 @@ cargo run --bin lure -- agent -m "你好" --config ~/.nanobot/config.json --pres
 cargo run --bin lure
 ```
 
-`--workspace` 缺省时使用 `~/.nanobot/workspace`，`--config` 缺省时使用 `~/.nanobot/config.json`（对齐上游默认路径）。会话以 JSONL 持久化在 `<workspace>/sessions/` 下，文件名为 session key 的 base64url 编码。指定 `--model`/`--preset` 时，provider 身份、api_base、model 与生成参数均由 resolver 解析出的不可变 runtime 决定，并挂载工具运行时（tool-call 循环）：workspace 绑定的 `read_file`/`write_file` 默认可用；`exec` shell 工具需在 config 中显式开启并配置 allow 模式：
+`--workspace` 缺省时使用 `~/.nanobot/workspace`，`--config` 缺省时使用 `~/.nanobot/config.json`（对齐上游默认路径）。如需使用 Lure 自己的数据目录，先执行 `lure onboard`，再显式传入 `--config ~/.lure/config.json --workspace ~/.lure/workspace`。会话以 JSONL 持久化在 `<workspace>/sessions/` 下，文件名为 session key 的 base64url 编码。provider 身份、api_base、model 与生成参数均由 resolver 解析出的不可变 runtime 决定，并挂载工具运行时（tool-call 循环）：workspace 绑定的 `read_file`/`write_file` 默认可用；`exec` shell 工具需在 config 中显式开启并配置 allow 模式：
 
 ```jsonc
 {

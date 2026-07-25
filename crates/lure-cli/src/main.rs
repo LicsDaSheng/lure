@@ -10,6 +10,7 @@
 //! `--model deepseek-v4-pro` → deepseek + `DEEPSEEK_API_KEY`）。所有分支都挂载
 //! workspace 绑定的长期记忆（注入记忆块 + 记录 `history.jsonl`）。
 
+use std::fs;
 use std::io::{self, BufRead, Write};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
@@ -20,7 +21,9 @@ use std::time::Duration;
 
 use lure_core::agent::{AgentLoop, ContextBuilder, ProgressEvent};
 use lure_core::bus::InboundMessage;
-use lure_core::config::{default_config_path, default_workspace, load_config, Config};
+use lure_core::config::{
+    default_config_path, default_workspace, home_dir, load_config, save_config, Config,
+};
 use lure_core::memory::MemoryStore;
 use lure_core::provider::{
     EchoProvider, LlmProvider, LlmRuntime, ModelRuntimeResolver, OpenAiCompatProvider,
@@ -33,6 +36,16 @@ fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
 
     match args.first().map(String::as_str) {
+        Some("onboard") => match run_onboard(&args[1..]) {
+            Ok(summary) => {
+                println!("{summary}");
+                ExitCode::SUCCESS
+            }
+            Err(message) => {
+                eprintln!("错误: {message}");
+                ExitCode::FAILURE
+            }
+        },
         Some("agent") => match run_agent(&args[1..]) {
             Ok(run) => {
                 if let AgentRun::Single(reply) = run {
@@ -56,6 +69,196 @@ fn main() -> ExitCode {
         }
     }
 }
+
+struct OnboardSummary {
+    root: PathBuf,
+    config_path: PathBuf,
+    workspace: PathBuf,
+}
+
+impl std::fmt::Display for OnboardSummary {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "已初始化 Lure 目录: {}\nconfig: {}\nworkspace: {}",
+            self.root.display(),
+            self.config_path.display(),
+            self.workspace.display()
+        )
+    }
+}
+
+/// 初始化 Lure 专用数据目录。
+///
+/// 默认创建 `~/.lure`，目录结构参考上游 `~/.nanobot`：顶层保留 channel/app/runtime
+/// 数据目录，`workspace/` 下创建 session、memory、cron、trigger 与基础提示文件。
+fn run_onboard(args: &[String]) -> Result<OnboardSummary, String> {
+    let mut root: Option<PathBuf> = None;
+    let mut index = 0;
+    while index < args.len() {
+        match args[index].as_str() {
+            "-r" | "--root" => {
+                index += 1;
+                root = Some(PathBuf::from(args.get(index).ok_or("--root 缺少路径")?));
+            }
+            other => return Err(format!("未知参数: {other}")),
+        }
+        index += 1;
+    }
+
+    let root = root.unwrap_or_else(default_lure_root);
+    let workspace = root.join("workspace");
+
+    for dir in [
+        root.join("cli-apps"),
+        root.join("cron"),
+        root.join("history"),
+        root.join("webui"),
+        workspace.clone(),
+        workspace.join("cron"),
+        workspace.join("memory"),
+        workspace.join("prompts"),
+        workspace.join("sessions"),
+        workspace.join("skills"),
+        workspace.join("triggers"),
+    ] {
+        fs::create_dir_all(&dir).map_err(|e| format!("创建目录失败 {}: {e}", dir.display()))?;
+    }
+
+    let config_path = root.join("config.json");
+    if !config_path.exists() {
+        let mut config = Config::default();
+        config.agents.defaults.workspace = if root == default_lure_root() {
+            "~/.lure/workspace".to_string()
+        } else {
+            workspace.to_string_lossy().into_owned()
+        };
+        save_config(&config, &config_path).map_err(|e| e.to_string())?;
+    }
+
+    write_if_missing(&workspace.join(".gitignore"), DEFAULT_GITIGNORE)?;
+    write_if_missing(&workspace.join("SOUL.md"), DEFAULT_SOUL)?;
+    write_if_missing(&workspace.join("USER.md"), DEFAULT_USER)?;
+    write_if_missing(&workspace.join("AGENTS.md"), DEFAULT_AGENTS)?;
+    write_if_missing(&workspace.join("HEARTBEAT.md"), DEFAULT_HEARTBEAT)?;
+    write_if_missing(&workspace.join("memory").join("MEMORY.md"), "# Memory\n\n")?;
+
+    Ok(OnboardSummary {
+        root,
+        config_path,
+        workspace,
+    })
+}
+
+fn default_lure_root() -> PathBuf {
+    home_dir().join(".lure")
+}
+
+fn write_if_missing(path: &Path, contents: &str) -> Result<(), String> {
+    if path.exists() {
+        return Ok(());
+    }
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)
+            .map_err(|e| format!("创建目录失败 {}: {e}", parent.display()))?;
+    }
+    fs::write(path, contents).map_err(|e| format!("写入文件失败 {}: {e}", path.display()))
+}
+
+const DEFAULT_GITIGNORE: &str =
+    "/*\n!memory/\n!SOUL.md\n!USER.md\n!memory/MEMORY.md\n!.gitignore\n";
+
+const DEFAULT_SOUL: &str = r#"# Soul
+
+I am Lure, a personal AI assistant.
+
+## Core Principles
+
+- Solve by doing, not by describing what I would do.
+- Keep responses short unless depth is asked for.
+- Say what I know, flag what I don't, and never fake confidence.
+- Stay friendly and curious; ask a good question when guessing would be risky.
+- Treat the user's time as scarce and their trust as valuable.
+"#;
+
+const DEFAULT_USER: &str = r#"# User Profile
+
+Information about the user to help personalize interactions.
+
+## Basic Information
+
+- **Name**: (your name)
+- **Timezone**: (your timezone, e.g., UTC+8)
+- **Language**: (preferred language)
+
+## Preferences
+
+### Communication Style
+
+- [ ] Casual
+- [ ] Professional
+- [ ] Technical
+
+### Response Length
+
+- [ ] Brief and concise
+- [ ] Detailed explanations
+- [ ] Adaptive based on question
+
+### Technical Level
+
+- [ ] Beginner
+- [ ] Intermediate
+- [ ] Expert
+
+## Work Context
+
+- **Primary Role**: (your role, e.g., developer, researcher)
+- **Main Projects**: (what you're working on)
+- **Tools You Use**: (IDEs, languages, frameworks)
+
+## Topics of Interest
+
+-
+-
+-
+
+## Special Instructions
+
+(Any specific instructions for how the assistant should behave)
+"#;
+
+const DEFAULT_AGENTS: &str = r#"# Agent Instructions
+
+## Workspace Guidance
+
+Use this file for project-specific preferences, recurring workflow conventions, and instructions you want the agent to remember for this workspace. Keep durable facts about the user in `USER.md`, personality/style guidance in `SOUL.md`, and long-term memory in `memory/MEMORY.md`.
+
+## Scheduled Reminders
+
+- Before scheduling reminders, check available skills and follow skill guidance first.
+- Use the built-in `cron` tool to create/list/remove jobs.
+- Cron jobs run as scheduled turns in the origin chat/session and normally deliver the result back to that channel. Do not use cron for background checks that should stay silent when there is nothing useful to report; use `HEARTBEAT.md` instead.
+
+## Heartbeat Tasks
+
+`HEARTBEAT.md` is checked periodically by the protected heartbeat job. Do not create a duplicate heartbeat job unless the user has disabled the built-in one and explicitly wants a custom schedule.
+"#;
+
+const DEFAULT_HEARTBEAT: &str = r#"# Heartbeat Tasks
+
+<!--
+This file is checked periodically by your Lure agent.
+
+Use this file for recurring background checks that should stay quiet unless there is something useful to report. Regular cron jobs are different: they normally deliver each run's result back to the chat/session where they were created.
+
+If this file has no tasks (only headers and comments), the agent will skip it. Completed tasks should be deleted, not kept - heartbeat only reads "Active Tasks".
+-->
+
+## Active Tasks
+
+<!-- Add your periodic tasks below this line -->
+"#;
 
 /// CLI 的一次回复：最终答案 + 可选思维链（仅 `--show-reasoning` 时携带）。
 struct AgentReply {
@@ -429,19 +632,23 @@ fn run_interactive(
     );
 
     let stdin = io::stdin();
-    let mut lines = stdin.lock().lines();
+    let mut stdin = stdin.lock();
     loop {
         print!("You: ");
         io::stdout()
             .flush()
             .map_err(|e| format!("刷新输出失败: {e}"))?;
 
-        let Some(line) = lines.next() else {
+        let mut raw = Vec::new();
+        let bytes_read = stdin
+            .read_until(b'\n', &mut raw)
+            .map_err(|e| format!("读取输入失败: {e}"))?;
+        if bytes_read == 0 {
             println!();
             println!("Goodbye!");
             break;
-        };
-        let line = line.map_err(|e| format!("读取输入失败: {e}"))?;
+        }
+        let line = decode_interactive_line(&raw);
         let command = line.trim();
         if command.is_empty() {
             continue;
@@ -516,6 +723,12 @@ fn run_interactive(
         }
     }
     Ok(())
+}
+
+fn decode_interactive_line(raw: &[u8]) -> String {
+    String::from_utf8_lossy(raw)
+        .trim_end_matches(['\r', '\n'])
+        .to_string()
 }
 
 fn split_session_id(session_id: &str) -> (String, String) {
