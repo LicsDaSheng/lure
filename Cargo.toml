@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/lure-core", "crates/lure-cli"]
+members = ["crates/lure-core", "crates/lure-cli", "crates/lure-desktop"]
 resolver = "2"
 
 [workspace.package]

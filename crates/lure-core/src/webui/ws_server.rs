@@ -57,7 +57,8 @@ where
     listener: TcpListener,
     factory: Arc<Mutex<F>>,
     issuer: Arc<Mutex<TokenIssuer>>,
-    _marker: std::marker::PhantomData<R>,
+    // `fn() -> R` 形态：Send/Sync 只取决于 F，与 R 无关（R 在连接线程内创建使用）。
+    _marker: std::marker::PhantomData<fn() -> R>,
 }
 
 impl<F, R> WsServer<F, R>
