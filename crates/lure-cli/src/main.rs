@@ -13,7 +13,7 @@ use std::io::{self, BufRead, Write};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-use lure_core::agent::{AgentLoop, ContextBuilder};
+use lure_core::agent::{AgentLoop, ContextBuilder, ProgressEvent};
 use lure_core::bus::InboundMessage;
 use lure_core::config::{default_config_path, default_workspace, load_config, Config};
 use lure_core::memory::MemoryStore;
@@ -195,6 +195,25 @@ impl<'w, W: Write> StreamRenderer<'w, W> {
         }
         Ok(())
     }
+
+    /// 另起一行输出一条独立信息（如工具活动）：先断开进行中的内容行并重置前缀状态，
+    /// 使随后的内容增量重新带前缀。
+    fn line(&mut self, text: &str) -> io::Result<()> {
+        if self.started {
+            writeln!(self.out)?;
+            self.started = false;
+        }
+        writeln!(self.out, "{text}")?;
+        self.out.flush()
+    }
+}
+
+/// 把一个非内容的 progress 事件渲染为交互显示行；无需显示的事件返回 `None`。
+fn format_progress_line(event: &ProgressEvent) -> Option<String> {
+    match event {
+        ProgressEvent::ToolInvoked { name } => Some(format!("🔧 {name}")),
+        _ => None,
+    }
 }
 
 fn run_interactive(
@@ -230,13 +249,20 @@ fn run_interactive(
             break;
         }
 
-        // 流式驱动：内容增量实时写 stdout，提供逐 token 的对话体验。
+        // 流式驱动：内容增量实时写 stdout，工具调用等 progress 事件另起行显示。
         let input = InboundMessage::new(channel, chat_id, line);
         let mut stdout = io::stdout();
         let mut renderer = StreamRenderer::new(&mut stdout, "Assistant: ");
         let outcome = agent_loop
-            .process_streaming(&input, &mut |delta| {
-                let _ = renderer.push(delta);
+            .process_streaming(&input, &mut |event| match event {
+                ProgressEvent::ContentDelta { text } => {
+                    let _ = renderer.push(text);
+                }
+                other => {
+                    if let Some(line) = format_progress_line(other) {
+                        let _ = renderer.line(&line);
+                    }
+                }
             })
             .map_err(|e| e.to_string())?;
         // 无增量（空内容/兜底文案）时回退打印最终内容。
@@ -398,5 +424,40 @@ mod tests {
         assert!(!renderer.started());
         renderer.push("x").unwrap();
         assert!(renderer.started());
+    }
+
+    #[test]
+    fn stream_renderer_line_breaks_content_and_resets_prefix() {
+        let mut buf: Vec<u8> = Vec::new();
+        let mut renderer = StreamRenderer::new(&mut buf, "A: ");
+        renderer.push("part-a").unwrap();
+        renderer.line("🔧 echo").unwrap();
+        renderer.push("part-b").unwrap();
+        renderer.finish().unwrap();
+        // 内容行被断开、工具行独立、随后内容重新带前缀。
+        assert_eq!(
+            String::from_utf8(buf).unwrap(),
+            "A: part-a\n🔧 echo\nA: part-b\n"
+        );
+    }
+
+    #[test]
+    fn format_progress_line_renders_tool_invoked_only() {
+        assert_eq!(
+            format_progress_line(&ProgressEvent::ToolInvoked {
+                name: "echo".into()
+            }),
+            Some("🔧 echo".to_string())
+        );
+        assert_eq!(
+            format_progress_line(&ProgressEvent::ContentDelta { text: "x".into() }),
+            None
+        );
+        assert_eq!(
+            format_progress_line(&ProgressEvent::FinalResponse {
+                content: "y".into()
+            }),
+            None
+        );
     }
 }

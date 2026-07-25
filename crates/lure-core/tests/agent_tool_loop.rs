@@ -215,6 +215,35 @@ fn tool_round_emits_tool_invoked_progress() {
 }
 
 #[test]
+fn process_streaming_emits_progress_events_live() {
+    // 回调应实时收到 ToolInvoked / ContentDelta / FinalResponse，且序列与最终 progress 一致。
+    let (_dir, mut agent_loop, _calls, _seen) = setup(vec![
+        tool_call_response("call_1", "echo", r#"{"text":"hi"}"#),
+        LlmResponse::text("done"),
+    ]);
+
+    let mut events: Vec<ProgressEvent> = Vec::new();
+    let outcome = agent_loop
+        .process_streaming(&InboundMessage::new("cli", "direct", "go"), &mut |ev| {
+            events.push(ev.clone())
+        })
+        .unwrap();
+
+    assert_eq!(outcome.final_content, "done");
+    assert!(
+        events
+            .iter()
+            .any(|e| matches!(e, ProgressEvent::ToolInvoked { name } if name == "echo")),
+        "回调应含 ToolInvoked(echo): {events:?}"
+    );
+    assert!(events
+        .iter()
+        .any(|e| matches!(e, ProgressEvent::FinalResponse { content } if content == "done")));
+    // 回调是并行实时通道：其序列应与最终 outcome.progress 完全一致。
+    assert_eq!(events, outcome.progress);
+}
+
+#[test]
 fn tool_loop_stops_at_max_iterations() {
     let dir = tempfile::tempdir().unwrap();
     let sessions = SessionManager::new(dir.path()).unwrap();

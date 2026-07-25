@@ -245,6 +245,30 @@
 - 下一步：
   - 补交互内 tool/progress 行渲染 或 reasoning delta 流，或进入其它 phase。
 
+### 进度记录 2026-07-25（交互内 tool/progress 行渲染 + loop 实时 progress 回调，TDD）
+
+- 状态：partial
+- 依据：交互对话应实时显示工具活动（上游 progress 渲染）；此前 ToolInvoked 只在 turn 结束的
+  `outcome.progress` 里、无法实时。
+- 本次完成：
+  - **loop 泛化实时 progress 回调**：`AgentLoop::process_streaming` 的回调从 `FnMut(&str)` 改为
+    `FnMut(&ProgressEvent)`，经 `emit` 助手把每个事件（TurnStarted/ContentDelta/ToolInvoked/
+    FinalResponse）**先实时回调、再收入 progress**——回调序列与最终 `TurnOutcome::progress` 完全一致。
+  - 调用点适配：`process` 传 no-op；SSE server `run_streaming` 过滤出 `ContentDelta` 转发 `on_delta`
+    （SSE 契约不变）；CLI 交互按事件分派。
+  - CLI：`format_progress_line`（`ToolInvoked` → `🔧 <name>`，其余 None）+ `StreamRenderer::line`
+    （断开进行中的内容行、重置前缀，随后内容重新带前缀）；交互回调 ContentDelta 流式、其余走行渲染。
+- 验证：
+  - `rtk cargo fmt --all`；`clippy --workspace --all-targets -D warnings` 无问题。
+  - `rtk cargo test --workspace` 通过（320 passed，49 套件）：`agent_tool_loop.rs` 新增
+    `process_streaming_emits_progress_events_live`（ToolInvoked/FinalResponse 实时 + 序列一致）；
+    CLI 新增 `line` 断行/重前缀、`format_progress_line` 单测；SSE/interactive 既有测试回归通过。
+- 上游对照：
+  - 已覆盖：loop 实时 progress 事件流 + 交互工具活动行渲染。
+  - 暂未覆盖：progress spinner/live 区域、reasoning delta 实时流、更多事件类型的富渲染。
+- 下一步：
+  - 补 reasoning delta 实时流 或 spinner，或进入其它 phase。
+
 ## Phase 4: Provider 与模型运行时
 
 ### Plan

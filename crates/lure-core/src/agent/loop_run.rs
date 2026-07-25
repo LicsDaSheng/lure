@@ -198,21 +198,27 @@ impl AgentLoop {
     /// 追加最终 assistant turn 返回。否则追加带 `tool_calls` 的 assistant turn，执行每个
     /// 工具并把结果作为 `tool` turn 回灌历史，进入下一轮；至多 [`MAX_TOOL_ITERATIONS`] 轮。
     pub fn process(&mut self, input: &InboundMessage) -> Result<TurnOutcome, AgentError> {
-        self.process_streaming(input, &mut |_| {})
+        self.process_streaming(input, &mut |_: &ProgressEvent| {})
     }
 
-    /// [`process`](Self::process) 的流式变体：每产生一个内容增量即回调 `on_content_delta`，
-    /// 让调用方（如 SSE HTTP 层）逐 token 推送。返回的 [`TurnOutcome`] 与 `process` 一致，
-    /// 其 `progress` 仍完整收录 `ContentDelta` 事件（回调只是并行的实时通道）。
+    /// [`process`](Self::process) 的流式变体：每产生一个 [`ProgressEvent`]（TurnStarted /
+    /// ContentDelta / ToolInvoked / FinalResponse）即**实时**回调 `on_progress`，让调用方
+    /// （SSE HTTP 层、CLI 交互渲染）逐事件推送。返回的 [`TurnOutcome`] 与 `process` 一致，
+    /// 其 `progress` 收录同一事件序列（回调是并行的实时通道，二者顺序完全一致）。
     pub fn process_streaming(
         &mut self,
         input: &InboundMessage,
-        on_content_delta: &mut dyn FnMut(&str),
+        on_progress: &mut dyn FnMut(&ProgressEvent),
     ) -> Result<TurnOutcome, AgentError> {
         let key = input.session_key();
-        let mut progress = vec![ProgressEvent::TurnStarted {
-            session_key: key.clone(),
-        }];
+        let mut progress = Vec::new();
+        emit(
+            &mut progress,
+            on_progress,
+            ProgressEvent::TurnStarted {
+                session_key: key.clone(),
+            },
+        );
 
         // 追加 user turn，并把 user 内容记入 history.jsonl（供 dream consolidation）。
         self.sessions
@@ -242,8 +248,11 @@ impl AgentLoop {
                 // 流式驱动：每个内容增量转成细粒度 ContentDelta progress。
                 runner.run_streaming(&self.model, messages, &mut |chunk| {
                     if let Some(text) = chunk.content_delta.as_ref().filter(|t| !t.is_empty()) {
-                        progress.push(ProgressEvent::ContentDelta { text: text.clone() });
-                        on_content_delta(text);
+                        emit(
+                            &mut progress,
+                            on_progress,
+                            ProgressEvent::ContentDelta { text: text.clone() },
+                        );
                     }
                 })?
             };
@@ -266,7 +275,7 @@ impl AgentLoop {
                         &key,
                         &mut progress,
                         &mut usage,
-                        on_content_delta,
+                        on_progress,
                     )?;
                     let (final_text, stop_reason) = if fin_content.trim().is_empty() {
                         (
@@ -279,9 +288,13 @@ impl AgentLoop {
                     persist_assistant(&mut self.sessions, &key, &final_text, &fin_reasoning, &[])?;
                     self.sessions.save(&key, false)?;
                     append_memory_history(self.memory.as_ref(), &key, &final_text)?;
-                    progress.push(ProgressEvent::FinalResponse {
-                        content: final_text.clone(),
-                    });
+                    emit(
+                        &mut progress,
+                        on_progress,
+                        ProgressEvent::FinalResponse {
+                            content: final_text.clone(),
+                        },
+                    );
                     return Ok(TurnOutcome {
                         final_content: final_text,
                         reasoning: fin_reasoning,
@@ -295,9 +308,13 @@ impl AgentLoop {
                 persist_assistant(&mut self.sessions, &key, &content, &reasoning, &[])?;
                 self.sessions.save(&key, false)?;
                 append_memory_history(self.memory.as_ref(), &key, &content)?;
-                progress.push(ProgressEvent::FinalResponse {
-                    content: content.clone(),
-                });
+                emit(
+                    &mut progress,
+                    on_progress,
+                    ProgressEvent::FinalResponse {
+                        content: content.clone(),
+                    },
+                );
                 return Ok(TurnOutcome {
                     final_content: content,
                     reasoning,
@@ -313,9 +330,13 @@ impl AgentLoop {
 
             // 执行所有工具（借用 registry；此段不改动 session）。
             for call in &tool_calls {
-                progress.push(ProgressEvent::ToolInvoked {
-                    name: call.name.clone(),
-                });
+                emit(
+                    &mut progress,
+                    on_progress,
+                    ProgressEvent::ToolInvoked {
+                        name: call.name.clone(),
+                    },
+                );
             }
             let results: Vec<(String, String)> = tool_calls
                 .iter()
@@ -337,9 +358,13 @@ impl AgentLoop {
         // 达到迭代上限：保存并返回最后一轮的 assistant 内容。
         self.sessions.save(&key, false)?;
         append_memory_history(self.memory.as_ref(), &key, &final_content)?;
-        progress.push(ProgressEvent::FinalResponse {
-            content: final_content.clone(),
-        });
+        emit(
+            &mut progress,
+            on_progress,
+            ProgressEvent::FinalResponse {
+                content: final_content.clone(),
+            },
+        );
         Ok(TurnOutcome {
             final_content,
             reasoning: final_reasoning,
@@ -351,15 +376,15 @@ impl AgentLoop {
 
     /// 空终响应达到静默重试上限后的 finalization 请求：在当前 context 之上追加**瞬态**
     /// finalization 提示（不写入 session 历史，对齐上游 `messages_for_model` 副本语义），
-    /// 请求一次并返回 `(内容, reasoning)`；本次 usage 累加进 `usage`。内容增量仍经
-    /// `on_content_delta` 流式推送。
+    /// 请求一次并返回 `(内容, reasoning)`；本次 usage 累加进 `usage`。内容增量仍以
+    /// `ProgressEvent::ContentDelta` 经 `on_progress` 实时推送。
     fn finalize_empty_response(
         &mut self,
         context: &ContextBuilder,
         key: &str,
         progress: &mut Vec<ProgressEvent>,
         usage: &mut Map<String, Value>,
-        on_content_delta: &mut dyn FnMut(&str),
+        on_progress: &mut dyn FnMut(&ProgressEvent),
     ) -> Result<(String, Option<String>), AgentError> {
         let history = self.sessions.get_or_create(key)?.get_history(0);
         let mut messages = context.build(&history);
@@ -368,8 +393,11 @@ impl AgentLoop {
         let runner = AgentRunner::new(self.provider.as_ref(), self.settings.clone());
         let response = runner.run_streaming(&self.model, messages, &mut |chunk| {
             if let Some(text) = chunk.content_delta.as_ref().filter(|t| !t.is_empty()) {
-                progress.push(ProgressEvent::ContentDelta { text: text.clone() });
-                on_content_delta(text);
+                emit(
+                    progress,
+                    on_progress,
+                    ProgressEvent::ContentDelta { text: text.clone() },
+                );
             }
         })?;
         accumulate_usage(usage, &response.usage);
@@ -462,6 +490,17 @@ fn execute_tool(registry: &ToolRegistry, call: &ToolCall) -> String {
         Err(e) => e.to_string(),
     };
     ensure_nonempty_tool_result(&call.name, content)
+}
+
+/// 记录一个 progress 事件：先实时回调 `on_progress`，再收入 `progress` 序列。
+/// 保证回调顺序与最终 [`TurnOutcome::progress`] 完全一致。
+fn emit(
+    progress: &mut Vec<ProgressEvent>,
+    on_progress: &mut dyn FnMut(&ProgressEvent),
+    event: ProgressEvent,
+) {
+    on_progress(&event);
+    progress.push(event);
 }
 
 /// 把语义为空（空串或纯空白）的工具结果替换为短标记，避免回灌历史时出现空白 tool turn

@@ -17,7 +17,7 @@ use std::net::SocketAddr;
 use serde_json::{Map, Value};
 use tiny_http::{Header, Method, Request, Response, Server};
 
-use crate::agent::AgentLoop;
+use crate::agent::{AgentLoop, ProgressEvent};
 use crate::api::openai::{
     api_session_key, authorize, chat_completion_response, error_body, generate_completion_id,
     models_response, parse_chat_request, sse_content_chunk, sse_finish_chunk, validate_model,
@@ -95,9 +95,14 @@ impl ChatRunner for AgentLoop {
     ) -> Result<(), ChatRunError> {
         let mut inbound = InboundMessage::new("api", API_CHAT_ID, text);
         inbound.session_key_override = Some(session_key.to_string());
-        self.process_streaming(&inbound, on_delta)
-            .map(|_| ())
-            .map_err(|e| ChatRunError(e.to_string()))
+        // SSE 只关心内容增量：从 progress 事件流中过滤出 ContentDelta 转发给 on_delta。
+        self.process_streaming(&inbound, &mut |event| {
+            if let ProgressEvent::ContentDelta { text } = event {
+                on_delta(text);
+            }
+        })
+        .map(|_| ())
+        .map_err(|e| ChatRunError(e.to_string()))
     }
 }
 
