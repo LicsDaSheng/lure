@@ -224,6 +224,27 @@
 - 下一步：
   - 收敛 Phase 4 stateful `ModelRuntimeResolver`，再逐步接上 streaming/progress 与真实 runtime。
 
+### 进度记录 2026-07-25（CLI interactive 实时流式输出，TDD）
+
+- 状态：partial
+- 依据：交互对话的定义性能力——逐 token 实时回显（上游 stream 渲染）；此前 interactive 用非流式
+  `process` 阻塞到整段回复才打印。
+- 本次完成：
+  - `StreamRenderer`（`out`/`prefix`/`started`）：首个增量前写一次前缀、逐增量 flush 实时可见、
+    收尾补换行；无增量时不输出（交回退）。纯类型，`#[cfg(test)]` 单测锁定契约。
+  - `run_interactive` 改走 `AgentLoop::process_streaming`：内容增量实时写 stdout；空内容/兜底文案
+    时回退打印 `final_content`；`--show-reasoning` 时思维链仍走 stderr（保持 stdout 纯净）。
+  - one-shot（`-m`）保持非流式 `process_cli_turn`（stdout 为纯答案，可脚本化）。
+- 验证：
+  - `rtk cargo fmt --all`；`clippy --workspace --all-targets -D warnings` 无问题。
+  - `rtk cargo test --workspace` 通过（317 passed，49 套件）：main.rs 新增 3 单测（前缀一次+末换行、
+    无增量不输出、started 标志）；既有 interactive 多轮/别名 subprocess 测试回归通过。
+- 上游对照：
+  - 已覆盖：interactive 逐增量实时输出 + 空内容回退。
+  - 暂未覆盖：prompt_toolkit 历史/快捷键/多行粘贴、tool/progress 富渲染（spinner）、reasoning delta 实时流。
+- 下一步：
+  - 补交互内 tool/progress 行渲染 或 reasoning delta 流，或进入其它 phase。
+
 ## Phase 4: Provider 与模型运行时
 
 ### Plan

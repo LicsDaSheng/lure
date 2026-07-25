@@ -156,6 +156,47 @@ fn process_cli_turn(
     })
 }
 
+/// 交互模式的流式渲染器：把内容增量实时写入 `out`，首个增量前写一次 `prefix`，
+/// 结束时补一个换行。无增量时不输出任何内容（由调用方回退打印最终内容）。
+struct StreamRenderer<'w, W: Write> {
+    out: &'w mut W,
+    prefix: &'w str,
+    started: bool,
+}
+
+impl<'w, W: Write> StreamRenderer<'w, W> {
+    fn new(out: &'w mut W, prefix: &'w str) -> Self {
+        Self {
+            out,
+            prefix,
+            started: false,
+        }
+    }
+
+    /// 是否已写出任何内容（即是否收到过增量）。
+    fn started(&self) -> bool {
+        self.started
+    }
+
+    /// 写入一个内容增量：首次调用前先写 `prefix`，并逐增量 flush 以实时可见。
+    fn push(&mut self, delta: &str) -> io::Result<()> {
+        if !self.started {
+            write!(self.out, "{}", self.prefix)?;
+            self.started = true;
+        }
+        write!(self.out, "{delta}")?;
+        self.out.flush()
+    }
+
+    /// 收尾：已输出内容时补一个换行。
+    fn finish(&mut self) -> io::Result<()> {
+        if self.started {
+            writeln!(self.out)?;
+        }
+        Ok(())
+    }
+}
+
 fn run_interactive(
     mut agent_loop: AgentLoop,
     channel: &str,
@@ -189,11 +230,28 @@ fn run_interactive(
             break;
         }
 
-        let reply = process_cli_turn(&mut agent_loop, channel, chat_id, line, show_reasoning)?;
-        if let Some(reasoning) = reply.reasoning {
-            eprintln!("💭 思维链:\n{reasoning}\n");
+        // 流式驱动：内容增量实时写 stdout，提供逐 token 的对话体验。
+        let input = InboundMessage::new(channel, chat_id, line);
+        let mut stdout = io::stdout();
+        let mut renderer = StreamRenderer::new(&mut stdout, "Assistant: ");
+        let outcome = agent_loop
+            .process_streaming(&input, &mut |delta| {
+                let _ = renderer.push(delta);
+            })
+            .map_err(|e| e.to_string())?;
+        // 无增量（空内容/兜底文案）时回退打印最终内容。
+        if !renderer.started() {
+            renderer
+                .push(&outcome.final_content)
+                .map_err(|e| e.to_string())?;
         }
-        println!("Assistant: {}", reply.final_content);
+        renderer.finish().map_err(|e| e.to_string())?;
+
+        if show_reasoning {
+            if let Some(reasoning) = outcome.reasoning {
+                eprintln!("💭 思维链:\n{reasoning}\n");
+            }
+        }
     }
     Ok(())
 }
@@ -303,4 +361,42 @@ fn build_provider_from_runtime(
         &runtime.provider.model,
         UreqTransport::new(),
     )))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn rendered(prefix: &str, deltas: &[&str]) -> String {
+        let mut buf: Vec<u8> = Vec::new();
+        let mut renderer = StreamRenderer::new(&mut buf, prefix);
+        for d in deltas {
+            renderer.push(d).unwrap();
+        }
+        renderer.finish().unwrap();
+        String::from_utf8(buf).unwrap()
+    }
+
+    #[test]
+    fn stream_renderer_writes_prefix_once_and_trailing_newline() {
+        assert_eq!(
+            rendered("Assistant: ", &["echo: ", "hi"]),
+            "Assistant: echo: hi\n"
+        );
+    }
+
+    #[test]
+    fn stream_renderer_no_deltas_writes_nothing() {
+        // 无增量（如空内容）：不输出前缀，交由回退路径打印最终内容。
+        assert_eq!(rendered("Assistant: ", &[]), "");
+    }
+
+    #[test]
+    fn stream_renderer_reports_whether_started() {
+        let mut buf: Vec<u8> = Vec::new();
+        let mut renderer = StreamRenderer::new(&mut buf, "P:");
+        assert!(!renderer.started());
+        renderer.push("x").unwrap();
+        assert!(renderer.started());
+    }
 }

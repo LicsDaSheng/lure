@@ -166,7 +166,7 @@ Phase 0 已完成，确定 phase 1-4 关键上游测试的 Rust 测试落点（�
 |---|---:|---|---|---|
 | `tests/agent/test_loop_runner_integration.py` | 3 | `crates/lure-core/tests/agent_loop.rs` | partial | 最小闭环（输入/最终回复/turn 保存/历史可读/结构化错误）已覆盖；streaming、goal/subagent、consolidation 属 Phase 4/6 |
 | `tests/agent/` (tool-call loop) | 5 | `crates/lure-core/tests/agent_tool_loop.rs` | partial | provider tool_calls 解析 + `AgentLoop` tool-call 迭代（执行/tool turn 回灌/上限/未知工具恢复/无 registry 终态）、空工具结果替换标记、空终响应静默重试+finalization（`stop_reason` + `EMPTY_FINAL_RESPONSE_MESSAGE`）、usage 跨轮累加（含 cached_tokens，对齐 `test_runner_core::{replaces_empty_tool_result_with_marker,retries_empty_final_response,uses_specific_message_after_empty_finalization,accumulates_usage}`）已覆盖；并行 tool、token 估算兜底待后续 |
-| `tests/cli/` (agent direct) | 3 | `crates/lure-cli/tests/cli_one_shot.rs` | partial | `agent -m` one-shot、基础 interactive REPL、`--session`、`--config`/`--preset`/`--model`（经 resolver 选 provider）、EOF/退出命令已覆盖；prompt_toolkit、stream/progress 渲染、slash commands 待后续 |
+| `tests/cli/` (agent direct) | 3 | `crates/lure-cli/tests/cli_one_shot.rs` | partial | `agent -m` one-shot、interactive REPL（经 `process_streaming` 逐增量实时输出 + 空内容回退，`StreamRenderer` 单测）、`--session`、`--config`/`--preset`/`--model`（经 resolver 选 provider）、EOF/退出命令已覆盖；prompt_toolkit、多行输入、tool/progress 富渲染、slash commands 待后续 |
 
 > 注：Phase 3 provider 采用同步 trait + `EchoProvider` 占位；上游 async provider 与
 > 真实 OpenAI-compatible 调用归 Phase 4，届时收敛 provider 契约。
