@@ -184,8 +184,13 @@
 ## Phase 10: WebUI 与前端集成
 
 - 状态：`partial`
-- 已落地：传输无关的 WebUI 后端服务协议——session list/thread/status、WS inbound/outbound 事件形状。
-- 待补：真实 HTTP/WebSocket 传输、settings/transcript/token usage/媒体等大表面、前端资产复用或重写。
+- 已落地：传输无关的 WebUI 后端服务协议——session list/thread/status、WS inbound/outbound
+  事件形状；**desktop 纵向闭环**——原样 vendor 上游 React WebUI（`frontend/`，bun 构建），
+  `lure-desktop`（wry 窗口）进程内提供 loopback HTTP（bootstrap/token/sessions/静态资源）
+  与 WS 复用协议（`webui::mux` + tungstenite transport），前端零改动跑通
+  「列表 → 新会话 → 流式回复 → session 落盘」。
+- 待补：transcript/webui-thread、settings 等 /api 大表面、前端测试映射、`nanobot-host://`
+  IPC 桥、非 macOS 窗口适配。
 - 目标：在 Rust 后端稳定后，复刻 WebUI 服务、WebSocket 协议和前端集成。
 - 上游参考：
   - `webui/`

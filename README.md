@@ -26,6 +26,11 @@
   收尾 finish chunk 与 `[DONE]`；鉴权、解析、model 校验、响应构造全部复用 `api` 现有函数，零逻辑复制。
   并发原语 `session::SessionLocks`：per-session 互斥（同 key 串行、不同 key 独立、RAII 自释放），
   忠实移植上游 per-session `asyncio.Lock`，以真多线程测试锁定契约，为未来多线程 runner 就绪。
+- **Phase 10**：desktop WebUI 纵向闭环——原样 vendor 上游 React WebUI（`frontend/`，零改动），
+  `lure-desktop`（wry 窗口）进程内提供 loopback HTTP（bootstrap/token 签发、
+  `/api/sessions` 鉴权列表、DELETE 会话、静态资源 + SPA fallback）与 WS 复用协议
+  （`webui::mux` 传输无关事件流 + tungstenite transport），跑通
+  「会话列表 → 新会话 → 流式回复 → session 落盘」；agent loop 构建逻辑抽为 lure-cli lib 复用。
 
 下一步可选：Phase 9 剩余外围（multipart/media 上传、SDK facade），
 或 Phase 8（cron 表达式调度与 cron/trigger 工具）盘点。

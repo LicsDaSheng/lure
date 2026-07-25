@@ -1092,6 +1092,49 @@
 - 下一步：
   - 进入 Phase 11：Rust 发布产物、Dockerfile/compose、legacy config/session/memory 迁移、发布清单。
 
+### 进度记录 2026-07-25（desktop webui 纵向闭环，TDD）
+
+- 状态：partial
+- 依据：实施计划 `docs/plans/2026-07-25-phase10-desktop-webui.md`（用户决策：原样复用
+  nanobot React 前端 + Rust 桌面窗口承载 + 进程内提供 API/WS，不跑独立 web 服务）。
+- 本次完成：
+  - **前端 vendor（10c）**：`frontend/webui`（上游 commit b189a37 原样拷贝）+
+    `frontend/nanobot/channels/*/webui`（channel UI 贡献，glob 相对路径要求保留结构）；
+    `bun run build -- --outDir ../dist` 构建通过。
+  - **mux（10a）**：`webui::mux::MuxSession` + `TurnRunner` trait（传输无关）——ready →
+    attach/new_chat/message → `goal_status(running)` → `delta`/`reasoning_delta` → `message`
+    → `turn_end` → `session_updated`；失败 → `error` → `turn_end`；chat_id 校验对齐上游
+    `_CHAT_ID_RE`。
+  - **HTTP 面（10b）**：`webui::tokens::TokenIssuer`（ws/api token 分离、TTL、容量上限）；
+    `webui::http_api`（bootstrap/sessions 载荷，行形状对齐 `_public_row`，updated_at 倒序）；
+    `webui::http_server`（tiny_http：bootstrap 签发、`/api/sessions` 鉴权、DELETE 会话、
+    webui-thread 404、静态资源 + SPA fallback）；`SessionManager::delete_stored`；
+    `SessionRow` 补 `created_at`。
+  - **WS transport（10d）**：`webui::ws_server::WsServer`（独立 loopback 端口、握手
+    `?token=` 校验、每连接一线程）+ `AgentTurnRunner`（`AgentLoop::process_streaming`
+    适配，channel=`websocket`）。
+  - **desktop（10e）**：新 crate `lure-desktop`——rust-embed 内嵌 `frontend/dist`，
+    wry+tao 窗口（macOS WKWebView）加载 loopback HTTP；`build_agent_loop` 抽为
+    lure-cli lib 复用（`--config/--preset/--model/--workspace` 对齐 CLI）。
+- 验证：
+  - `rtk cargo fmt --check`、`clippy --all-targets --all-features -D warnings` 无问题。
+  - 全量测试通过（新增 33 例：mux 10 + http_api/server 12 + ws_server 4 + 既有回归）。
+  - 真实 smoke：`lure-desktop --model echo` 启动后 curl 验证 `GET /`=200、
+    bootstrap 签发、`/api/sessions` 鉴权；node WS 客户端走通
+    ready→message→goal_status→delta→message→turn_end，session 落盘且列表行正确。
+- 上游对照：
+  - 已覆盖：bootstrap 握手载荷、`_public_row` 行形状、WS 复用协议核心事件序列
+    （ready/attached/delta/message/turn_end/goal_status/session_updated/error）、
+    token 签发/校验语义、前端零改动运行（交互/渲染与 nanobot 一致）。
+  - 暂未覆盖（记入 ledger）：
+    - transcript 磁盘记录与 `webui-thread` 真实载荷（当前 404，历史会话重开为空）。
+    - settings/skills/commands/automations/mcp/media/transcription 等 /api 大表面。
+    - workspace scope、fork_chat、goal_state、tool_events、attach 订阅多播（当前单播）。
+    - `nanobot-host://` IPC 桥（前端已原生支持，可后续去掉 TCP 依赖）。
+    - 前端 vitest 映射、Linux/Windows 窗口适配。
+- 下一步：
+  - 实测前端启动期还调用哪些 /api 端点并逐个补 stub；transcript 表面评估。
+
 ## Phase 11: 打包、部署与迁移兼容
 
 ### Plan
