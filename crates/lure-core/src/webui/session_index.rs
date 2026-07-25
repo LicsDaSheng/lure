@@ -17,6 +17,8 @@ pub struct SessionRow {
     pub preview: String,
     /// 消息条数。
     pub message_count: usize,
+    /// 创建时间（RFC3339）。
+    pub created_at: String,
     /// 更新时间（RFC3339）。
     pub updated_at: String,
 }
@@ -33,6 +35,7 @@ pub fn list_webui_sessions(manager: &mut SessionManager) -> Vec<SessionRow> {
             key: session.key.clone(),
             preview: first_user_preview(&session.messages),
             message_count: session.messages.len(),
+            created_at: session.created_at.to_rfc3339(),
             updated_at: session.updated_at.to_rfc3339(),
         });
     }

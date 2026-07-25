@@ -113,6 +113,18 @@ impl SessionManager {
             .join(format!("{}.jsonl", Self::storage_key(key)))
     }
 
+    /// 删除已存储会话（磁盘文件 + 缓存条目）。文件不存在返回 `Ok(false)`。
+    pub fn delete_stored(&mut self, key: &str) -> io::Result<bool> {
+        self.cache.remove(key);
+        self.lru.retain(|cached| cached != key);
+        let path = self.session_path(key);
+        if !path.exists() {
+            return Ok(false);
+        }
+        fs::remove_file(path)?;
+        Ok(true)
+    }
+
     /// 旧版 workspace 内会话文件名：把 `:` 有损替换为 `_`。
     fn legacy_lossy_path(&self, key: &str) -> PathBuf {
         self.sessions_dir
