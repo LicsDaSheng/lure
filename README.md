@@ -1,60 +1,6 @@
 # Lure
 
-用 Rust 完整重新实现 [`nanobot`](https://github.com/) 的项目。
-
-上游 Python 实现是**事实来源**：行为、契约、数据流和运行时边界以上游为准；未验证上游行为之前不自行发明产品行为或协议契约。推进方式采用 TDD——每个能力先补测试再写生产代码，并在 [`handbook/`](handbook/) 中逐阶段记录进度与上游测试映射。
-
-## 当前状态
-
-按阶段推进，每个阶段先形成窄而可运行的纵向切片，再逐步展开。`partial` 表示核心切片已落地、部分外围能力按台账明确暂缓。
-
-当前 11 个阶段均已形成可运行切片。近期把 Phase 4/5/6 的「原语齐全但未接线」缺口逐个打通，
-让 agent loop 与 CLI 成为真正可用的整机，并补齐了 Phase 7 的事件传播与端到端流式，
-以及 Phase 9 的 HTTP server 接线：
-- **Phase 4**：stateful `ModelRuntimeResolver`（preset → 不可变 runtime + admit/refresh/invalidate）
-  接入 AgentLoop/CLI provider 选择路径；config 驱动的 `ProvidersConfig`（api_base 覆盖 / enabled 过滤 /
-  api_key 解析）；CLI 补 `--config`/`--preset`；**SSE 流式消费**（`complete_streaming` + 增量组装，含 tool_calls 跨块拼装）。
-- **Phase 5**：tool-call 循环（provider `tool_calls` → registry 执行 → tool turn 回灌，至多 8 轮）接入
-  AgentLoop；config 驱动 `registry_from_config` + CLI 工具注册（文件工具默认、exec opt-in）。
-- **Phase 6**：长期记忆接入 AgentLoop（记忆块注入 + `history.jsonl` 记录 + `consolidate` 接口），CLI 常驻挂载。
-- **Phase 7**：gateway 把 agent 的 progress 事件流（Started/ContentDelta/ToolInvoked/Final）转发到 channel；
-  loop 走流式驱动、逐增量发 `ContentDelta`，`UreqTransport` 真·增量边收边发。
-- **Phase 9**：`lure-core::api::server` 提供最小同步 HTTP server（`ChatServer` / `ChatRunner` / `ServerConfig`），
-  把传输无关的 OpenAI-compatible 表面接到真实端点：`POST /v1/chat/completions`（非流式 JSON / **逐 token SSE 流**）、
-  `GET /v1/models`（单条已配置模型，对齐上游 `handle_models`）与 `GET /health`；
-  SSE 经 `ChatRunner::run_streaming` 驱动内容增量回调，每段文本一条 content chunk（跨 tool 轮次不关流），
-  收尾 finish chunk 与 `[DONE]`；鉴权、解析、model 校验、响应构造全部复用 `api` 现有函数，零逻辑复制。
-  并发原语 `session::SessionLocks`：per-session 互斥（同 key 串行、不同 key 独立、RAII 自释放），
-  忠实移植上游 per-session `asyncio.Lock`，以真多线程测试锁定契约，为未来多线程 runner 就绪。
-- **Phase 10**：desktop WebUI 纵向闭环——原样 vendor 上游 React WebUI（`frontend/`，零改动），
-  `lure-desktop`（wry 窗口）进程内提供 loopback HTTP（bootstrap/token 签发、
-  `/api/sessions` 鉴权列表、DELETE 会话、静态资源 + SPA fallback）与 WS 复用协议
-  （`webui::mux` 传输无关事件流 + tungstenite transport），跑通
-  「会话列表 → 新会话 → 流式回复 → session 落盘」；agent loop 构建逻辑抽为 lure-cli lib 复用。
-
-下一步可选：Phase 9 剩余外围（multipart/media 上传、SDK facade），
-或 Phase 8（cron 表达式调度与 cron/trigger 工具）盘点。
-
-| 阶段 | 内容 | 状态 |
-|---|---|---|
-| Phase 0 | 项目骨架与复刻边界（Cargo workspace） | `done` |
-| Phase 1 | 配置 schema、路径解析与读写 | `partial` |
-| Phase 2 | Session 存储、缓存、goal 派生视图与 legacy stem 迁移 | `partial` |
-| Phase 3 | Agent Loop 最小纵向闭环（CLI one-shot + 基础 interactive） | `partial` |
-| Phase 4 | Provider preset 解析、OpenAI-compatible provider、SSE 流式、stateful resolver 与 config 驱动 provider 匹配 | `partial` |
-| Phase 5 | Tool 运行时、workspace 安全边界、tool-call 循环与 CLI 工具注册 | `partial` |
-| Phase 6 | Memory 存储、history、dream consolidation 与 loop/CLI 记忆接入 | `partial` |
-| Phase 7 | Bus、channel 契约、gateway 编排闭环与 progress 事件传播 | `partial` |
-| Phase 8 | Cron store、session 投递、heartbeat 与 trigger | `partial` |
-| Phase 9 | OpenAI-compatible API 表面 | `partial` |
-| Phase 10 | WebUI 后端服务协议 | `partial` |
-| Phase 11 | 打包、Docker 骨架、config 与基础 legacy fixture 迁移 | `partial` |
-
-详细阶段计划、验收标准与上游测试映射见 [handbook/](handbook/)：
-- [phase-roadmap.md](handbook/phase-roadmap.md)：阶段拆分与状态
-- [phase-plans.md](handbook/phase-plans.md)：每阶段 plan、验收标准与进度记录
-- [phase-execution.md](handbook/phase-execution.md)：固定推进流程与门禁
-- [upstream-test-ledger.md](handbook/upstream-test-ledger.md)：上游测试覆盖台账
+用 Rust 实现的轻量 AI agent 框架，目标行为对齐 [`nanobot`](https://github.com/)。提供 CLI 命令行与 desktop 桌面应用两种入口。
 
 ## 架构
 
@@ -62,32 +8,34 @@ Cargo workspace，以 crate 边界作为主要模块化机制：
 
 ```
 lure/
-├── Cargo.toml                     # workspace 根
+├── Cargo.toml                  # workspace 根
+├── frontend/                   # vendored 上游 nanobot WebUI（React，零改动）
 └── crates/
-    ├── lure-core/                 # 核心领域库
+    ├── lure-core/              # 核心领域库
     │   └── src/
-    │       ├── config/            # 配置 schema / 路径 / 读写 / preset / 迁移
-    │       ├── session/           # session key / 存储 / 缓存 / goal 派生视图 / legacy 迁移
-    │       ├── provider/          # LLM provider 契约 / OpenAI-compatible / registry
-    │       ├── agent/             # 最小 loop / runner / context 闭环
-    │       ├── security/          # workspace 路径边界
-    │       ├── tool/              # tool trait / registry / 文件与 shell 工具
-    │       ├── memory/            # 长期记忆 / history / legacy HISTORY.md 迁移 / dream consolidation
-    │       ├── bus/               # InboundMessage / OutboundMessage / 消息总线
-    │       ├── channel/           # channel 契约
-    │       ├── gateway/           # 最小 gateway 编排
-    │       ├── cron/              # cron 调度 / 持久化 / session 投递
-    │       ├── trigger/           # 本地 trigger at-least-once 队列
-    │       ├── api/               # OpenAI-compatible API 表面（传输无关）
-    │       └── webui/             # WebUI 后端服务协议（传输无关）
-    └── lure-cli/                  # 命令行入口（二进制 `lure`）
+    │       ├── agent/          # agent loop / runner / context
+    │       ├── api/            # OpenAI-compatible API 表面
+    │       ├── bus/            # InboundMessage / OutboundMessage / 消息总线
+    │       ├── channel/        # channel 契约
+    │       ├── config/         # 配置 schema / 路径 / 读写 / preset
+    │       ├── cron/           # cron 调度 / 持久化
+    │       ├── gateway/        # gateway 编排
+    │       ├── memory/         # 长期记忆 / history / dream consolidation
+    │       ├── provider/       # LLM provider 契约 / OpenAI-compatible
+    │       ├── security/       # workspace 路径边界
+    │       ├── session/        # session 存储 / 缓存 / goal 状态
+    │       ├── tool/           # tool trait / registry / 文件与 shell 工具
+    │       ├── trigger/        # trigger at-least-once 队列
+    │       └── webui/          # WebUI 后端协议 / HTTP server / WS multiplex
+    ├── lure-cli/               # CLI（二进制 `lure`）
+    └── lure-desktop/           # 桌面应用（wry webview，二进制 `lure-desktop`）
 ```
 
-设计原则：优先类型化 API、枚举、trait 与结构化错误；保持解析、领域逻辑、运行时执行、存储与传输之间的清晰边界；避免大型万能 crate。
+设计原则：优先类型化 API、枚举、trait 与结构化错误；保持解析、领域逻辑、运行时执行、存储与传输之间的清晰边界。
 
 ## 构建与测试
 
-需要 Rust（edition 2021，`rust-version = 1.85`）。
+需要 Rust（edition 2021，`rust-version = 1.85`）。desktop 构建还需要 `bun`（前端构建）。
 
 ```bash
 cargo build
@@ -103,24 +51,39 @@ cargo clippy --all-targets --all-features -- -D warnings
 
 ## Quickstart
 
+### CLI
+
 ```bash
-# 初始化 Lure 自己的数据目录（结构参考 ~/.nanobot，但不复制本机私有 config 值）
+# 初始化 Lure 自己的数据目录
 cargo run --bin lure -- onboard
 
-# 离线试跑：EchoProvider 必须显式选择，适合黑盒测试和本地 smoke
+# 离线试跑（EchoProvider，适合黑盒测试和本地 smoke）
 cargo run --bin lure -- agent -m "你好" --model echo \
   --config ~/.lure/config.json --workspace ~/.lure/workspace
 
-# 真实 provider：使用 config 默认模型；缺少 provider API key 时会直接报错
+# 真实 provider（使用 config 默认模型；需 API key）
 cargo run --bin lure -- agent -m "你好" \
   --config ~/.lure/config.json --workspace ~/.lure/workspace
 ```
 
 `lure onboard` 默认创建 `~/.lure/config.json`、`~/.lure/workspace/`、`cli-apps/`、`cron/`、`history/`、`webui/`，以及 workspace 下的 `sessions/`、`prompts/`、`skills/`、`triggers/`、`cron/`、`memory/` 和基础模板文件。重复执行不会覆盖已有 `config.json`、`USER.md`、`SOUL.md` 等用户文件；测试或自定义安装可用 `--root /path/to/.lure`。
 
-## CLI 用法
+### Desktop
 
-Phase 3 已打通 CLI 到 session 的最小闭环；Phase 4 后 provider 选择统一经 `ModelRuntimeResolver`。`EchoProvider` 只作为离线测试脚手架保留，必须通过 `--model echo` 显式启用：
+```bash
+# 确保先跑过 onboard
+cargo run --bin lure -- onboard
+
+# 在项目根目录构建前端（首次或 webui 源码有变更时）
+cd frontend/webui && bun install && bun run build -- --outDir ../dist --emptyOutDir && cd ../..
+
+# 启动桌面应用
+cargo run --bin lure-desktop -- --model echo
+```
+
+窗口加载后打开内嵌 WebUI（交互/渲染与上游 nanobot WebUI 一致）；所有能力由 desktop 进程内提供（不跑独立 web 服务）。`--model`/`--preset`/`--config`/`--workspace` 参数与 CLI 对齐。
+
+## CLI 用法
 
 ```bash
 # 一次性对话：跑完 agent loop，保存 user/assistant turn 并输出回复
@@ -130,8 +93,7 @@ cargo run --bin lure -- agent -m "你好" --model echo --workspace /path/to/work
 cargo run --bin lure -- agent --model echo \
   --config ~/.lure/config.json --workspace ~/.lure/workspace --session cli:direct
 
-# 真实 provider：provider 选择经 ModelRuntimeResolver
-#   --model 覆盖默认 preset 的 model；--preset 从 --config 加载的 config 选中命名 preset（二者互斥）
+# 真实 provider（--model 与 --preset 互斥，二选一）
 cargo run --bin lure -- agent -m "你好" --model deepseek-v4-pro          # 需 DEEPSEEK_API_KEY
 cargo run --bin lure -- agent -m "你好" --config ~/.nanobot/config.json --preset fast
 
