@@ -31,7 +31,7 @@
 | `tests/tools/` | 5 | partial | registry/schema/文件读写+edit/list_dir+grep/shell allow-deny、tool-call 循环、config 驱动工具注册已覆盖；apply_patch/find_files/web/mcp/exec 平台细节待补 |
 | `tests/security/` | 5 | partial | workspace 边界已覆盖；network SSRF、启动安全待补 |
 | `tests/bus/` | 7 | partial | InboundMessage/OutboundMessage、内存队列、outbound 运行时事件（`ProgressUpdate`）已覆盖；async 队列待补 |
-| `tests/channels/` | 7 | partial | channel 契约与配置校验已覆盖；manager 热加载、plugin、具体平台待补 |
+| `tests/channels/` | 7 | partial | channel 契约、配置校验、发送方访问控制（allowlist + pairing 兜底）已覆盖；manager 热加载、plugin、具体平台待补 |
 | `tests/gateway/` | 7,9 | partial | 编排闭环/启停/health 状态已覆盖；真实 HTTP endpoint、进程 runtime、API runtime 待补 |
 | `tests/cron/` | 8 | partial | store 持久化/next-run/session delivery/heartbeat 已覆盖；cron 表达式、工具 schema 待补 |
 | `tests/triggers/` | 8 | partial | at-least-once/忙等/limit 已覆盖；文件 inbox 布局、trigger 定义存储待补 |
@@ -107,7 +107,7 @@ Phase 0 已完成，确定 phase 1-4 关键上游测试的 Rust 测试落点（�
 |---|---:|---|---|---|
 | `nanobot/bus`（events/queue） | 7 | `crates/lure-core/tests/bus_events.rs` | partial | InboundMessage session_key、OutboundMessage reply、FIFO 队列已覆盖 |
 | `nanobot/bus`（progress 事件） | 7 | `crates/lure-core/tests/gateway_progress.rs` `agent_stream.rs` | partial | `ProgressUpdate`/`ProgressKind`（含 ContentDelta）+ gateway 转发 Started/ContentDelta/ToolInvoked/Final、streaming provider 逐增量 ContentDelta 已覆盖；async 订阅待补 |
-| `tests/channels/test_channel_validation.py` 等 | 7 | `crates/lure-core/tests/gateway_dispatch.rs` | partial | channel 配置校验（缺字段）已覆盖；TCP probe/热加载/plugin 待补 |
+| `tests/channels/test_channel_validation.py` 等 | 7 | `crates/lure-core/tests/gateway_dispatch.rs` `channel_access.rs` | partial | channel 配置校验（缺字段）、发送方访问控制 `AccessPolicy::is_allowed`（star>精确 allowlist>pairing>deny，`allowFrom` 别名/null，对齐 `test_base_channel::TestIsAllowed`）已覆盖；TCP probe/热加载/plugin 待补 |
 | `tests/gateway/`（service 编排） | 7 | `crates/lure-core/tests/gateway_dispatch.rs` `gateway_progress.rs` | partial | InboundMessage→AgentLoop→OutboundMessage→channel 闭环、启停不丢任务、未知 channel、health、progress 事件转发已覆盖；HTTP endpoint/进程 runtime 待补 |
 
 > 注：Phase 7 为同步内存实现（上游 asyncio）；WebSocket 最小往返随 Phase 10 WebUI，

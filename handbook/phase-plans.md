@@ -792,6 +792,27 @@
 - 下一步：
   - 进入 Phase 8/9，或补流式 usage 与真实网络 opt-in smoke。
 
+### 进度记录 2026-07-25（channel 发送方访问控制 AccessPolicy，TDD）
+
+- 状态：partial
+- 依据：上游 `channels/base.py::is_allowed` + `tests/channels/test_base_channel.py::TestIsAllowed`。
+- 本次完成（新 `channel/access.rs`）：
+  - `AccessPolicy::is_allowed(sender, approver)`：优先级 `*` > 精确 allowlist 命中 > pairing 批准 > 拒绝；
+    allowlist 条目为不透明 token，**精确**匹配（不做子串/前缀，防 `attacker|allow@x` 注入）。
+  - `PairingApprover` trait + `DenyAllPairing`（无 pairing 兜底）；`is_allowed_no_pairing` 便捷判定。
+  - `ChannelAccessConfig`：serde 支持 `allow_from`/`allowFrom` 别名，`null`/缺失均归一为空（自定义
+    `deserialize_with` 把 null 视作空 Vec）；`From<&ChannelAccessConfig>` 构造策略。
+- 验证：
+  - `rtk cargo fmt --all`；`clippy --workspace --all-targets -D warnings` 无问题。
+  - `rtk cargo test --workspace` 通过（314 passed，49 套件）：`channel_access.rs` 8 例
+    （精确匹配/star/空拒绝/pairing 兜底/star 胜过 pairing 拒绝/别名/null/缺失默认）。
+- 上游对照：
+  - 已覆盖：is_allowed 全部判定分支 + 配置别名/null 归一。
+  - 暂未覆盖：pairing store 真实实现（`is_approved` 接真实 pairing 数据）、channel manager 热加载、
+    TCP probe、plugin manifest、具体平台 runtime。
+- 下一步：
+  - 补 pairing store 接线 或 channel manager，或进入 Phase 8/9。
+
 ## Phase 8: Automations、Cron 与 Trigger
 
 ### Plan
