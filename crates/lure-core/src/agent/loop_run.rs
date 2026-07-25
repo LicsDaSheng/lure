@@ -178,6 +178,17 @@ impl AgentLoop {
     /// 追加最终 assistant turn 返回。否则追加带 `tool_calls` 的 assistant turn，执行每个
     /// 工具并把结果作为 `tool` turn 回灌历史，进入下一轮；至多 [`MAX_TOOL_ITERATIONS`] 轮。
     pub fn process(&mut self, input: &InboundMessage) -> Result<TurnOutcome, AgentError> {
+        self.process_streaming(input, &mut |_| {})
+    }
+
+    /// [`process`](Self::process) 的流式变体：每产生一个内容增量即回调 `on_content_delta`，
+    /// 让调用方（如 SSE HTTP 层）逐 token 推送。返回的 [`TurnOutcome`] 与 `process` 一致，
+    /// 其 `progress` 仍完整收录 `ContentDelta` 事件（回调只是并行的实时通道）。
+    pub fn process_streaming(
+        &mut self,
+        input: &InboundMessage,
+        on_content_delta: &mut dyn FnMut(&str),
+    ) -> Result<TurnOutcome, AgentError> {
         let key = input.session_key();
         let mut progress = vec![ProgressEvent::TurnStarted {
             session_key: key.clone(),
@@ -210,6 +221,7 @@ impl AgentLoop {
                 runner.run_streaming(&self.model, messages, &mut |chunk| {
                     if let Some(text) = chunk.content_delta.as_ref().filter(|t| !t.is_empty()) {
                         progress.push(ProgressEvent::ContentDelta { text: text.clone() });
+                        on_content_delta(text);
                     }
                 })?
             };

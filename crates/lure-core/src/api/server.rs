@@ -7,8 +7,10 @@
 //!
 //! 解析/校验/响应构造复用 [`crate::api`] 现有函数，本模块只做薄传输层。
 //!
-//! Phase 9 不做：`/v1/models`、multipart/media 上传、并发 session lock、请求超时、
-//! 逐 token SSE（当前按 [`sse_chunks`] 发单条内容 chunk，见 upstream-test-ledger）。
+//! SSE 走逐 token 路径：`stream:true` 时驱动 runner 的内容增量回调，每段文本一条
+//! 内容 chunk（跨 tool 轮次不关流），收尾 finish chunk 与 `[DONE]`。
+//!
+//! Phase 9 不做：multipart/media 上传、并发 session lock、请求超时。
 
 use std::net::SocketAddr;
 
@@ -18,7 +20,8 @@ use tiny_http::{Header, Method, Request, Response, Server};
 use crate::agent::AgentLoop;
 use crate::api::openai::{
     api_session_key, authorize, chat_completion_response, error_body, generate_completion_id,
-    models_response, parse_chat_request, sse_chunks, validate_model,
+    models_response, parse_chat_request, sse_content_chunk, sse_finish_chunk, validate_model,
+    SSE_DONE,
 };
 use crate::bus::InboundMessage;
 
@@ -30,6 +33,25 @@ const API_CHAT_ID: &str = "default";
 pub trait ChatRunner {
     /// 处理一次 chat：给定 session key 与用户文本，返回最终 assistant 文本。
     fn run(&mut self, session_key: &str, text: &str) -> Result<String, ChatRunError>;
+
+    /// 处理一次 chat 并**逐段**回调内容增量：每产生一段文本即调用 `on_delta`，
+    /// 供 SSE 层逐 token 推送。跨 tool 轮次的多段内容全部经此回调，流保持打开。
+    ///
+    /// 默认实现回退到非流式 [`run`](Self::run)，把整段最终文本作为**单个**增量回调一次——
+    /// 让未覆盖流式的 runner 仍可被 SSE 路径统一驱动。真正逐 token 的 runner（如
+    /// [`AgentLoop`]）覆盖此方法。
+    fn run_streaming(
+        &mut self,
+        session_key: &str,
+        text: &str,
+        on_delta: &mut dyn FnMut(&str),
+    ) -> Result<(), ChatRunError> {
+        let content = self.run(session_key, text)?;
+        if !content.is_empty() {
+            on_delta(&content);
+        }
+        Ok(())
+    }
 }
 
 /// runner 处理失败（映射为 500）。
@@ -50,6 +72,19 @@ impl ChatRunner for AgentLoop {
         inbound.session_key_override = Some(session_key.to_string());
         self.process(&inbound)
             .map(|outcome| outcome.final_content)
+            .map_err(|e| ChatRunError(e.to_string()))
+    }
+
+    fn run_streaming(
+        &mut self,
+        session_key: &str,
+        text: &str,
+        on_delta: &mut dyn FnMut(&str),
+    ) -> Result<(), ChatRunError> {
+        let mut inbound = InboundMessage::new("api", API_CHAT_ID, text);
+        inbound.session_key_override = Some(session_key.to_string());
+        self.process_streaming(&inbound, on_delta)
+            .map(|_| ())
             .map_err(|e| ChatRunError(e.to_string()))
     }
 }
@@ -168,19 +203,28 @@ impl<R: ChatRunner> ChatServer<R> {
         let session_id = body.get("session_id").and_then(Value::as_str);
         let session_key = api_session_key(session_id);
 
-        // 调用注入的 runner。
-        match self.runner.run(&session_key, &parsed.text) {
-            Ok(content) if parsed.stream => respond_sse(request, &content, &self.config.model),
-            Ok(content) => respond_json(
+        // 调用注入的 runner。流式与非流式走不同回调路径。
+        if parsed.stream {
+            respond_sse(
                 request,
-                200,
-                chat_completion_response(&content, &self.config.model, &Map::new()),
-            ),
-            Err(_) => respond_json(
-                request,
-                500,
-                error_body(500, "Internal server error", "server_error"),
-            ),
+                &mut self.runner,
+                &session_key,
+                &parsed.text,
+                &self.config.model,
+            )
+        } else {
+            match self.runner.run(&session_key, &parsed.text) {
+                Ok(content) => respond_json(
+                    request,
+                    200,
+                    chat_completion_response(&content, &self.config.model, &Map::new()),
+                ),
+                Err(_) => respond_json(
+                    request,
+                    500,
+                    error_body(500, "Internal server error", "server_error"),
+                ),
+            }
         }
     }
 }
@@ -203,11 +247,39 @@ fn respond_json(request: Request, status: u16, body: Value) -> std::io::Result<(
     request.respond(response)
 }
 
-/// 以 SSE 流应答：把 [`sse_chunks`] 的事件序列（内容 chunk → finish chunk → `[DONE]`）
-/// 依次写入 `text/event-stream` 响应体。
-fn respond_sse(request: Request, content: &str, model: &str) -> std::io::Result<()> {
+/// 以 SSE 流应答：驱动 runner 的逐 token 回调，每个内容增量写一条内容 chunk，
+/// 收尾追加 finish chunk 与 `[DONE]`。所有 chunk 共享同一 `chatcmpl-` id；跨 tool
+/// 轮次的多段内容全部写入同一响应体，流不在中途关闭。
+///
+/// 传输仍为同步单次应答：增量先累积进响应体，末尾一次性 `respond`（tiny_http 的
+/// `Response::from_string` 语义）。runner 出错且尚未产生任何 chunk 时回退 500。
+fn respond_sse<R: ChatRunner>(
+    request: Request,
+    runner: &mut R,
+    session_key: &str,
+    text: &str,
+    model: &str,
+) -> std::io::Result<()> {
     let chunk_id = generate_completion_id();
-    let body: String = sse_chunks(content, model, &chunk_id).concat();
+    let mut body = String::new();
+    let stream_result = runner.run_streaming(session_key, text, &mut |delta| {
+        if !delta.is_empty() {
+            body.push_str(&sse_content_chunk(delta, model, &chunk_id));
+        }
+    });
+
+    if stream_result.is_err() {
+        // 尚未写出任何帧（响应体只在末尾发送），可安全回退结构化 500。
+        return respond_json(
+            request,
+            500,
+            error_body(500, "Internal server error", "server_error"),
+        );
+    }
+
+    body.push_str(&sse_finish_chunk(model, &chunk_id));
+    body.push_str(SSE_DONE);
+
     let response = Response::from_string(body)
         .with_status_code(200)
         .with_header(sse_header())

@@ -740,6 +740,26 @@
   - Phase 9 剩余外围（并发 session lock 有上游 `test_api_lock_*` 对应，价值较高；逐 token SSE 需把
     `ContentDelta` 事件链接线到 SSE 响应），或 Phase 8（cron 表达式调度）。
 
+### 进度记录 2026-07-25（逐 token SSE 接线，TDD GREEN）
+
+- 状态：partial
+- 本次完成（承接上一轮 RED 的 5 个流式用例）：
+  - `ChatRunner` 新增 `run_streaming(session_key, text, on_delta)`：默认实现回退 `run` 发单个增量，
+    未覆盖流式的 runner（如 `SingleShotRunner`）仍可被 SSE 路径统一驱动。
+  - `AgentLoop` 覆盖 `run_streaming`，接线到新增的 `AgentLoop::process_streaming`：把内容增量回调穿过
+    tool-call 循环，跨轮次多段内容（`part-a`→tool→`part-b`）经同一回调实时推送，流不中途关闭。
+  - `api::openai` 拆出细粒度 SSE 构造 `sse_content_chunk` / `sse_finish_chunk` / `SSE_DONE`，
+    `sse_chunks` 改为其组合；`respond_sse` 逐增量写 content chunk，收尾 finish + `[DONE]`，共享同一 `chatcmpl-` id。
+- 验证：
+  - `rtk cargo fmt --all`；`clippy --workspace --all-targets -D warnings` 无问题。
+  - `rtk cargo test --workspace` 通过（249 passed，44 套件）；api_server 12 用例全绿
+    （多增量逐 chunk、chatcmpl id 一致、tool 轮不关流、非流式不变、默认回退单 chunk）。
+- 上游对照：
+  - 已覆盖：`test_api_stream.py` 逐 delta SSE 顺序 + 跨 tool 轮流不关闭 + 单 id 契约。
+  - 暂未覆盖（记入 ledger）：token 级 usage、media 上传、并发 session lock、SDK facade。
+- 下一步：
+  - Phase 9 剩余外围（并发 session lock 有上游 `test_api_lock_*` 对应），或 Phase 8（cron 表达式调度）。
+
 ## Phase 10: WebUI 与前端集成
 
 ### Plan

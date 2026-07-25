@@ -208,13 +208,29 @@ pub fn models_response(model: &str) -> Value {
     })
 }
 
+/// SSE 终止哨兵帧（`data: [DONE]`）。
+pub const SSE_DONE: &str = "data: [DONE]\n\n";
+
 /// 构造 streaming SSE 事件序列：内容 chunk → finish chunk → `[DONE]`。
+///
+/// 逐 token 路径改用细粒度的 [`sse_content_chunk`] / [`sse_finish_chunk`] / [`SSE_DONE`]；
+/// 本函数保留为「单段内容」的便捷组合（对齐上游一次性 chunk 语义）。
 pub fn sse_chunks(content: &str, model: &str, chunk_id: &str) -> Vec<String> {
     vec![
-        sse_chunk(content, model, chunk_id, None),
-        sse_chunk("", model, chunk_id, Some("stop")),
-        "data: [DONE]\n\n".to_string(),
+        sse_content_chunk(content, model, chunk_id),
+        sse_finish_chunk(model, chunk_id),
+        SSE_DONE.to_string(),
     ]
+}
+
+/// 单条内容增量 chunk：`delta.content = delta`，`finish_reason` 为空。
+pub fn sse_content_chunk(delta: &str, model: &str, chunk_id: &str) -> String {
+    sse_chunk(delta, model, chunk_id, None)
+}
+
+/// 终止 chunk：空 `delta`，`finish_reason = "stop"`。
+pub fn sse_finish_chunk(model: &str, chunk_id: &str) -> String {
+    sse_chunk("", model, chunk_id, Some("stop"))
 }
 
 /// 单条 OpenAI-compatible SSE chunk。

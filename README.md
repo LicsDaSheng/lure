@@ -20,11 +20,12 @@
 - **Phase 7**：gateway 把 agent 的 progress 事件流（Started/ContentDelta/ToolInvoked/Final）转发到 channel；
   loop 走流式驱动、逐增量发 `ContentDelta`，`UreqTransport` 真·增量边收边发。
 - **Phase 9**：`lure-core::api::server` 提供最小同步 HTTP server（`ChatServer` / `ChatRunner` / `ServerConfig`），
-  把传输无关的 OpenAI-compatible 表面接到真实端点：`POST /v1/chat/completions`（非流式 JSON / SSE 流）、
+  把传输无关的 OpenAI-compatible 表面接到真实端点：`POST /v1/chat/completions`（非流式 JSON / **逐 token SSE 流**）、
   `GET /v1/models`（单条已配置模型，对齐上游 `handle_models`）与 `GET /health`；
-  鉴权、解析、model 校验、响应构造全部复用 `api` 现有函数，零逻辑复制。
+  SSE 经 `ChatRunner::run_streaming` 驱动内容增量回调，每段文本一条 content chunk（跨 tool 轮次不关流），
+  收尾 finish chunk 与 `[DONE]`；鉴权、解析、model 校验、响应构造全部复用 `api` 现有函数，零逻辑复制。
 
-下一步可选：Phase 9 剩余外围（multipart/media 上传、并发 session lock、逐 token SSE、SDK facade），
+下一步可选：Phase 9 剩余外围（multipart/media 上传、并发 session lock、SDK facade），
 或 Phase 8（cron 表达式调度与 cron/trigger 工具）盘点。
 
 | 阶段 | 内容 | 状态 |

@@ -8,7 +8,7 @@ mod server;
 
 pub use openai::{
     api_session_key, authorize, chat_completion_response, error_body, generate_completion_id,
-    models_response, parse_chat_request, sse_chunks, validate_model, ApiError, ParsedChatRequest,
-    API_SESSION_KEY,
+    models_response, parse_chat_request, sse_chunks, sse_content_chunk, sse_finish_chunk,
+    validate_model, ApiError, ParsedChatRequest, API_SESSION_KEY, SSE_DONE,
 };
 pub use server::{ChatRunError, ChatRunner, ChatServer, ServerConfig};
