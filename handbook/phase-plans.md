@@ -563,6 +563,29 @@
 - 下一步：
   - 进入 Phase 6/文件工具 edit/search，或补流式 usage chunk。
 
+### 进度记录 2026-07-25（文件工具 edit_file，TDD）
+
+- 状态：partial
+- 依据：上游 `tests/tools/test_filesystem_tools.py` 的 `TestFindMatch` + `TestEditFileTool`。
+- 本次完成：
+  - `tool::find_match(content, old_text) -> (Option<String>, count)`：先精确子串（非重叠计数），
+    无命中退回**逐行 trim** 匹配（忽略每行首尾空白按行窗口比较，返回文本保留原始缩进）；
+    空 old_text 视为命中空串。对齐上游 `_find_match`。
+  - `tool::EditFileTool`（`edit_file`）：CRLF 归一后匹配、写回按原行尾还原；多处命中且未
+    `replace_all` 告警不写；未命中 → `Error editing file: old_text not found`；缺 new_text →
+    `Error editing file: Unknown new_text`；越界路径由 `resolve_in_workspace` 拒绝。
+  - 接入 `registry_from_config` 默认注册（与 read/write 并列）。
+- 验证：
+  - `rtk cargo fmt --all`；`clippy --workspace --all-targets -D warnings` 无问题。
+  - `rtk cargo test --workspace` 通过（287 passed，47 套件）：`tool_edit.rs` 13 例（find_match 5 +
+    edit 8：精确/CRLF/trim 回退/歧义不写/replace_all/not-found/缺 new_text/越界拒绝）；
+    `tool_setup.rs` 补 edit_file 默认注册断言。
+- 上游对照：
+  - 已覆盖：`_find_match` 精确+行 trim 语义、`EditFileTool` 六类行为。
+  - 暂未覆盖：引号归一/重缩进（`_preserve_quote_style`/`_reindent_like_match`）、search（grep/list）、apply_patch。
+- 下一步：
+  - 补 search（内容 grep / 目录 list），或引号归一/重缩进增强。
+
 ## Phase 6: Memory、Dream 与长期上下文
 
 ### Plan

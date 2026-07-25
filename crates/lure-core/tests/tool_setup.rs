@@ -13,6 +13,7 @@ fn registers_workspace_file_tools_by_default() {
     let registry = registry_from_config(&Config::default(), Path::new("/tmp/ws")).unwrap();
     assert!(registry.contains("read_file"));
     assert!(registry.contains("write_file"));
+    assert!(registry.contains("edit_file"));
     // exec 默认关闭。
     assert!(!registry.contains("exec"));
 }

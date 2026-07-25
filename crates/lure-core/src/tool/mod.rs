@@ -11,7 +11,7 @@ mod schema;
 mod setup;
 mod shell;
 
-pub use file::{ReadFileTool, WriteFileTool};
+pub use file::{find_match, EditFileTool, ReadFileTool, WriteFileTool};
 pub use registry::{Tool, ToolError, ToolRegistry};
 pub use result::{truncate_result, ToolResult};
 pub use schema::validate_value;
