@@ -15,12 +15,15 @@ use std::path::{Path, PathBuf};
 use chrono::{DateTime, Local};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::Value;
 
 use crate::memory::strip::strip_think;
 
-/// history 单条最大字符数（应急上限）。
-const HISTORY_ENTRY_HARD_CAP: usize = 64_000;
+/// history 单条最大字符数（应急上限）。超出即截断并追加 [`TRUNCATION_MARKER`]。
+pub const HISTORY_ENTRY_HARD_CAP: usize = 64_000;
+
+/// 截断标记（对齐上游 `"\n... (truncated)"`）。
+const TRUNCATION_MARKER: &str = "\n... (truncated)";
 
 /// 一条 history 记录。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -44,6 +47,8 @@ pub struct MemoryStore {
     history_file: PathBuf,
     cursor_file: PathBuf,
     dream_cursor_file: PathBuf,
+    /// history 保留上限；`None` 为不限（[`compact_history`](Self::compact_history) 依此裁剪）。
+    max_history_entries: Option<usize>,
 }
 
 impl MemoryStore {
@@ -59,9 +64,32 @@ impl MemoryStore {
             history_file: memory_dir.join("history.jsonl"),
             cursor_file: memory_dir.join(".cursor"),
             dream_cursor_file: memory_dir.join(".dream_cursor"),
+            max_history_entries: None,
         };
         store.maybe_migrate_legacy_history()?;
         Ok(store)
+    }
+
+    /// 设置 history 保留上限，启用 [`compact_history`](Self::compact_history) 裁剪。
+    pub fn with_max_history_entries(mut self, max: usize) -> Self {
+        self.max_history_entries = Some(max);
+        self
+    }
+
+    /// 按 `max_history_entries` 裁剪 history：仅保留最新 N 条（丢最旧），原子重写文件。
+    ///
+    /// 未设上限或条目未超上限时为 no-op。裁剪不触碰 `.cursor` 计数（`next_cursor` 仍取
+    /// `max(counter, 最大 cursor)+1`，保留条目含最新 cursor，故游标分配不回退）。
+    pub fn compact_history(&self) -> std::io::Result<()> {
+        let Some(max) = self.max_history_entries else {
+            return Ok(());
+        };
+        let entries = self.valid_entries();
+        if entries.len() <= max {
+            return Ok(());
+        }
+        let kept = &entries[entries.len() - max..];
+        write_history_entries(&self.history_file, kept)
     }
 
     /// history.jsonl 路径。
@@ -121,7 +149,8 @@ impl MemoryStore {
         let timestamp = chrono::Local::now().format("%Y-%m-%d %H:%M").to_string();
         let mut raw: String = entry.trim_end().to_string();
         if raw.chars().count() > HISTORY_ENTRY_HARD_CAP {
-            raw = raw.chars().take(HISTORY_ENTRY_HARD_CAP).collect();
+            let truncated: String = raw.chars().take(HISTORY_ENTRY_HARD_CAP).collect();
+            raw = format!("{truncated}{TRUNCATION_MARKER}");
         }
         let content = strip_think(&raw);
 
@@ -277,11 +306,8 @@ impl MemoryStore {
 fn write_history_entries(path: &Path, entries: &[HistoryEntry]) -> std::io::Result<()> {
     let mut text = String::new();
     for entry in entries {
-        let line = serde_json::to_string(&json!({
-            "cursor": entry.cursor,
-            "timestamp": entry.timestamp,
-            "content": entry.content,
-        }))?;
+        // 全字段序列化（含 session_key，`None` 时经 skip_serializing_if 省略）。
+        let line = serde_json::to_string(entry)?;
         text.push_str(&line);
         text.push('\n');
     }

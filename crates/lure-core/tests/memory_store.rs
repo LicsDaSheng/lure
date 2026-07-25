@@ -1,6 +1,6 @@
 //! 映射上游 `tests/agent/test_memory_store.py` 的核心场景。
 
-use lure_core::memory::MemoryStore;
+use lure_core::memory::{MemoryStore, HISTORY_ENTRY_HARD_CAP};
 use serde_json::Value;
 use tempfile::tempdir;
 
@@ -99,6 +99,71 @@ fn read_unprocessed_history_filters_by_cursor() {
     assert_eq!(since_one[0].cursor, 2);
 
     assert_eq!(store.read_unprocessed_history(0).len(), 3);
+}
+
+#[test]
+fn compact_history_drops_oldest_beyond_cap() {
+    // 对齐上游 `test_compact_history_drops_oldest`：max_history_entries=2，追加 5 条后
+    // compact 仅保留最新 2 条。
+    let dir = tempdir().unwrap();
+    let store = MemoryStore::new(dir.path())
+        .unwrap()
+        .with_max_history_entries(2);
+    for i in 1..=5 {
+        store.append_history(&format!("event {i}"), None).unwrap();
+    }
+    store.compact_history().unwrap();
+
+    let entries = store.read_unprocessed_history(0);
+    assert_eq!(entries.len(), 2);
+    assert!(matches!(entries[0].cursor, 4 | 5), "应保留最新条目");
+    // 保留最新内容。
+    assert_eq!(entries[1].content, "event 5");
+}
+
+#[test]
+fn compact_history_noop_without_cap() {
+    let (_dir, store) = store();
+    for i in 1..=5 {
+        store.append_history(&format!("event {i}"), None).unwrap();
+    }
+    store.compact_history().unwrap();
+    assert_eq!(store.read_unprocessed_history(0).len(), 5, "无上限时不压缩");
+}
+
+#[test]
+fn compact_history_preserves_session_key() {
+    let dir = tempdir().unwrap();
+    let store = MemoryStore::new(dir.path())
+        .unwrap()
+        .with_max_history_entries(1);
+    store.append_history("older", Some("api:a")).unwrap();
+    store.append_history("newest", Some("api:b")).unwrap();
+    store.compact_history().unwrap();
+
+    let entries = store.read_unprocessed_history(0);
+    assert_eq!(entries.len(), 1);
+    assert_eq!(entries[0].content, "newest");
+    assert_eq!(entries[0].session_key.as_deref(), Some("api:b"));
+}
+
+#[test]
+fn oversized_entry_is_truncated_with_marker() {
+    // 对齐上游 `TestAppendHistoryHardCap`：超硬上限条目被截断并带 `... (truncated)` 标记。
+    let (_dir, store) = store();
+    let huge = "x".repeat(HISTORY_ENTRY_HARD_CAP + 10_000);
+    store.append_history(&huge, None).unwrap();
+    let entry = &store.read_unprocessed_history(0)[0];
+    assert!(entry.content.chars().count() <= HISTORY_ENTRY_HARD_CAP + 50);
+    assert!(entry.content.contains("truncated"), "应含截断标记");
+}
+
+#[test]
+fn normal_sized_entry_unaffected_by_cap() {
+    let (_dir, store) = store();
+    store.append_history("normal short entry", None).unwrap();
+    let entry = &store.read_unprocessed_history(0)[0];
+    assert_eq!(entry.content, "normal short entry");
 }
 
 #[test]

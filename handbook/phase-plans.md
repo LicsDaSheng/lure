@@ -686,6 +686,28 @@
 - 下一步：
   - 进入 Phase 7（bus/channel/gateway 盘点），或补真实 LLM dream + 触发策略。
 
+### 进度记录 2026-07-25（memory history 容量管理：compact + 截断标记，TDD）
+
+- 状态：partial
+- 依据：上游 `test_memory_store.py` 的 `test_compact_history_drops_oldest` 与 `TestAppendHistoryHardCap`。
+- 本次完成：
+  - `MemoryStore::with_max_history_entries(n)` + `compact_history()`：设上限后裁剪 history 仅保留
+    最新 N 条（丢最旧），原子重写；未设上限/未超限为 no-op。不触碰 `.cursor` 计数（`next_cursor`
+    取 `max(counter, 最大 cursor)+1`，保留条目含最新 cursor，游标分配不回退）。
+  - 修 `write_history_entries`：改为全字段 serde 序列化，**保留 `session_key`**（原手写 json! 会丢弃）；
+    该函数同时服务 legacy 迁移，修复后迁移也不再丢 session_key。
+  - `append_history` 硬上限截断改为追加 `... (truncated)` 标记（对齐上游），导出 `HISTORY_ENTRY_HARD_CAP`。
+- 验证：
+  - `rtk cargo fmt --all`；`clippy --workspace --all-targets -D warnings` 无问题。
+  - `rtk cargo test --workspace` 通过（306 passed，48 套件）：`memory_store.rs` 新增 5 例
+    （compact 丢最旧/无上限 no-op/保留 session_key、超限截断带标记、正常条目不变）。
+- 上游对照：
+  - 已覆盖：compact_history 语义 + 硬上限截断标记。
+  - 暂未覆盖：per-call `max_chars`（需给 append_history 加参，涉调用点，暂缓）、并发游标唯一分配
+    （`test_append_history_allocates_unique_cursors`，需文件锁）、compact 接入 autocompact/dream 触发。
+- 下一步：
+  - 补 SOUL/USER 整合 或 dream 触发策略，或进入 Phase 7。
+
 ## Phase 7: Bus、Channels 与 Gateway
 
 ### Plan
