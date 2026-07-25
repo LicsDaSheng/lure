@@ -18,21 +18,37 @@ use tungstenite::{accept_hdr, Message};
 
 use crate::agent::AgentLoop;
 use crate::bus::InboundMessage;
+use crate::memory::DreamRunner;
 use crate::webui::mux::{MuxSession, TurnRunner};
 use crate::webui::tokens::TokenIssuer;
 use crate::webui::transcript::TranscripStore;
 
 /// 把 [`AgentLoop`] 适配为 mux 的 [`TurnRunner`]（channel 固定 `websocket`）。
+///
+/// 含可选的 dream runner：每轮 turn 完成后按阈值触发 memory consolidation。
 pub struct AgentTurnRunner {
     agent: AgentLoop,
+    dream_runner: Option<Box<dyn DreamRunner>>,
+    dream_threshold: usize,
 }
 
 impl AgentTurnRunner {
+    /// 不挂 dream runner 的最小实例。
     pub fn new(agent: AgentLoop) -> Self {
-        Self { agent }
+        Self {
+            agent,
+            dream_runner: None,
+            dream_threshold: 10,
+        }
+    }
+
+    /// 挂载 dream runner 并在每轮 turn 后自动检查阈值触发。
+    pub fn with_dream(mut self, runner: Box<dyn DreamRunner>, threshold: usize) -> Self {
+        self.dream_runner = Some(runner);
+        self.dream_threshold = threshold;
+        self
     }
 }
-
 impl TurnRunner for AgentTurnRunner {
     fn run_turn(
         &mut self,
@@ -41,10 +57,19 @@ impl TurnRunner for AgentTurnRunner {
         on_progress: &mut dyn FnMut(&crate::agent::ProgressEvent),
     ) -> Result<String, String> {
         let input = InboundMessage::new("websocket", chat_id, content);
-        self.agent
+        let outcome = self
+            .agent
             .process_streaming(&input, on_progress)
-            .map(|outcome| outcome.final_content)
-            .map_err(|e| e.to_string())
+            .map_err(|e| e.to_string())?;
+
+        // 阈值触发 dream consolidation。
+        if let Some(ref runner) = self.dream_runner {
+            let _ = self
+                .agent
+                .maybe_consolidate(runner.as_ref(), self.dream_threshold);
+        }
+
+        Ok(outcome.final_content)
     }
 }
 

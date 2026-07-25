@@ -173,8 +173,21 @@ impl AgentLoop {
     }
 
     /// 用可替换 [`DreamRunner`] 整合未处理历史；未挂 memory 或无未处理历史返回 `None`。
-    pub fn consolidate<R: DreamRunner>(&self, runner: &R) -> Option<ConsolidationOutcome> {
+    pub fn consolidate<R: DreamRunner + ?Sized>(&self, runner: &R) -> Option<ConsolidationOutcome> {
         self.memory.as_ref()?.consolidate(runner)
+    }
+
+    /// 阈值触发：未整合 history >= `min_entries` 时执行 `consolidate`。
+    pub fn maybe_consolidate<R: DreamRunner + ?Sized>(
+        &self,
+        runner: &R,
+        min_entries: usize,
+    ) -> Option<ConsolidationOutcome> {
+        let memory = self.memory.as_ref()?;
+        if !memory.should_consolidate(min_entries) {
+            return None;
+        }
+        self.consolidate(runner)
     }
 
     /// 用 `ModelRuntimeResolver` 产出的 [`LlmRuntime`] 覆盖 model 与生成参数。

@@ -128,7 +128,10 @@ fn main() -> ExitCode {
                 sessions,
             )
             .expect("agent loop 构建失败（检查 --config/--preset/--model 与 API key）");
-            AgentTurnRunner::new(agent)
+            let dream = Box::new(lure_core::memory::ProviderDreamRunner::new(Box::new(
+                lure_core::provider::EchoProvider::new(),
+            )));
+            AgentTurnRunner::new(agent).with_dream(dream, 10)
         }
     };
     let mut ws_server = match WsServer::bind(

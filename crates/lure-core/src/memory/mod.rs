@@ -8,6 +8,6 @@ mod consolidate;
 mod store;
 mod strip;
 
-pub use consolidate::{ConsolidationOutcome, DreamRunner};
+pub use consolidate::{ConsolidationOutcome, DreamRunner, ProviderDreamRunner};
 pub use store::{HistoryEntry, MemoryStore, HISTORY_ENTRY_HARD_CAP};
 pub use strip::strip_think;

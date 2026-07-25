@@ -2,7 +2,9 @@
 //!
 //! 覆盖：dream 触发、结果写回 MEMORY.md、dream cursor 推进、无新历史时幂等。
 
+use lure_core::memory::ProviderDreamRunner;
 use lure_core::memory::{DreamRunner, HistoryEntry, MemoryStore};
+use lure_core::provider::EchoProvider;
 use tempfile::tempdir;
 
 /// 把当前记忆与新历史内容拼接为新记忆的 fake runner。
@@ -79,4 +81,38 @@ fn consolidate_only_processes_entries_after_dream_cursor() {
 fn consolidate_empty_history_returns_none() {
     let (_dir, store) = store();
     assert!(store.consolidate(&AppendRunner).is_none());
+}
+
+#[test]
+fn should_consolidate_returns_true_when_unprocessed_exceeds_threshold() {
+    let (_dir, store) = store();
+    assert!(!store.should_consolidate(3));
+    store.append_history("a", None).unwrap();
+    store.append_history("b", None).unwrap();
+    store.append_history("c", None).unwrap();
+    assert!(store.should_consolidate(3));
+    // consolidate 后清空未处理计数。
+    store.consolidate(&AppendRunner).unwrap();
+    assert!(!store.should_consolidate(1));
+}
+
+#[test]
+fn provider_dream_runner_uses_real_llm() {
+    let (_dir, store) = store();
+    store.append_history("用户喜欢吃面", None).unwrap();
+    store.append_history("用户住在北京", None).unwrap();
+
+    let runner = ProviderDreamRunner::new(Box::new(EchoProvider::new()));
+    let outcome = store.consolidate(&runner).unwrap();
+    assert_eq!(outcome.processed, 2);
+
+    let memory = store.read_memory();
+    // EchoProvider 返回 "echo: {last_user_message}"，包含 prompt 内容。
+    assert!(memory.contains("echo:"), "应包含 Echo 原样回显");
+    // prompt 里包含了 history 条目内容。
+    let prompt_contains = |word: &str| memory.to_lowercase().contains(&word.to_lowercase());
+    assert!(
+        prompt_contains("面条") || prompt_contains("北京"),
+        "dream prompt 应包含历史内容"
+    );
 }
