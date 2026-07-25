@@ -62,8 +62,8 @@
 ## Phase 10: WebUI 与 Desktop
 
 - **状态**：partial
-- **完成**：**desktop 纵向闭环**——原样 vendor 上游 React WebUI（`frontend/`，bun 构建，零改动）、`lure-desktop`（wry+tao 窗口）进程内 loopback HTTP（静态资源+SPA fallback、bootstrap/token 签发、`/api/sessions` 鉴权+DELETE）与 WS 复用协议（`webui::mux` + tungstenite transport）、agent loop 每连接独立实例（`AgentTurnRunner` 适配）。新增 33 个测试，smoke 验证通过。
-- **待补**：transcript/webui-thread（当前 404，历史会话重开为空）、settings/skills/commands 等 /api 大表面、非 macOS 窗口适配。
+- **完成**：**desktop 纵向闭环**——原样 vendor 上游 React WebUI（`frontend/`，bun 构建，零改动）、`lure-desktop`（wry+tao 窗口）进程内 loopback HTTP（静态资源+SPA fallback、bootstrap/token 签发、`/api/sessions` 鉴权+DELETE）与 WS 复用协议（`webui::mux` + tungstenite transport）、agent loop 每连接独立实例（`AgentTurnRunner` 适配）。**transcript**：`TranscripStore` 在 turn 结束时写入 JSONL，`GET /api/sessions/{key}/webui-thread` 返回消息视图——桌面重开窗口可见历史对话。**dream**：`ProviderDreamRunner`（真实 LLM 驱动 memory consolidation）+ 阈值自动触发（`maybe_consolidate`，由 `AgentTurnRunner` 每轮 turn 后检查）。新增 42 个测试，smoke 验证通过。
+- **待补**：settings/skills/commands 等 /api 大表面、非 macOS 窗口适配。
 
 ## Phase 11: 打包、部署与迁移兼容
 
@@ -75,12 +75,6 @@
 
 按「用户可感知价值 × 当前覆盖缺口」排序：
 
-1. **补前端所需 /api stub**：用 `lure-desktop --model echo` 启动后用浏览器 DevTools 观察前端还调用哪些 /api 端点（`/api/settings`、`/api/webui/sidebar-state` 等），逐个补空载荷 stub → 消除启动器的 JS 控制台报错，让页面**完整可用**。
-
-2. **transcript/webui-thread**：当前历史会话重开时 thread 为空（404）。需要设计 transcript 磁盘格式（对齐上游 `transcript.py`），在 WS turn 结束时写入，webui-thread GET 返回消息视图 → 用户重开窗口可看到之前的对话。
-
-3. **真实 LLM dream**：当前 dream consolidation 仅 FakeRunner（cover tests）。接入真实 provider 后，定时/阈值触发 memory 整理 → 记忆质量提升。
-
-4. **cron 表达式 + 工具化**：补 `croniter` 等价实现（或 bind 外部库），让 cron job 真正可调度；暴露 cron/trigger 为 agent 可用工具。
-
-5. **channel 平台接入**：Gateway → 真实 channel（telegram 优先），打通非桌面入口。
+1. **补前端所需 /api stub**：用 `lure-desktop --model echo` 启动后观察前端还调用哪些 /api 端点（`/api/settings`、`/api/webui/sidebar-state` 等），逐个补空载荷 stub → 页面完整可用。
+2. **真实 LLM dream 接入**：当前 `ProviderDreamRunner` 用 `EchoProvider`（离线安全但产出无意义）；接入 config 驱动的真实 provider 后 dream 产出才有质量。
+3. **cron 表达式 + 工具化**：补 `croniter` 等价实现，让 cron job 真正可调度；暴露 cron/trigger 为 agent 可用工具。
