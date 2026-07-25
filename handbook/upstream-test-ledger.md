@@ -37,8 +37,9 @@
 | `tests/triggers/` | 8 | partial | at-least-once/忙等/limit 已覆盖；文件 inbox 布局、trigger 定义存储待补 |
 | `tests/webui/` | 10 | partial | session list/thread/status/WS 事件已覆盖；settings/transcript/token usage/媒体等大表面待补 |
 | `webui/src/tests/` | 10 | deferred | 前端行为测试，属外部前端构建资产，后续决定复用或重写 |
-|| `tests/test_openai_api.py` | 9 | partial | 请求/响应/校验/鉴权/session、真实 HTTP server、`/v1/models` 已覆盖；media 待补 |
+|| `tests/test_openai_api.py` | 9 | partial | 请求/响应/校验/鉴权/session、真实 HTTP server、`/v1/models` 已覆盖；per-session 并发锁原语（`SessionLocks`）已落地；media、锁接入 handler 待补 |
 | `tests/test_api_stream.py` | 9 | partial | 逐 token SSE 已接线（逐 delta chunk、跨 tool 轮不关流、单 id、默认回退）；token 级 usage 待补 |
+| `tests/test_api_lock*.py` | 9 | partial | per-session 锁原语 `SessionLocks`（同 key 互斥、不同 key 独立、RAII 释放，真多线程验证）已覆盖；接入 HTTP handler 待多线程 runner |
 | `tests/test_document_parsing.py` | 5 | todo | 文档读取可作为工具/文档能力子阶段 |
 | `tests/test_docker.sh` | 11 | partial | Dockerfile/compose 骨架已提供；真实 docker build 属 CI 外部工具 |
 | `tests/test_package_version.py` | 11 | partial | CLI `--version` 版本核对已覆盖；发布包元数据待补 |
