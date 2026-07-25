@@ -9,6 +9,9 @@ mod status;
 mod thread;
 mod ws;
 
+/// WebUI 复用协议会话 handler（传输无关）。
+pub mod mux;
+
 pub use session_index::{list_webui_sessions, SessionRow};
 pub use status::webui_status;
 pub use thread::thread_messages;
