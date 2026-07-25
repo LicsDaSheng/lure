@@ -49,6 +49,11 @@ pub enum ProgressEvent {
         /// 本段增量文本。
         text: String,
     },
+    /// 流式推理增量（推理模型的思维链逐段发出）。
+    ReasoningDelta {
+        /// 本段推理增量文本。
+        text: String,
+    },
     /// 调用了某个工具（tool-call 循环中每次执行工具时发出）。
     ToolInvoked {
         /// 工具名。
@@ -247,6 +252,13 @@ impl AgentLoop {
                 let runner = AgentRunner::new(self.provider.as_ref(), self.settings.clone());
                 // 流式驱动：每个内容增量转成细粒度 ContentDelta progress。
                 runner.run_streaming(&self.model, messages, &mut |chunk| {
+                    if let Some(text) = chunk.reasoning_delta.as_ref().filter(|t| !t.is_empty()) {
+                        emit(
+                            &mut progress,
+                            on_progress,
+                            ProgressEvent::ReasoningDelta { text: text.clone() },
+                        );
+                    }
                     if let Some(text) = chunk.content_delta.as_ref().filter(|t| !t.is_empty()) {
                         emit(
                             &mut progress,
@@ -392,6 +404,13 @@ impl AgentLoop {
 
         let runner = AgentRunner::new(self.provider.as_ref(), self.settings.clone());
         let response = runner.run_streaming(&self.model, messages, &mut |chunk| {
+            if let Some(text) = chunk.reasoning_delta.as_ref().filter(|t| !t.is_empty()) {
+                emit(
+                    progress,
+                    on_progress,
+                    ProgressEvent::ReasoningDelta { text: text.clone() },
+                );
+            }
             if let Some(text) = chunk.content_delta.as_ref().filter(|t| !t.is_empty()) {
                 emit(
                     progress,

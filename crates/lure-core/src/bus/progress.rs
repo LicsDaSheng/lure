@@ -11,6 +11,8 @@ pub enum ProgressKind {
     Started,
     /// 流式内容增量。
     ContentDelta,
+    /// 流式推理增量（思维链）。
+    ReasoningDelta,
     /// 调用了某个工具。
     ToolInvoked,
     /// 产生最终回复。

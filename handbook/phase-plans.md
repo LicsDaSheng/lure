@@ -269,6 +269,30 @@
 - 下一步：
   - 补 reasoning delta 实时流 或 spinner，或进入其它 phase。
 
+### 进度记录 2026-07-25（reasoning delta 实时流 + 句子级缓冲，TDD）
+
+- 状态：partial
+- 依据：上游 `tests/cli/test_interactive_retry_wait.py`（reasoning delta 显示/句末缓冲/末尾 flush）
+  + `_ReasoningBuffer`。此前 provider 的 `reasoning_delta` 在 loop 流式回调里被丢弃。
+- 本次完成：
+  - **loop**：新增 `ProgressEvent::ReasoningDelta`，在流式回调（主循环 + finalize）里从
+    `StreamChunk.reasoning_delta` 实时发射（先于 ContentDelta）；`bus::ProgressKind` 补
+    `ReasoningDelta`，gateway 映射同步。
+  - **CLI `ReasoningBuffer`**（对齐上游 `_ReasoningBuffer`）：`add` 累积，遇换行/句末标点
+    （`.!?。！？`）/超 60 字即吐出整段（trim）；`flush` 吐余量。纯类型，单测锁定。
+  - **交互接线**：`show_reasoning` 时 ReasoningDelta 经 buffer 按句写 stderr（`✻ <sentence>`），
+    turn 末 flush 余量；流式过推理时抑制重复的最终 `outcome.reasoning` 一次性打印（非流式仍打印）。
+- 验证：
+  - `rtk cargo fmt --all`；`clippy --workspace --all-targets -D warnings` 无问题。
+  - `rtk cargo test --workspace` 通过（325 passed，49 套件）：`agent_stream.rs` 新增
+    `emits_reasoning_delta_progress_before_content`（推理增量先于内容 + 序列一致）；CLI 新增
+    ReasoningBuffer 4 单测（句末边界/换行 flush/余量 flush/空 add）。
+- 上游对照：
+  - 已覆盖：reasoning delta 实时事件 + 句子级缓冲渲染。
+  - 暂未覆盖：spinner/live 区域、reasoning 字符级 flush 上限的精确对齐、非交互 gateway 侧 reasoning 转发策略。
+- 下一步：
+  - 补 spinner 或进入其它 phase。
+
 ## Phase 4: Provider 与模型运行时
 
 ### Plan

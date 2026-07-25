@@ -106,7 +106,7 @@ Phase 0 已完成，确定 phase 1-4 关键上游测试的 Rust 测试落点（�
 | 上游测试 | 归属 phase | Rust 测试 | 状态 | 说明 |
 |---|---:|---|---|---|
 | `nanobot/bus`（events/queue） | 7 | `crates/lure-core/tests/bus_events.rs` | partial | InboundMessage session_key、OutboundMessage reply、FIFO 队列已覆盖 |
-| `nanobot/bus`（progress 事件） | 7 | `crates/lure-core/tests/gateway_progress.rs` `agent_stream.rs` `agent_tool_loop.rs` | partial | `ProgressUpdate`/`ProgressKind`（含 ContentDelta）+ gateway 转发 Started/ContentDelta/ToolInvoked/Final、streaming provider 逐增量 ContentDelta、`process_streaming` 实时发射全 ProgressEvent（回调序列 == 最终 progress）已覆盖；async 订阅待补 |
+| `nanobot/bus`（progress 事件） | 7 | `crates/lure-core/tests/gateway_progress.rs` `agent_stream.rs` `agent_tool_loop.rs` | partial | `ProgressUpdate`/`ProgressKind`（Started/ContentDelta/ReasoningDelta/ToolInvoked/Final）+ gateway 转发、streaming provider 逐增量 ContentDelta/ReasoningDelta（推理增量先于内容）、`process_streaming` 实时发射全 ProgressEvent（回调序列 == 最终 progress）已覆盖；async 订阅待补 |
 | `tests/channels/test_channel_validation.py` 等 | 7 | `crates/lure-core/tests/gateway_dispatch.rs` `channel_access.rs` | partial | channel 配置校验（缺字段）、发送方访问控制 `AccessPolicy::is_allowed`（star>精确 allowlist>pairing>deny，`allowFrom` 别名/null，对齐 `test_base_channel::TestIsAllowed`）已覆盖；TCP probe/热加载/plugin 待补 |
 | `tests/gateway/`（service 编排） | 7 | `crates/lure-core/tests/gateway_dispatch.rs` `gateway_progress.rs` | partial | InboundMessage→AgentLoop→OutboundMessage→channel 闭环、启停不丢任务、未知 channel、health、progress 事件转发已覆盖；HTTP endpoint/进程 runtime 待补 |
 
@@ -166,7 +166,7 @@ Phase 0 已完成，确定 phase 1-4 关键上游测试的 Rust 测试落点（�
 |---|---:|---|---|---|
 | `tests/agent/test_loop_runner_integration.py` | 3 | `crates/lure-core/tests/agent_loop.rs` | partial | 最小闭环（输入/最终回复/turn 保存/历史可读/结构化错误）已覆盖；streaming、goal/subagent、consolidation 属 Phase 4/6 |
 | `tests/agent/` (tool-call loop) | 5 | `crates/lure-core/tests/agent_tool_loop.rs` | partial | provider tool_calls 解析 + `AgentLoop` tool-call 迭代（执行/tool turn 回灌/上限/未知工具恢复/无 registry 终态）、空工具结果替换标记、空终响应静默重试+finalization（`stop_reason` + `EMPTY_FINAL_RESPONSE_MESSAGE`）、usage 跨轮累加（含 cached_tokens，对齐 `test_runner_core::{replaces_empty_tool_result_with_marker,retries_empty_final_response,uses_specific_message_after_empty_finalization,accumulates_usage}`）已覆盖；并行 tool、token 估算兜底待后续 |
-| `tests/cli/` (agent direct) | 3 | `crates/lure-cli/tests/cli_one_shot.rs` | partial | `agent -m` one-shot、interactive REPL（经 `process_streaming` 逐增量实时输出 + 工具调用另起行渲染 `🔧 <tool>` + 空内容回退，`StreamRenderer`/`format_progress_line` 单测）、`--session`、`--config`/`--preset`/`--model`（经 resolver 选 provider）、EOF/退出命令已覆盖；prompt_toolkit、多行输入、progress spinner、slash commands 待后续 |
+| `tests/cli/` (agent direct) | 3 | `crates/lure-cli/tests/cli_one_shot.rs` | partial | `agent -m` one-shot、interactive REPL（经 `process_streaming` 逐增量实时输出 + 工具调用另起行渲染 `🔧 <tool>` + 推理增量按句缓冲写 stderr（`ReasoningBuffer`：句末标点/换行/超长 flush）+ 空内容回退，`StreamRenderer`/`format_progress_line`/`ReasoningBuffer` 单测）、`--session`、`--config`/`--preset`/`--model`（经 resolver 选 provider）、EOF/退出命令已覆盖；prompt_toolkit、多行输入、progress spinner、slash commands 待后续 |
 
 > 注：Phase 3 provider 采用同步 trait + `EchoProvider` 占位；上游 async provider 与
 > 真实 OpenAI-compatible 调用归 Phase 4，届时收敛 provider 契约。

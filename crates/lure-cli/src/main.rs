@@ -216,6 +216,55 @@ fn format_progress_line(event: &ProgressEvent) -> Option<String> {
     }
 }
 
+/// 推理增量的句子级缓冲：累积推理增量，遇换行/句末标点/超长即吐出一段完整文本，
+/// 避免逐字碎片刷屏。对齐上游 `_ReasoningBuffer`。
+struct ReasoningBuffer {
+    text: String,
+}
+
+/// 句末标点（中英）。
+const REASONING_SENTENCE_ENDINGS: [char; 6] = ['.', '!', '?', '。', '！', '？'];
+/// 未遇边界也强制 flush 的字符上限。
+const REASONING_FLUSH_CHARS: usize = 60;
+
+impl ReasoningBuffer {
+    fn new() -> Self {
+        Self {
+            text: String::new(),
+        }
+    }
+
+    /// 追加一段推理增量：达 flush 条件时返回已累积的整段（trim 后），否则 `None`。
+    fn add(&mut self, delta: &str) -> Option<String> {
+        if delta.is_empty() {
+            return None;
+        }
+        self.text.push_str(delta);
+        if self.should_flush(delta) {
+            self.flush()
+        } else {
+            None
+        }
+    }
+
+    /// 吐出剩余缓冲（trim 后）；空则 `None`。
+    fn flush(&mut self) -> Option<String> {
+        let out = self.text.trim().to_string();
+        self.text.clear();
+        if out.is_empty() {
+            None
+        } else {
+            Some(out)
+        }
+    }
+
+    fn should_flush(&self, delta: &str) -> bool {
+        delta.contains('\n')
+            || delta.trim_end().ends_with(REASONING_SENTENCE_ENDINGS)
+            || self.text.chars().count() >= REASONING_FLUSH_CHARS
+    }
+}
+
 fn run_interactive(
     mut agent_loop: AgentLoop,
     channel: &str,
@@ -249,14 +298,25 @@ fn run_interactive(
             break;
         }
 
-        // 流式驱动：内容增量实时写 stdout，工具调用等 progress 事件另起行显示。
+        // 流式驱动：内容增量实时写 stdout，工具调用等 progress 事件另起行显示，
+        // 推理增量（show_reasoning 时）按句缓冲后写 stderr。
         let input = InboundMessage::new(channel, chat_id, line);
         let mut stdout = io::stdout();
         let mut renderer = StreamRenderer::new(&mut stdout, "Assistant: ");
+        let mut reasoning_buffer = ReasoningBuffer::new();
+        let mut streamed_reasoning = false;
         let outcome = agent_loop
             .process_streaming(&input, &mut |event| match event {
                 ProgressEvent::ContentDelta { text } => {
                     let _ = renderer.push(text);
+                }
+                ProgressEvent::ReasoningDelta { text } => {
+                    if show_reasoning {
+                        streamed_reasoning = true;
+                        if let Some(sentence) = reasoning_buffer.add(text) {
+                            eprintln!("✻ {sentence}");
+                        }
+                    }
                 }
                 other => {
                     if let Some(line) = format_progress_line(other) {
@@ -274,7 +334,13 @@ fn run_interactive(
         renderer.finish().map_err(|e| e.to_string())?;
 
         if show_reasoning {
-            if let Some(reasoning) = outcome.reasoning {
+            if streamed_reasoning {
+                // 流式路径：吐出剩余未成句的推理缓冲。
+                if let Some(rest) = reasoning_buffer.flush() {
+                    eprintln!("✻ {rest}");
+                }
+            } else if let Some(reasoning) = outcome.reasoning {
+                // 非流式推理：一次性打印最终思维链。
                 eprintln!("💭 思维链:\n{reasoning}\n");
             }
         }
@@ -439,6 +505,33 @@ mod tests {
             String::from_utf8(buf).unwrap(),
             "A: part-a\n🔧 echo\nA: part-b\n"
         );
+    }
+
+    #[test]
+    fn reasoning_buffer_holds_until_sentence_boundary() {
+        let mut buf = ReasoningBuffer::new();
+        assert_eq!(buf.add("The"), None);
+        assert_eq!(buf.add(" user asked."), Some("The user asked.".to_string()));
+    }
+
+    #[test]
+    fn reasoning_buffer_flushes_on_newline() {
+        let mut buf = ReasoningBuffer::new();
+        assert_eq!(buf.add("partial\n"), Some("partial".to_string()));
+    }
+
+    #[test]
+    fn reasoning_buffer_flush_returns_remainder_then_none() {
+        let mut buf = ReasoningBuffer::new();
+        assert_eq!(buf.add("no boundary yet"), None);
+        assert_eq!(buf.flush(), Some("no boundary yet".to_string()));
+        assert_eq!(buf.flush(), None);
+    }
+
+    #[test]
+    fn reasoning_buffer_empty_add_is_none() {
+        let mut buf = ReasoningBuffer::new();
+        assert_eq!(buf.add(""), None);
     }
 
     #[test]
