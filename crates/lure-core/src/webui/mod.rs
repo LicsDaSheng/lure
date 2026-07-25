@@ -17,6 +17,8 @@ pub mod http_server;
 pub mod mux;
 /// WebUI token 签发与校验。
 pub mod tokens;
+/// WebUI WS transport：真实 WebSocket 接线 mux。
+pub mod ws_server;
 
 pub use session_index::{list_webui_sessions, SessionRow};
 pub use status::webui_status;
