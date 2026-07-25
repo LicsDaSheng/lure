@@ -172,6 +172,34 @@ fn complete_streaming_captures_usage_from_final_chunk() {
     );
 }
 
+#[test]
+fn complete_streaming_normalizes_nested_cached_tokens() {
+    // 末帧 usage 用嵌套 prompt_tokens_details.cached_tokens；归一后应见顶层 cached_tokens。
+    let transport = FakeStreamTransport {
+        status: 200,
+        lines: vec![
+            r#"data: {"choices":[{"delta":{"content":"Hi"},"finish_reason":null}]}"#.to_string(),
+            r#"data: {"choices":[{"delta":{},"finish_reason":"stop"}]}"#.to_string(),
+            r#"data: {"choices":[],"usage":{"prompt_tokens":100,"completion_tokens":10,"total_tokens":110,"prompt_tokens_details":{"cached_tokens":80}}}"#.to_string(),
+            "data: [DONE]".to_string(),
+        ],
+    };
+    let provider = OpenAiCompatProvider::new("https://api.test/v1", None, "gpt-4o", transport);
+
+    let response = provider
+        .complete_streaming(&request(), &mut |_chunk| {})
+        .unwrap();
+
+    assert_eq!(
+        response.usage.get("cached_tokens").and_then(Value::as_i64),
+        Some(80)
+    );
+    assert_eq!(
+        response.usage.get("prompt_tokens").and_then(Value::as_i64),
+        Some(100)
+    );
+}
+
 /// 记录请求 body 的流式传输（验证 stream_options）。
 struct RecordingStreamTransport {
     seen: Rc<RefCell<Option<Value>>>,

@@ -384,6 +384,29 @@
 - 下一步：
   - 进入 Phase 5/6（文件工具 edit/search、memory 缺口），或补 usage 嵌套字段提取。
 
+### 进度记录 2026-07-25（provider usage 归一：cached_tokens 优先级链，TDD）
+
+- 状态：partial
+- 依据：上游 `openai_compat_provider._extract_usage` + `_get_nested_int`。
+- 本次完成：
+  - 新增 `provider::normalize_usage(raw) -> Map`：产出 `{prompt/completion/total_tokens}`
+    （缺失默认 0），并按优先级链取首个非零 cached_tokens 归到顶层单键——
+    `prompt_tokens_details.cached_tokens`（OpenAI/Zhipu/Qwen 等）→ `cached_tokens`
+    （StepFun/Moonshot）→ `prompt_cache_hit_tokens`（DeepSeek/SiliconFlow）；空输入返回空 map。
+    嵌套下钻 `get_nested_int` 对齐上游 `_get_nested_int`。
+  - 接入两处提取点：非流式 `parse_chat_response`、流式 `StreamAssembler::finish`——
+    provider 现产出归一后的 usage，loop 侧 `accumulate_usage` 得以按统一 `cached_tokens` 累加。
+- 验证：
+  - `rtk cargo fmt --all`；`clippy --workspace --all-targets -D warnings` 无问题。
+  - `rtk cargo test --workspace` 通过（274 passed，46 套件）：`provider_usage.rs` 7 例
+    （空/基础默认/三路径/优先级/零跳过回退）+ `provider_stream.rs` 新增流式嵌套 cached_tokens 归一 1 例。
+- 上游对照：
+  - 已覆盖：cached_tokens 三路径优先级归一 + 嵌套下钻。
+  - 暂未覆盖：SDK 对象（attribute 访问）路径——我们只处理 JSON dict 路径（Rust 侧无 Pydantic 对象）；
+    多 provider 家族（anthropic/bedrock/gemini）的 usage 字段名归一。
+- 下一步：
+  - 进入 Phase 5/6（文件工具 edit/search、memory 缺口）。
+
 ## Phase 5: Tool Runtime 与安全边界
 
 ### Plan

@@ -146,7 +146,7 @@ Phase 0 已完成，确定 phase 1-4 关键上游测试的 Rust 测试落点（�
 |---|---:|---|---|---|
 | `tests/config/test_model_presets.py` | 4 | `crates/lure-core/tests/config_model_presets.rs` | partial | config 层 preset 解析/校验/序列化已覆盖；`get_provider_name` 的 OAuth/local fallback 暂缓 |
 | `tests/config/` (ProvidersConfig) | 4 | `crates/lure-core/tests/config_providers.rs` | partial | config 驱动 `resolve_provider`（api_base 覆盖、auto 跳过禁用、forced 显式、api_key 解析）已覆盖；OAuth/local fallback 暂缓 |
-| `tests/providers/` (OpenAI-compatible) | 4 | `crates/lure-core/tests/provider_openai.rs` `provider_stream.rs` | partial | 请求 golden + 响应解析 + 错误分类、SSE 流式（增量回调/内容+tool_calls 组装/错误分类）、流式 usage 捕获（请求带 `stream_options.include_usage`、末帧 usage 折入 `LlmResponse.usage`，对齐 upstream `openai_compat_provider`）已覆盖；`max_completion_tokens`/重试暂缓 |
+| `tests/providers/` (OpenAI-compatible) | 4 | `crates/lure-core/tests/provider_openai.rs` `provider_stream.rs` `provider_usage.rs` | partial | 请求 golden + 响应解析 + 错误分类、SSE 流式（增量回调/内容+tool_calls 组装/错误分类）、流式 usage 捕获（`stream_options.include_usage` + 末帧折入）、usage 归一（cached_tokens 按 `prompt_tokens_details.cached_tokens`→`cached_tokens`→`prompt_cache_hit_tokens` 优先级链提取，对齐 upstream `_extract_usage`/`_get_nested_int`）已覆盖；`max_completion_tokens`/重试暂缓 |
 | `tests/providers/` (selection order) | 4 | `crates/lure-core/tests/provider_registry.rs` | partial | forced/前缀/关键字选择顺序已覆盖；config 驱动 api_base/enabled/api_key 已由 `config_providers.rs` 覆盖，OAuth/local fallback 暂缓 |
 | `tests/agent/test_model_runtime_resolver.py` | 4 | `crates/lure-core/tests/model_runtime_resolver.rs` | partial | stateful resolver 生命周期（admit/refresh/invalidate + preset tracking + 不可变 `LlmRuntime`/`ProviderSnapshot`）已覆盖；上游源码未 vendored，按本 ledger 记录语义建立事实来源，真实 runtime 探活/降级仍待补 |
 

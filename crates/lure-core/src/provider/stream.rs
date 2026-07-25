@@ -172,7 +172,7 @@ impl StreamAssembler {
             content,
             reasoning_content,
             finish_reason: self.finish_reason.unwrap_or_else(|| "stop".to_string()),
-            usage: self.usage,
+            usage: crate::provider::usage::normalize_usage(&self.usage),
             tool_calls,
         }
     }

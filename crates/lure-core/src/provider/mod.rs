@@ -15,6 +15,7 @@ mod runtime;
 mod stream;
 mod transport;
 mod types;
+mod usage;
 
 pub use echo::EchoProvider;
 pub use http::{HttpRequest, HttpResponse, HttpTransport};
@@ -27,3 +28,4 @@ pub use types::{
     CompletionRequest, GenerationSettings, LlmProvider, LlmResponse, ProviderError, StreamChunk,
     ToolCall, ToolCallDelta,
 };
+pub use usage::normalize_usage;

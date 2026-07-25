@@ -19,6 +19,7 @@ use crate::provider::types::{
     CompletionRequest, GenerationSettings, LlmProvider, LlmResponse, ProviderError, StreamChunk,
     ToolCall,
 };
+use crate::provider::usage::normalize_usage;
 
 /// 基于 [`HttpTransport`] 的 OpenAI-compatible provider。
 pub struct OpenAiCompatProvider<T: HttpTransport> {
@@ -197,11 +198,12 @@ pub fn parse_chat_response(response: &HttpResponse) -> Result<LlmResponse, Provi
         .unwrap_or("stop")
         .to_string();
 
-    let usage = value
+    let raw_usage = value
         .get("usage")
         .and_then(Value::as_object)
         .cloned()
         .unwrap_or_else(Map::new);
+    let usage = normalize_usage(&raw_usage);
 
     Ok(LlmResponse {
         content,
