@@ -21,6 +21,8 @@ fn agent_one_shot_prints_reply_and_persists_session() {
             "agent",
             "-m",
             "hello",
+            "--model",
+            "echo",
             "--workspace",
             dir.path().to_str().unwrap(),
         ])
@@ -47,6 +49,8 @@ fn agent_one_shot_records_history_to_memory() {
             "agent",
             "-m",
             "hello",
+            "--model",
+            "echo",
             "--workspace",
             dir.path().to_str().unwrap(),
         ])
@@ -80,8 +84,27 @@ fn no_subcommand_prints_version() {
 }
 
 #[test]
-fn agent_without_message_enters_interactive_and_exits_on_eof() {
-    let output = lure().args(["agent"]).output().unwrap();
+fn agent_without_model_uses_default_config_provider_and_reports_missing_key() {
+    let dir = tempdir().unwrap();
+    let config_path = dir.path().join("config.json");
+    std::fs::write(&config_path, "{}").unwrap();
+    let output = lure()
+        .args(["agent", "--config", config_path.to_str().unwrap()])
+        .env_remove("ANTHROPIC_API_KEY")
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert!(
+        stderr.contains("ANTHROPIC_API_KEY"),
+        "默认 provider 缺 key 时应报 ANTHROPIC_API_KEY，实际: {stderr}"
+    );
+}
+
+#[test]
+fn explicit_echo_agent_without_message_enters_interactive_and_exits_on_eof() {
+    let output = lure().args(["agent", "--model", "echo"]).output().unwrap();
     assert!(output.status.success());
     let stdout = String::from_utf8(output.stdout).unwrap();
     assert!(stdout.contains("Lure interactive mode"));
@@ -96,6 +119,8 @@ fn show_reasoning_flag_is_accepted_and_stdout_stays_answer() {
             "agent",
             "-m",
             "hello",
+            "--model",
+            "echo",
             "--show-reasoning",
             "--workspace",
             dir.path().to_str().unwrap(),
@@ -115,11 +140,15 @@ fn show_reasoning_flag_is_accepted_and_stdout_stays_answer() {
 fn model_flag_routes_through_resolver_and_reports_missing_key() {
     // `--model deepseek-chat` 经 resolver 匹配到 deepseek，缺 key 时报出对应 env 变量。
     let dir = tempdir().unwrap();
+    let config_path = dir.path().join("config.json");
+    std::fs::write(&config_path, "{}").unwrap();
     let output = lure()
         .args([
             "agent",
             "-m",
             "hello",
+            "--config",
+            config_path.to_str().unwrap(),
             "--model",
             "deepseek-chat",
             "--workspace",
@@ -334,7 +363,13 @@ fn preset_and_model_flags_are_mutually_exclusive() {
 fn interactive_mode_processes_multiple_turns_until_exit() {
     let dir = tempdir().unwrap();
     let mut child = lure()
-        .args(["agent", "--workspace", dir.path().to_str().unwrap()])
+        .args([
+            "agent",
+            "--model",
+            "echo",
+            "--workspace",
+            dir.path().to_str().unwrap(),
+        ])
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .spawn()
@@ -374,6 +409,8 @@ fn interactive_mode_ignores_blank_lines_and_accepts_session_alias() {
     let mut child = lure()
         .args([
             "agent",
+            "--model",
+            "echo",
             "--session",
             "scratch",
             "--workspace",
@@ -410,6 +447,8 @@ fn one_shot_accepts_explicit_session_id() {
             "agent",
             "-m",
             "hello",
+            "--model",
+            "echo",
             "--session",
             "cli:custom",
             "--workspace",

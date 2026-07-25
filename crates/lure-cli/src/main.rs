@@ -1,12 +1,13 @@
 //! `lure-cli`：Rust 版 `nanobot` 复刻的命令行入口。
 //!
 //! `lure agent -m "..."` 跑完 agent loop 并保存 turn；`lure agent` 进入交互模式。
-//! 默认走 EchoProvider（离线占位）；provider 选择统一经 `ModelRuntimeResolver`。
+//! provider 选择统一经 `ModelRuntimeResolver`：无 `--preset`/`--model` 时使用 config
+//! 默认 provider；`--model echo` 显式启用离线 EchoProvider 测试脚手架。
 //! 指定 `--preset <name>`（从 `--config` 加载的 config 选中命名 preset）或
 //! `--model <model>`（覆盖默认 preset 的 model，二者互斥）时，由 resolver 解析出不可变
 //! runtime（provider 身份 + 生成参数），据此从 `<PROVIDER>_API_KEY` 读取 key 构造真实
 //! OpenAI-compatible provider，并把 runtime 的 model/settings 注入 loop（例如
-//! `--model deepseek-v4-pro` → deepseek + `DEEPSEEK_API_KEY`）。两个分支都挂载
+//! `--model deepseek-v4-pro` → deepseek + `DEEPSEEK_API_KEY`）。所有分支都挂载
 //! workspace 绑定的长期记忆（注入记忆块 + 记录 `history.jsonl`）。
 
 use std::io::{self, BufRead, Write};
@@ -533,9 +534,9 @@ fn is_exit_command(command: &str) -> bool {
 
 /// 构建 agent loop：provider 选择路径统一经 `ModelRuntimeResolver`。
 ///
-/// 未指定 `--preset`/`--model` 时走离线 EchoProvider（占位）；否则加载 config 文件，
-/// 由 resolver 解析出不可变 runtime（provider 身份/api_base/model + 生成参数），据此
-/// 构造真实 OpenAI-compatible provider 并把 runtime 的 model/settings 注入 loop。
+/// 未指定 `--preset`/`--model` 时走 config 默认 provider；`--model echo` 显式启用
+/// 离线 EchoProvider；其它模型由 resolver 解析出不可变 runtime（provider 身份/
+/// api_base/model + 生成参数），据此构造真实 OpenAI-compatible provider。
 fn build_agent_loop(
     config_path: Option<&str>,
     preset: Option<&str>,
@@ -547,17 +548,23 @@ fn build_agent_loop(
     // 长期记忆是核心能力，两个分支都挂载：注入记忆块 + 记录 history.jsonl。
     let memory = MemoryStore::new(workspace).map_err(|e| format!("初始化 memory 失败: {e}"))?;
 
-    if preset.is_none() && model.is_none() {
-        return Ok(
-            AgentLoop::new(Box::new(EchoProvider::new()), sessions, context).with_memory(memory),
-        );
+    let config = load_cli_config(config_path)?;
+    if preset.is_some() && model.is_some() {
+        return Err("--preset 与 --model 互斥，只能二选一".to_string());
     }
 
-    let config = load_cli_config(config_path)?;
-    let runtime = resolve_runtime(config.clone(), preset, model)?;
     // 工具运行时先于 provider 构建：config 里的 exec 策略正则等错误 fail-fast，
     // 不必等到读取 API key / 出网。
     let tools = registry_from_config(&config, workspace).map_err(|e| e.to_string())?;
+    if model == Some("echo") {
+        return Ok(
+            AgentLoop::new(Box::new(EchoProvider::new()), sessions, context)
+                .with_tools(tools)
+                .with_memory(memory),
+        );
+    }
+
+    let runtime = resolve_runtime(config.clone(), preset, model)?;
     let provider = build_provider_from_runtime(&config, &runtime)?;
     Ok(AgentLoop::new(provider, sessions, context)
         .with_runtime(&runtime)
@@ -590,7 +597,6 @@ fn resolve_runtime(
             config.agents.defaults.provider = "auto".to_string();
             None
         }
-        // build_agent_loop 已拦截二者皆无的情况。
         (None, None) => None,
     };
 
