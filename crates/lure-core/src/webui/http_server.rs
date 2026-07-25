@@ -14,6 +14,7 @@
 use std::io;
 use std::net::SocketAddr;
 use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
 
 use tiny_http::{Header, Method, Request, Response, Server};
 
@@ -53,10 +54,17 @@ pub struct WebuiServer<S: StaticAssets> {
 
 impl<S: StaticAssets> WebuiServer<S> {
     /// 绑定地址（`127.0.0.1:0` 表示随机端口）。
-    pub fn bind(addr: &str, assets: S, config: WebuiServerConfig) -> io::Result<Self> {
+    ///
+    /// `issuer` 与 WS server 共享：bootstrap 签发的 token 同时用于 `/api/*` 鉴权
+    /// 与 WS 握手校验。
+    pub fn bind(
+        addr: &str,
+        assets: S,
+        config: WebuiServerConfig,
+        issuer: Arc<Mutex<TokenIssuer>>,
+    ) -> io::Result<Self> {
         let server = Server::http(addr)
             .map_err(|e| io::Error::new(io::ErrorKind::AddrNotAvailable, e.to_string()))?;
-        let issuer = TokenIssuer::new(config.token_ttl_secs, 16);
         Ok(Self {
             server,
             assets,

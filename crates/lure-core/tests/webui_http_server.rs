@@ -5,10 +5,12 @@
 
 use std::collections::HashMap;
 use std::net::SocketAddr;
+use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 
 use lure_core::session::SessionManager;
 use lure_core::webui::http_server::{StaticAssets, WebuiServer, WebuiServerConfig};
+use lure_core::webui::tokens::TokenIssuer;
 use serde_json::Value;
 use tempfile::TempDir;
 
@@ -51,7 +53,8 @@ fn bind_server(dir: &TempDir, assets: MapAssets) -> (WebuiServer<MapAssets>, Soc
         ws_url: "ws://127.0.0.1:40099/ws".to_string(),
         token_ttl_secs: 3600,
     };
-    let server = WebuiServer::bind("127.0.0.1:0", assets, config).unwrap();
+    let issuer = Arc::new(Mutex::new(TokenIssuer::new(config.token_ttl_secs, 16)));
+    let server = WebuiServer::bind("127.0.0.1:0", assets, config, issuer).unwrap();
     let addr = server.local_addr().unwrap();
     (server, addr)
 }
