@@ -494,6 +494,29 @@
 - 下一步：
   - 续补 usage 跨轮累加（并打通 API usage 上报），或进入 Phase 6/文件工具 edit/search。
 
+### 进度记录 2026-07-25（核心 loop：usage 跨轮累加 + API usage 上报，TDD）
+
+- 状态：partial
+- 依据：上游 `test_runner_core::test_runner_accumulates_usage_and_preserves_cached_tokens`。
+- 本次完成：
+  - `TurnOutcome` 新增 `usage: Map<String, Value>`；`process_streaming` 每次 provider 调用
+    （tool 轮 + 静默重试 + finalization）后经 `accumulate_usage` 按整数字段逐一求和
+    （`prompt_tokens`/`completion_tokens`/`cached_tokens` 等），对齐上游 `_accumulate_usage`。
+  - API 上报打通：`ChatRunner::run` 返回类型从 `String` 改为 `ChatOutcome { content, usage }`；
+    server 非流式路径把 `outcome.usage` 传给 `chat_completion_response`（原先传空 Map）。
+    `run_streaming` 默认回退与 `SingleShotRunner` 相应适配。
+- 验证：
+  - `rtk cargo fmt --all`；`clippy --workspace --all-targets -D warnings` 无问题。
+  - `rtk cargo test --workspace` 通过（263 passed，45 套件）：`agent_tool_loop.rs` 新增
+    `usage_accumulates_across_tool_rounds`（100+200/10+20/80+150=300/30/230）、`api_server.rs` 新增
+    `non_streaming_response_reports_accumulated_usage`（响应 usage prompt=11/completion=7/total=18）。
+- 上游对照：
+  - 已覆盖：跨轮 usage 累加（含 cached_tokens）+ 非流式响应 usage 回填。
+  - 暂未覆盖：token 估算兜底（上游 `_estimate_response_usage`，需 tokenizer）、流式 usage chunk、
+    `provider_tokens`/`total_tokens` 的 provider 优先细节。
+- 下一步：
+  - 进入 Phase 6/文件工具 edit/search，或补流式 usage chunk。
+
 ## Phase 6: Memory、Dream 与长期上下文
 
 ### Plan

@@ -28,11 +28,20 @@ use crate::bus::InboundMessage;
 /// API 固定 chat id（对齐上游 `API_CHAT_ID`）。
 const API_CHAT_ID: &str = "default";
 
+/// 一次非流式 chat 的产出：最终文本 + 累加的 usage（供响应回填）。
+#[derive(Debug, Clone, Default)]
+pub struct ChatOutcome {
+    /// 最终 assistant 文本。
+    pub content: String,
+    /// 本轮累加的 usage（`prompt_tokens`/`completion_tokens`/… 整数字段）。
+    pub usage: Map<String, Value>,
+}
+
 /// 传输无关的 chat runner 抽象：HTTP 层依赖它而非具体 [`AgentLoop`]，便于用
 /// fake/echo provider 驱动的 loop 做端到端测试，也便于后续替换编排实现。
 pub trait ChatRunner {
-    /// 处理一次 chat：给定 session key 与用户文本，返回最终 assistant 文本。
-    fn run(&mut self, session_key: &str, text: &str) -> Result<String, ChatRunError>;
+    /// 处理一次 chat：给定 session key 与用户文本，返回最终文本与累加 usage。
+    fn run(&mut self, session_key: &str, text: &str) -> Result<ChatOutcome, ChatRunError>;
 
     /// 处理一次 chat 并**逐段**回调内容增量：每产生一段文本即调用 `on_delta`，
     /// 供 SSE 层逐 token 推送。跨 tool 轮次的多段内容全部经此回调，流保持打开。
@@ -46,9 +55,9 @@ pub trait ChatRunner {
         text: &str,
         on_delta: &mut dyn FnMut(&str),
     ) -> Result<(), ChatRunError> {
-        let content = self.run(session_key, text)?;
-        if !content.is_empty() {
-            on_delta(&content);
+        let outcome = self.run(session_key, text)?;
+        if !outcome.content.is_empty() {
+            on_delta(&outcome.content);
         }
         Ok(())
     }
@@ -67,11 +76,14 @@ impl std::fmt::Display for ChatRunError {
 impl std::error::Error for ChatRunError {}
 
 impl ChatRunner for AgentLoop {
-    fn run(&mut self, session_key: &str, text: &str) -> Result<String, ChatRunError> {
+    fn run(&mut self, session_key: &str, text: &str) -> Result<ChatOutcome, ChatRunError> {
         let mut inbound = InboundMessage::new("api", API_CHAT_ID, text);
         inbound.session_key_override = Some(session_key.to_string());
         self.process(&inbound)
-            .map(|outcome| outcome.final_content)
+            .map(|outcome| ChatOutcome {
+                content: outcome.final_content,
+                usage: outcome.usage,
+            })
             .map_err(|e| ChatRunError(e.to_string()))
     }
 
@@ -214,10 +226,10 @@ impl<R: ChatRunner> ChatServer<R> {
             )
         } else {
             match self.runner.run(&session_key, &parsed.text) {
-                Ok(content) => respond_json(
+                Ok(outcome) => respond_json(
                     request,
                     200,
-                    chat_completion_response(&content, &self.config.model, &Map::new()),
+                    chat_completion_response(&outcome.content, &self.config.model, &outcome.usage),
                 ),
                 Err(_) => respond_json(
                     request,

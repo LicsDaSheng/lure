@@ -73,6 +73,10 @@ pub struct TurnOutcome {
     /// 终止原因：`completed`（正常产出）/ `empty_final_response`（空终响应兜底）/
     /// `max_iterations`（达到 tool-call 迭代上限）。对齐上游 `stop_reason`。
     pub stop_reason: String,
+    /// 本轮跨所有 provider 调用（含 tool 轮、静默重试、finalization）累加的 usage，
+    /// 按整数字段逐一求和（`prompt_tokens`/`completion_tokens`/`cached_tokens` 等）。
+    /// 对齐上游 `_accumulate_usage`。
+    pub usage: Map<String, Value>,
 }
 
 /// agent loop 结构化错误。
@@ -227,6 +231,7 @@ impl AgentLoop {
         let mut final_content = String::new();
         let mut final_reasoning = None;
         let mut empty_retries = 0usize;
+        let mut usage = Map::new();
 
         for _ in 0..MAX_TOOL_ITERATIONS {
             // 构建 context（历史含此前所有 turn），调 provider。
@@ -242,6 +247,7 @@ impl AgentLoop {
                     }
                 })?
             };
+            accumulate_usage(&mut usage, &response.usage);
 
             let content = response.content.clone().unwrap_or_default();
             let reasoning = response.reasoning_content.clone().filter(|r| !r.is_empty());
@@ -259,6 +265,7 @@ impl AgentLoop {
                         &context,
                         &key,
                         &mut progress,
+                        &mut usage,
                         on_content_delta,
                     )?;
                     let (final_text, stop_reason) = if fin_content.trim().is_empty() {
@@ -280,6 +287,7 @@ impl AgentLoop {
                         reasoning: fin_reasoning,
                         progress,
                         stop_reason: stop_reason.to_string(),
+                        usage,
                     });
                 }
 
@@ -295,6 +303,7 @@ impl AgentLoop {
                     reasoning,
                     progress,
                     stop_reason: "completed".to_string(),
+                    usage,
                 });
             }
 
@@ -336,17 +345,20 @@ impl AgentLoop {
             reasoning: final_reasoning,
             progress,
             stop_reason: "max_iterations".to_string(),
+            usage,
         })
     }
 
     /// 空终响应达到静默重试上限后的 finalization 请求：在当前 context 之上追加**瞬态**
     /// finalization 提示（不写入 session 历史，对齐上游 `messages_for_model` 副本语义），
-    /// 请求一次并返回 `(内容, reasoning)`。内容增量仍经 `on_content_delta` 流式推送。
+    /// 请求一次并返回 `(内容, reasoning)`；本次 usage 累加进 `usage`。内容增量仍经
+    /// `on_content_delta` 流式推送。
     fn finalize_empty_response(
         &mut self,
         context: &ContextBuilder,
         key: &str,
         progress: &mut Vec<ProgressEvent>,
+        usage: &mut Map<String, Value>,
         on_content_delta: &mut dyn FnMut(&str),
     ) -> Result<(String, Option<String>), AgentError> {
         let history = self.sessions.get_or_create(key)?.get_history(0);
@@ -360,9 +372,21 @@ impl AgentLoop {
                 on_content_delta(text);
             }
         })?;
+        accumulate_usage(usage, &response.usage);
         let content = response.content.clone().unwrap_or_default();
         let reasoning = response.reasoning_content.clone().filter(|r| !r.is_empty());
         Ok((content, reasoning))
+    }
+}
+
+/// 把 `addition` 的整数字段逐一累加进 `target`（缺失键起始为 0）；非整数字段忽略。
+/// 对齐上游 `AgentRunner._accumulate_usage`。
+fn accumulate_usage(target: &mut Map<String, Value>, addition: &Map<String, Value>) {
+    for (k, v) in addition {
+        if let Some(n) = v.as_i64() {
+            let sum = target.get(k).and_then(Value::as_i64).unwrap_or(0) + n;
+            target.insert(k.clone(), Value::from(sum));
+        }
     }
 }
 

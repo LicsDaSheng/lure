@@ -11,4 +11,4 @@ pub use openai::{
     models_response, parse_chat_request, sse_chunks, sse_content_chunk, sse_finish_chunk,
     validate_model, ApiError, ParsedChatRequest, API_SESSION_KEY, SSE_DONE,
 };
-pub use server::{ChatRunError, ChatRunner, ChatServer, ServerConfig};
+pub use server::{ChatOutcome, ChatRunError, ChatRunner, ChatServer, ServerConfig};

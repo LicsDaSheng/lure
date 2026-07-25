@@ -15,7 +15,7 @@ use lure_core::bus::InboundMessage;
 use lure_core::provider::{CompletionRequest, LlmProvider, LlmResponse, ProviderError, ToolCall};
 use lure_core::session::SessionManager;
 use lure_core::tool::{Tool, ToolRegistry, ToolResult};
-use serde_json::{json, Value};
+use serde_json::{json, Map, Value};
 use tempfile::TempDir;
 
 /// 按序返回预置 `LlmResponse` 的 fake provider；记录每次收到的 messages。
@@ -88,6 +88,15 @@ impl Tool for EchoTool {
         let text = args.get("text").and_then(Value::as_str).unwrap_or("");
         ToolResult::ok(format!("tool-echo: {text}"))
     }
+}
+
+/// 构造 usage map（prompt / completion / cached）。
+fn usage_map(prompt: i64, completion: i64, cached: i64) -> Map<String, Value> {
+    let mut m = Map::new();
+    m.insert("prompt_tokens".to_string(), prompt.into());
+    m.insert("completion_tokens".to_string(), completion.into());
+    m.insert("cached_tokens".to_string(), cached.into());
+    m
 }
 
 /// 内容为空、无 tool_calls 的响应（触发空终响应路径）。
@@ -311,6 +320,39 @@ fn empty_tool_result_is_replaced_with_marker() {
         .get_history(100);
     assert_eq!(history[2]["role"], "tool");
     assert_eq!(history[2]["content"], "(blank completed with no output)");
+}
+
+#[test]
+fn usage_accumulates_across_tool_rounds() {
+    // 对齐上游 `test_runner_core::test_runner_accumulates_usage_and_preserves_cached_tokens`：
+    // 跨轮次 provider 调用的 usage 按字段累加（含 cached_tokens）。
+    let mut r1 = tool_call_response("call_1", "echo", r#"{"text":"hi"}"#);
+    r1.content = Some("thinking".to_string());
+    r1.usage = usage_map(100, 10, 80);
+    let mut r2 = LlmResponse::text("done");
+    r2.usage = usage_map(200, 20, 150);
+
+    let (_dir, mut agent_loop, _calls, _seen) = setup(vec![r1, r2]);
+    let outcome = agent_loop
+        .process(&InboundMessage::new("cli", "direct", "go"))
+        .unwrap();
+
+    assert_eq!(outcome.final_content, "done");
+    assert_eq!(
+        outcome.usage.get("prompt_tokens").and_then(Value::as_i64),
+        Some(300)
+    );
+    assert_eq!(
+        outcome
+            .usage
+            .get("completion_tokens")
+            .and_then(Value::as_i64),
+        Some(30)
+    );
+    assert_eq!(
+        outcome.usage.get("cached_tokens").and_then(Value::as_i64),
+        Some(230)
+    );
 }
 
 #[test]

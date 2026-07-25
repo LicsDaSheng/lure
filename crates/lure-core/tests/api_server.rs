@@ -11,7 +11,7 @@ use std::net::SocketAddr;
 use std::thread;
 
 use lure_core::agent::{AgentLoop, ContextBuilder};
-use lure_core::api::{ChatRunError, ChatRunner, ChatServer, ServerConfig};
+use lure_core::api::{ChatOutcome, ChatRunError, ChatRunner, ChatServer, ServerConfig};
 use lure_core::provider::{
     CompletionRequest, EchoProvider, LlmProvider, LlmResponse, ProviderError, StreamChunk, ToolCall,
 };
@@ -78,6 +78,51 @@ fn non_streaming_chat_completion_shape_and_content() {
     assert_eq!(v["choices"][0]["message"]["content"], "echo: hello");
     assert_eq!(v["choices"][0]["finish_reason"], "stop");
     assert!(v["id"].as_str().unwrap().starts_with("chatcmpl-"));
+}
+
+/// 单轮返回带 usage 的响应（验证非流式响应回填 usage）。
+struct UsageProvider;
+
+impl LlmProvider for UsageProvider {
+    fn default_model(&self) -> &str {
+        "echo"
+    }
+
+    fn complete(&self, _request: &CompletionRequest) -> Result<LlmResponse, ProviderError> {
+        let mut resp = LlmResponse::text("hi");
+        resp.usage.insert("prompt_tokens".to_string(), 11.into());
+        resp.usage.insert("completion_tokens".to_string(), 7.into());
+        Ok(resp)
+    }
+}
+
+#[test]
+fn non_streaming_response_reports_accumulated_usage() {
+    let dir = tempfile::tempdir().unwrap();
+    let sessions = SessionManager::new(dir.path()).unwrap();
+    let agent_loop = AgentLoop::new(Box::new(UsageProvider), sessions, ContextBuilder::new(None));
+    let config = ServerConfig {
+        model: "echo".to_string(),
+        api_key: None,
+    };
+    let mut server = ChatServer::bind("127.0.0.1:0", agent_loop, config).unwrap();
+    let addr = server.local_addr().unwrap();
+
+    let client = thread::spawn(move || {
+        post_chat(
+            addr,
+            json!({"messages": [{"role": "user", "content": "hi"}]}),
+            None,
+        )
+    });
+    server.handle_next().unwrap();
+    let (status, body) = client.join().unwrap();
+
+    assert_eq!(status, 200);
+    let v: Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(v["usage"]["prompt_tokens"], 11);
+    assert_eq!(v["usage"]["completion_tokens"], 7);
+    assert_eq!(v["usage"]["total_tokens"], 18);
 }
 
 #[test]
@@ -380,8 +425,11 @@ fn streaming_across_tool_rounds_keeps_stream_open_until_final_finish() {
 struct SingleShotRunner(String);
 
 impl ChatRunner for SingleShotRunner {
-    fn run(&mut self, _session_key: &str, _text: &str) -> Result<String, ChatRunError> {
-        Ok(self.0.clone())
+    fn run(&mut self, _session_key: &str, _text: &str) -> Result<ChatOutcome, ChatRunError> {
+        Ok(ChatOutcome {
+            content: self.0.clone(),
+            usage: Default::default(),
+        })
     }
 }
 

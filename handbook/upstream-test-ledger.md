@@ -82,7 +82,7 @@ Phase 0 已完成，确定 phase 1-4 关键上游测试的 Rust 测试落点（�
 
 | 上游测试 | 归属 phase | Rust 测试 | 状态 | 说明 |
 |---|---:|---|---|---|
-|| `tests/test_openai_api.py` | 9 | `crates/lure-core/tests/api_openai.rs` `api_server.rs` | partial | error json、chat completion 形状/usage、单条 user 校验、model 不匹配、鉴权、固定 session、真实 HTTP server、`/v1/models`（形状+鉴权）已覆盖；媒体/并发锁待补 |
+|| `tests/test_openai_api.py` | 9 | `crates/lure-core/tests/api_openai.rs` `api_server.rs` | partial | error json、chat completion 形状/usage（真实回填 loop 累加 usage：prompt/completion/total）、单条 user 校验、model 不匹配、鉴权、固定 session、真实 HTTP server、`/v1/models`（形状+鉴权）、per-session 锁原语已覆盖；media、锁接入 handler 待补 |
 | `tests/test_api_stream.py` | 9 | `crates/lure-core/tests/api_openai.rs` `api_server.rs` | partial | SSE 事件顺序（内容→finish→[DONE]）、逐 token 流式（逐 delta chunk、跨 tool 轮不关流、单 id、默认回退单 chunk）已覆盖；token 级 usage 待补 |
 | `tests/test_api_lock*.py` | 9 | `crates/lure-core/tests/session_lock.rs` | partial | per-session 锁原语 `SessionLocks`（同 key 互斥/串行、不同 key 独立、RAII 释放，真多线程验证）已覆盖；接入 HTTP handler 待多线程 runner |
 
@@ -164,7 +164,7 @@ Phase 0 已完成，确定 phase 1-4 关键上游测试的 Rust 测试落点（�
 | 上游测试 | 归属 phase | Rust 测试 | 状态 | 说明 |
 |---|---:|---|---|---|
 | `tests/agent/test_loop_runner_integration.py` | 3 | `crates/lure-core/tests/agent_loop.rs` | partial | 最小闭环（输入/最终回复/turn 保存/历史可读/结构化错误）已覆盖；streaming、goal/subagent、consolidation 属 Phase 4/6 |
-| `tests/agent/` (tool-call loop) | 5 | `crates/lure-core/tests/agent_tool_loop.rs` | partial | provider tool_calls 解析 + `AgentLoop` tool-call 迭代（执行/tool turn 回灌/上限/未知工具恢复/无 registry 终态）、空工具结果替换标记、空终响应静默重试+finalization（`stop_reason` + `EMPTY_FINAL_RESPONSE_MESSAGE`，对齐 `test_runner_core::{replaces_empty_tool_result_with_marker,retries_empty_final_response,uses_specific_message_after_empty_finalization}`）已覆盖；usage 跨轮累加、并行 tool 待后续 |
+| `tests/agent/` (tool-call loop) | 5 | `crates/lure-core/tests/agent_tool_loop.rs` | partial | provider tool_calls 解析 + `AgentLoop` tool-call 迭代（执行/tool turn 回灌/上限/未知工具恢复/无 registry 终态）、空工具结果替换标记、空终响应静默重试+finalization（`stop_reason` + `EMPTY_FINAL_RESPONSE_MESSAGE`）、usage 跨轮累加（含 cached_tokens，对齐 `test_runner_core::{replaces_empty_tool_result_with_marker,retries_empty_final_response,uses_specific_message_after_empty_finalization,accumulates_usage}`）已覆盖；并行 tool、token 估算兜底待后续 |
 | `tests/cli/` (agent direct) | 3 | `crates/lure-cli/tests/cli_one_shot.rs` | partial | `agent -m` one-shot、基础 interactive REPL、`--session`、`--config`/`--preset`/`--model`（经 resolver 选 provider）、EOF/退出命令已覆盖；prompt_toolkit、stream/progress 渲染、slash commands 待后续 |
 
 > 注：Phase 3 provider 采用同步 trait + `EchoProvider` 占位；上游 async provider 与
