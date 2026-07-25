@@ -12,6 +12,10 @@
 use std::io::{self, BufRead, Write};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
+use std::thread::{self, JoinHandle};
+use std::time::Duration;
 
 use lure_core::agent::{AgentLoop, ContextBuilder, ProgressEvent};
 use lure_core::bus::InboundMessage;
@@ -263,6 +267,99 @@ impl Spinner {
     }
 }
 
+/// spinner 定时动画的默认帧间隔。
+const SPINNER_INTERVAL: Duration = Duration::from_millis(120);
+
+/// [`Spinner`] 的定时驱动器：后台线程每隔 `interval` 取锁并前进一帧，使**等待期**
+/// （无 progress 事件的空档，如首个 token 到达前）也能持续滚动，而非停在某一帧。
+///
+/// 协调保证：动画线程与前台真实输出**共享同一把锁包裹的 sink**。前台写正文/工具行前
+/// 调用 [`suspend`](Self::suspend)（锁内擦除 spinner + 暂停 + 执行写入），故帧与正文
+/// 永不交错；[`resume`](Self::resume) 在重新进入等待（如工具执行完）时恢复滚动；
+/// [`stop`](Self::stop) 结束线程并擦除残帧。
+struct SpinnerAnimator<W: Write + Send + 'static> {
+    shared: Arc<Mutex<AnimatorState<W>>>,
+    running: Arc<AtomicBool>,
+    handle: Option<JoinHandle<()>>,
+}
+
+/// 动画线程与前台共享的可变状态（sink + spinner + 是否暂停），统一由一把锁保护。
+struct AnimatorState<W> {
+    out: W,
+    spinner: Spinner,
+    paused: bool,
+}
+
+impl<W: Write + Send + 'static> SpinnerAnimator<W> {
+    /// 启动动画：接管 `out`，后台线程每 `interval` 前进一帧（暂停时跳过）。
+    fn new(out: W, spinner: Spinner, interval: Duration) -> Self {
+        let shared = Arc::new(Mutex::new(AnimatorState {
+            out,
+            spinner,
+            paused: false,
+        }));
+        let running = Arc::new(AtomicBool::new(true));
+        let handle = {
+            let shared = Arc::clone(&shared);
+            let running = Arc::clone(&running);
+            thread::spawn(move || {
+                while running.load(Ordering::Relaxed) {
+                    thread::sleep(interval);
+                    if !running.load(Ordering::Relaxed) {
+                        break;
+                    }
+                    let mut state = shared.lock().unwrap();
+                    if !state.paused {
+                        let AnimatorState { out, spinner, .. } = &mut *state;
+                        let _ = spinner.tick(out);
+                    }
+                }
+            })
+        };
+        Self {
+            shared,
+            running,
+            handle: Some(handle),
+        }
+    }
+
+    /// 前台写真实输出：锁内擦除 spinner → 暂停动画 → 执行 `f`（写同一 sink），
+    /// 全程持锁，确保动画线程不会与真实输出交错。
+    fn suspend<F: FnOnce(&mut W)>(&self, f: F) {
+        let mut state = self.shared.lock().unwrap();
+        {
+            let AnimatorState { out, spinner, .. } = &mut *state;
+            let _ = spinner.clear(out);
+        }
+        state.paused = true;
+        f(&mut state.out);
+    }
+
+    /// 恢复动画（重新进入等待，如工具执行完毕）。下一个 `interval` 起继续滚动。
+    fn resume(&self) {
+        self.shared.lock().unwrap().paused = false;
+    }
+
+    /// 结束动画线程并擦除残留 spinner；幂等（可与 `Drop` 重复调用）。
+    fn stop(&mut self) {
+        self.running.store(false, Ordering::Relaxed);
+        if let Some(handle) = self.handle.take() {
+            let _ = handle.join();
+        }
+        let mut state = self.shared.lock().unwrap();
+        if state.spinner.active() {
+            let AnimatorState { out, spinner, .. } = &mut *state;
+            let _ = spinner.clear(out);
+        }
+    }
+}
+
+impl<W: Write + Send + 'static> Drop for SpinnerAnimator<W> {
+    fn drop(&mut self) {
+        self.stop();
+    }
+}
+
 /// 把一个非内容的 progress 事件渲染为交互显示行；无需显示的事件返回 `None`。
 fn format_progress_line(event: &ProgressEvent) -> Option<String> {
     match event {
@@ -356,45 +453,47 @@ fn run_interactive(
         // 流式驱动：内容增量实时写 stdout，工具调用等 progress 事件另起行显示，
         // 推理增量（show_reasoning 时）按句缓冲后写 stderr。
         let input = InboundMessage::new(channel, chat_id, line);
-        let mut stdout = io::stdout();
         let mut renderer = StreamRenderer::new("Assistant: ");
-        let mut spinner = Spinner::new("Working");
         let mut reasoning_buffer = ReasoningBuffer::new();
         let mut streamed_reasoning = false;
-        let outcome = agent_loop
-            .process_streaming(&input, &mut |event| match event {
-                // 本轮开始、尚无输出：显示等待指示器。
-                ProgressEvent::TurnStarted { .. } => {
-                    let _ = spinner.tick(&mut stdout);
-                }
-                ProgressEvent::ContentDelta { text } => {
-                    // 首个内容到达前擦除 spinner，避免与正文同行。
-                    let _ = spinner.clear(&mut stdout);
-                    let _ = renderer.push(&mut stdout, text);
-                }
-                ProgressEvent::ReasoningDelta { text } => {
-                    if show_reasoning {
-                        streamed_reasoning = true;
-                        if let Some(sentence) = reasoning_buffer.add(text) {
-                            let _ = spinner.clear(&mut stdout);
+        // 定时动画：等待期（TurnStarted→首个 token）后台线程持续滚动帧；写真实输出
+        // 前经 suspend 擦除+暂停，避免帧与正文交错。
+        let mut animator =
+            SpinnerAnimator::new(io::stdout(), Spinner::new("Working"), SPINNER_INTERVAL);
+        let result = agent_loop.process_streaming(&input, &mut |event| match event {
+            // 动画已在跑，TurnStarted 无需额外处理。
+            ProgressEvent::TurnStarted { .. } => {}
+            ProgressEvent::ContentDelta { text } => {
+                animator.suspend(|out| {
+                    let _ = renderer.push(out, text);
+                });
+            }
+            ProgressEvent::ReasoningDelta { text } => {
+                if show_reasoning {
+                    streamed_reasoning = true;
+                    if let Some(sentence) = reasoning_buffer.add(text) {
+                        // 推理写 stderr，仍经 suspend 擦除 spinner（stdout）并暂停动画。
+                        animator.suspend(|_out| {
                             eprintln!("✻ {sentence}");
-                        }
+                        });
                     }
                 }
-                other => {
-                    if let Some(line) = format_progress_line(other) {
-                        let _ = spinner.clear(&mut stdout);
-                        let _ = renderer.line(&mut stdout, &line);
-                        // 工具执行完毕、等待模型下一段输出：恢复等待指示器。
-                        let _ = spinner.tick(&mut stdout);
-                    }
+            }
+            other => {
+                if let Some(line) = format_progress_line(other) {
+                    animator.suspend(|out| {
+                        let _ = renderer.line(out, &line);
+                    });
+                    // 工具执行完毕、重新等待模型下一段输出：恢复滚动。
+                    animator.resume();
                 }
-            })
-            .map_err(|e| e.to_string())?;
-        // 收尾：若 spinner 仍在显示（如空回复、无工具轮），先擦除以免残留在最终输出行。
-        if spinner.active() {
-            spinner.clear(&mut stdout).map_err(|e| e.to_string())?;
-        }
+            }
+        });
+        // 停止动画线程并擦除残帧，然后再处理结果/收尾输出。
+        animator.stop();
+        let outcome = result.map_err(|e| e.to_string())?;
+
+        let mut stdout = io::stdout();
         // 无增量（空内容/兜底文案）时回退打印最终内容。
         if !renderer.started() {
             renderer
@@ -638,6 +737,91 @@ mod tests {
         assert_eq!(
             String::from_utf8(buf).unwrap(),
             format!("\r{} W", SPINNER_FRAMES[0])
+        );
+    }
+
+    /// 线程安全的可克隆 sink：动画线程持一份写入，测试持一份读取。
+    #[derive(Clone)]
+    struct SharedBuf(Arc<Mutex<Vec<u8>>>);
+
+    impl SharedBuf {
+        fn new() -> Self {
+            Self(Arc::new(Mutex::new(Vec::new())))
+        }
+        fn contents(&self) -> String {
+            String::from_utf8(self.0.lock().unwrap().clone()).unwrap()
+        }
+    }
+
+    impl Write for SharedBuf {
+        fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+            self.0.lock().unwrap().extend_from_slice(bytes);
+            Ok(bytes.len())
+        }
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn animator_ticks_repeatedly_over_time_without_events() {
+        let sink = SharedBuf::new();
+        let mut animator =
+            SpinnerAnimator::new(sink.clone(), Spinner::new("W"), Duration::from_millis(5));
+        thread::sleep(Duration::from_millis(60));
+        animator.stop();
+        // 无事件的等待期里，后台线程应已滚动多帧（每次 tick/clear 以 '\r' 起头）。
+        let ticks = sink.contents().matches('\r').count();
+        assert!(ticks >= 2, "expected repeated timer ticks, got {ticks}");
+    }
+
+    #[test]
+    fn animator_suspend_clears_then_writes_real_output_without_trailing_frame() {
+        let sink = SharedBuf::new();
+        let mut animator =
+            SpinnerAnimator::new(sink.clone(), Spinner::new("W"), Duration::from_millis(5));
+        thread::sleep(Duration::from_millis(30));
+        animator.suspend(|out| {
+            let _ = write!(out, "REAL");
+        });
+        animator.stop();
+        let out = sink.contents();
+        // suspend 后动画暂停：真实输出之后不再追加任何帧字符。
+        let tail = &out[out.rfind("REAL").expect("real output present")..];
+        assert_eq!(tail, "REAL");
+    }
+
+    #[test]
+    fn animator_stop_erases_trailing_spinner() {
+        let sink = SharedBuf::new();
+        let mut animator =
+            SpinnerAnimator::new(sink.clone(), Spinner::new("W"), Duration::from_millis(5));
+        thread::sleep(Duration::from_millis(40));
+        animator.stop();
+        // 停止时应擦除残帧（以回车收尾回到行首），不把 spinner 留在屏幕上。
+        assert!(
+            sink.contents().ends_with('\r'),
+            "spinner should be erased on stop"
+        );
+    }
+
+    #[test]
+    fn animator_resume_restarts_ticking_after_suspend() {
+        let sink = SharedBuf::new();
+        let mut animator =
+            SpinnerAnimator::new(sink.clone(), Spinner::new("W"), Duration::from_millis(5));
+        animator.suspend(|out| {
+            let _ = writeln!(out, "LINE");
+        });
+        animator.resume();
+        thread::sleep(Duration::from_millis(40));
+        animator.stop();
+        // resume 后应在 LINE 之后重新出现滚动帧。
+        let out = sink.contents();
+        let tail = &out[out.find("LINE\n").unwrap() + "LINE\n".len()..];
+        assert!(
+            tail.contains('\r'),
+            "resume should restart ticking, tail={tail:?}"
         );
     }
 
