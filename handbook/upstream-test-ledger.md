@@ -28,7 +28,7 @@
 | `tests/agent/` | 2,3,4,6 | partial | session/loop、stateful model runtime resolver、tool-call 循环、SSE 流式驱动、memory 接入 loop、legacy history migration 已覆盖；goal/subagent、真实 LLM dream 待后续 |
 | `tests/cli/` | 3 | partial | one-shot 与基础 interactive 已覆盖；上游 prompt_toolkit/progress/commands 待后续 |
 | `tests/providers/` | 4 | partial | OpenAI-compatible 请求/响应/错误、选择顺序、SSE 流式消费（含末帧 usage 捕获 + `stream_options.include_usage`）、stateful resolver、config 驱动 provider 匹配（api_base/enabled/api_key）已覆盖；真实 provider opt-in、OAuth/local fallback 待补 |
-| `tests/tools/` | 5 | partial | registry/schema/文件读写+edit/shell allow-deny、tool-call 循环、config 驱动工具注册已覆盖；apply_patch/search/web/mcp/exec 平台细节待补 |
+| `tests/tools/` | 5 | partial | registry/schema/文件读写+edit/list_dir+grep/shell allow-deny、tool-call 循环、config 驱动工具注册已覆盖；apply_patch/find_files/web/mcp/exec 平台细节待补 |
 | `tests/security/` | 5 | partial | workspace 边界已覆盖；network SSRF、启动安全待补 |
 | `tests/bus/` | 7 | partial | InboundMessage/OutboundMessage、内存队列、outbound 运行时事件（`ProgressUpdate`）已覆盖；async 队列待补 |
 | `tests/channels/` | 7 | partial | channel 契约与配置校验已覆盖；manager 热加载、plugin、具体平台待补 |
@@ -133,7 +133,8 @@ Phase 0 已完成，确定 phase 1-4 关键上游测试的 Rust 测试落点（�
 | `tests/tools/test_exec_allow_patterns.py` | 5 | `crates/lure-core/tests/tool_shell_policy.rs` | covered | allow/deny/allowlist/分段/fd 重定向均覆盖 |
 | `tests/tools/` (config 驱动注册) | 5 | `crates/lure-core/tests/tool_setup.rs` | partial | `registry_from_config`（默认注册文件工具、exec 按 `tools.exec` 开关+正则门禁、非法正则报错）已覆盖；CLI 已接入 `build_agent_loop` |
 | `tests/tools/test_tool_registry.py` | 5 | `crates/lure-core/tests/tool_registry.rs` | partial | 定义顺序/派发/近似建议/参数校验已覆盖；MCP 排序、prepare_call 全貌待补 |
-| `tests/tools/test_filesystem_tools.py` | 5 | `crates/lure-core/tests/tool_file.rs` `tool_edit.rs` | partial | read/write + workspace 越界拒绝、edit（`find_match` 精确+行 trim 回退、CRLF 保留、replace_all、歧义告警、not-found/缺 new_text 错误，对齐 `TestFindMatch`/`TestEditFileTool`）已覆盖；search（grep/list）、高级读增强、apply_patch 待补 |
+| `tests/tools/test_filesystem_tools.py` | 5 | `crates/lure-core/tests/tool_file.rs` `tool_edit.rs` `tool_search.rs` | partial | read/write + workspace 越界拒绝、edit（`find_match` 精确+行 trim 回退、CRLF 保留、replace_all、歧义告警、not-found/缺 new_text 错误）、list_dir（基础/递归/忽略噪声目录/max_entries 截断/空目录/not-found/缺 path，对齐 `TestListDirTool`）已覆盖；高级读增强、apply_patch 待补 |
+| `tests/tools/test_search_tools.py` | 5 | `crates/lure-core/tests/tool_search.rs` | partial | grep（files_with_matches 默认+mtime 降序、content 带上下文、case_insensitive、fixed_strings、glob/type 过滤、head_limit/offset 分页，对齐 `GrepTool`）已覆盖；count 模式、二进制/大文件跳过、size 截断、find_files、web_search 待补 |
 | `tests/tools/test_tool_validation.py` | 5 | `crates/lure-core/tests/tool_registry.rs` | partial | type/required/enum/数值/长度校验已覆盖；组合校验待补 |
 | `tests/test_truncate_text_shadowing.py` | 5 | `crates/lure-core/tests/tool_registry.rs` | partial | 结果截断行为已覆盖（`truncate_result`）；上游具体 shadowing 回归 N/A |
 

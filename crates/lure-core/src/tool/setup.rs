@@ -10,6 +10,7 @@ use std::path::Path;
 use crate::config::Config;
 use crate::tool::file::{EditFileTool, ReadFileTool, WriteFileTool};
 use crate::tool::registry::ToolRegistry;
+use crate::tool::search::{GrepTool, ListDirTool};
 use crate::tool::shell::{ExecPolicy, ExecTool};
 
 /// 工具注册失败的结构化错误。
@@ -37,7 +38,7 @@ impl std::error::Error for ToolSetupError {
 
 /// 由 config + workspace 构建工具注册表。
 ///
-/// - 始终注册 workspace 绑定的 `read_file`/`write_file`/`edit_file`（越界访问由工具层拒绝）。
+/// - 始终注册 workspace 绑定的 `read_file`/`write_file`/`edit_file`/`list_dir`/`grep`（越界访问由工具层拒绝）。
 /// - `tools.exec.enabled` 时注册 `exec`，策略取 `tools.exec.allow`/`deny`；正则非法即报错。
 pub fn registry_from_config(
     config: &Config,
@@ -47,6 +48,8 @@ pub fn registry_from_config(
     registry.register(Box::new(ReadFileTool::new(workspace)));
     registry.register(Box::new(WriteFileTool::new(workspace)));
     registry.register(Box::new(EditFileTool::new(workspace)));
+    registry.register(Box::new(ListDirTool::new(workspace)));
+    registry.register(Box::new(GrepTool::new(workspace)));
 
     let exec = &config.tools.exec;
     if exec.enabled {

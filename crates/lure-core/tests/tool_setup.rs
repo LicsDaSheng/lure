@@ -14,6 +14,8 @@ fn registers_workspace_file_tools_by_default() {
     assert!(registry.contains("read_file"));
     assert!(registry.contains("write_file"));
     assert!(registry.contains("edit_file"));
+    assert!(registry.contains("list_dir"));
+    assert!(registry.contains("grep"));
     // exec 默认关闭。
     assert!(!registry.contains("exec"));
 }

@@ -586,6 +586,29 @@
 - 下一步：
   - 补 search（内容 grep / 目录 list），或引号归一/重缩进增强。
 
+### 进度记录 2026-07-25（搜索工具 list_dir + grep，TDD）
+
+- 状态：partial
+- 依据：上游 `ListDirTool`（`filesystem.py`）与 `GrepTool`（`search.py`）+ 对应测试。
+- 本次完成（新 `tool/search.rs`）：
+  - `ListDirTool`（`list_dir`）：基础/递归列举、自动忽略噪声目录（.git/node_modules/…）、
+    max_entries 截断（`(truncated, showing first N of M entries)`）、空目录/not-found/缺 path 明确错误。
+  - `GrepTool`（`grep`）：regex（`fixed_strings` 走 `regex::escape`）、`case_insensitive`；
+    `files_with_matches`（默认，唯一路径按 mtime 降序 + 名称）/ `content`（`display:line` 头 +
+    `> N|`/`  N|` 上下文）两种 output_mode；glob（name/path 双模）与 type 过滤；`head_limit`/`offset`
+    分页（`(pagination: limit=X, offset=Y)`）；workspace 相对展示路径（规范化根 strip）。
+  - 接入 `registry_from_config` 默认注册；越界路径由 `resolve_in_workspace` 拒绝。
+- 验证：
+  - `rtk cargo fmt --all`；`clippy --workspace --all-targets -D warnings` 无问题。
+  - `rtk cargo test --workspace` 通过（301 passed，48 套件）：`tool_search.rs` 14 例（list_dir 6 +
+    grep 8）；`tool_setup.rs` 补 list_dir/grep 默认注册断言。
+- 上游对照：
+  - 已覆盖：ListDirTool 全部、GrepTool 核心（两 output_mode + 过滤 + 分页 + mtime 排序）。
+  - 暂未覆盖：grep count 模式、二进制/大文件跳过、size 截断、glob `**` 深度语义细节、
+    `find_files`、`web_search`。
+- 下一步：
+  - 进入 Phase 6（memory/dream 缺口），或补 grep count 模式 / find_files。
+
 ## Phase 6: Memory、Dream 与长期上下文
 
 ### Plan
