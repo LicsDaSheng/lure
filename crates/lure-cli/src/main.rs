@@ -156,19 +156,20 @@ fn process_cli_turn(
     })
 }
 
-/// 交互模式的流式渲染器：把内容增量实时写入 `out`，首个增量前写一次 `prefix`，
+/// 交互模式的流式渲染器：把内容增量实时写入调用方给的 sink，首个增量前写一次 `prefix`，
 /// 结束时补一个换行。无增量时不输出任何内容（由调用方回退打印最终内容）。
-struct StreamRenderer<'w, W: Write> {
-    out: &'w mut W,
-    prefix: &'w str,
+///
+/// 只持有渲染状态（前缀 + 是否已开始），sink 每次方法传入——这样它能与 [`Spinner`]
+/// 共享同一个 `stdout`（二者交替写同一行，不能各自长期独占 `&mut`）。
+struct StreamRenderer {
+    prefix: String,
     started: bool,
 }
 
-impl<'w, W: Write> StreamRenderer<'w, W> {
-    fn new(out: &'w mut W, prefix: &'w str) -> Self {
+impl StreamRenderer {
+    fn new(prefix: impl Into<String>) -> Self {
         Self {
-            out,
-            prefix,
+            prefix: prefix.into(),
             started: false,
         }
     }
@@ -179,32 +180,86 @@ impl<'w, W: Write> StreamRenderer<'w, W> {
     }
 
     /// 写入一个内容增量：首次调用前先写 `prefix`，并逐增量 flush 以实时可见。
-    fn push(&mut self, delta: &str) -> io::Result<()> {
+    fn push<W: Write>(&mut self, out: &mut W, delta: &str) -> io::Result<()> {
         if !self.started {
-            write!(self.out, "{}", self.prefix)?;
+            write!(out, "{}", self.prefix)?;
             self.started = true;
         }
-        write!(self.out, "{delta}")?;
-        self.out.flush()
+        write!(out, "{delta}")?;
+        out.flush()
     }
 
     /// 收尾：已输出内容时补一个换行。
-    fn finish(&mut self) -> io::Result<()> {
+    fn finish<W: Write>(&mut self, out: &mut W) -> io::Result<()> {
         if self.started {
-            writeln!(self.out)?;
+            writeln!(out)?;
         }
         Ok(())
     }
 
     /// 另起一行输出一条独立信息（如工具活动）：先断开进行中的内容行并重置前缀状态，
     /// 使随后的内容增量重新带前缀。
-    fn line(&mut self, text: &str) -> io::Result<()> {
+    fn line<W: Write>(&mut self, out: &mut W, text: &str) -> io::Result<()> {
         if self.started {
-            writeln!(self.out)?;
+            writeln!(out)?;
             self.started = false;
         }
-        writeln!(self.out, "{text}")?;
-        self.out.flush()
+        writeln!(out, "{text}")?;
+        out.flush()
+    }
+}
+
+/// 交互模式的等待指示器：在 `TurnStarted` 到首个内容增量之间（以及每次工具执行后
+/// 等待模型下一段输出时）用回车覆写当前行，滚动 braille 帧，提示“正在处理”。
+///
+/// 事件驱动而非定时器驱动：每次 [`tick`](Self::tick) 前进一帧并重画，
+/// [`clear`](Self::clear) 在写出真实内容前用等宽空格擦除自身。与 [`StreamRenderer`]
+/// 共享 sink，故方法都不长期持有 `&mut W`。
+struct Spinner {
+    label: String,
+    index: usize,
+    active: bool,
+    /// 上次渲染 payload 的显示宽度（字符数），供 `clear` 生成等宽擦除空格。
+    last_width: usize,
+}
+
+/// braille 旋转帧。
+const SPINNER_FRAMES: [char; 10] = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
+
+impl Spinner {
+    fn new(label: impl Into<String>) -> Self {
+        Self {
+            label: label.into(),
+            index: 0,
+            active: false,
+            last_width: 0,
+        }
+    }
+
+    /// 当前是否正在显示（决定 `clear` 是否需要擦除）。
+    fn active(&self) -> bool {
+        self.active
+    }
+
+    /// 前进一帧并回车重画：`\r{frame} {label}`；标记 active。
+    fn tick<W: Write>(&mut self, out: &mut W) -> io::Result<()> {
+        let frame = SPINNER_FRAMES[self.index % SPINNER_FRAMES.len()];
+        let payload = format!("{frame} {}", self.label);
+        write!(out, "\r{payload}")?;
+        self.last_width = payload.chars().count();
+        self.index = (self.index + 1) % SPINNER_FRAMES.len();
+        self.active = true;
+        out.flush()
+    }
+
+    /// 擦除自身：仅在 active 时以等宽空格覆盖并回到行首；随后标记 inactive。非 active 为空操作。
+    fn clear<W: Write>(&mut self, out: &mut W) -> io::Result<()> {
+        if !self.active {
+            return Ok(());
+        }
+        write!(out, "\r{}\r", " ".repeat(self.last_width))?;
+        self.active = false;
+        out.flush()
     }
 }
 
@@ -302,36 +357,51 @@ fn run_interactive(
         // 推理增量（show_reasoning 时）按句缓冲后写 stderr。
         let input = InboundMessage::new(channel, chat_id, line);
         let mut stdout = io::stdout();
-        let mut renderer = StreamRenderer::new(&mut stdout, "Assistant: ");
+        let mut renderer = StreamRenderer::new("Assistant: ");
+        let mut spinner = Spinner::new("Working");
         let mut reasoning_buffer = ReasoningBuffer::new();
         let mut streamed_reasoning = false;
         let outcome = agent_loop
             .process_streaming(&input, &mut |event| match event {
+                // 本轮开始、尚无输出：显示等待指示器。
+                ProgressEvent::TurnStarted { .. } => {
+                    let _ = spinner.tick(&mut stdout);
+                }
                 ProgressEvent::ContentDelta { text } => {
-                    let _ = renderer.push(text);
+                    // 首个内容到达前擦除 spinner，避免与正文同行。
+                    let _ = spinner.clear(&mut stdout);
+                    let _ = renderer.push(&mut stdout, text);
                 }
                 ProgressEvent::ReasoningDelta { text } => {
                     if show_reasoning {
                         streamed_reasoning = true;
                         if let Some(sentence) = reasoning_buffer.add(text) {
+                            let _ = spinner.clear(&mut stdout);
                             eprintln!("✻ {sentence}");
                         }
                     }
                 }
                 other => {
                     if let Some(line) = format_progress_line(other) {
-                        let _ = renderer.line(&line);
+                        let _ = spinner.clear(&mut stdout);
+                        let _ = renderer.line(&mut stdout, &line);
+                        // 工具执行完毕、等待模型下一段输出：恢复等待指示器。
+                        let _ = spinner.tick(&mut stdout);
                     }
                 }
             })
             .map_err(|e| e.to_string())?;
+        // 收尾：若 spinner 仍在显示（如空回复、无工具轮），先擦除以免残留在最终输出行。
+        if spinner.active() {
+            spinner.clear(&mut stdout).map_err(|e| e.to_string())?;
+        }
         // 无增量（空内容/兜底文案）时回退打印最终内容。
         if !renderer.started() {
             renderer
-                .push(&outcome.final_content)
+                .push(&mut stdout, &outcome.final_content)
                 .map_err(|e| e.to_string())?;
         }
-        renderer.finish().map_err(|e| e.to_string())?;
+        renderer.finish(&mut stdout).map_err(|e| e.to_string())?;
 
         if show_reasoning {
             if streamed_reasoning {
@@ -461,11 +531,11 @@ mod tests {
 
     fn rendered(prefix: &str, deltas: &[&str]) -> String {
         let mut buf: Vec<u8> = Vec::new();
-        let mut renderer = StreamRenderer::new(&mut buf, prefix);
+        let mut renderer = StreamRenderer::new(prefix);
         for d in deltas {
-            renderer.push(d).unwrap();
+            renderer.push(&mut buf, d).unwrap();
         }
-        renderer.finish().unwrap();
+        renderer.finish(&mut buf).unwrap();
         String::from_utf8(buf).unwrap()
     }
 
@@ -486,24 +556,88 @@ mod tests {
     #[test]
     fn stream_renderer_reports_whether_started() {
         let mut buf: Vec<u8> = Vec::new();
-        let mut renderer = StreamRenderer::new(&mut buf, "P:");
+        let mut renderer = StreamRenderer::new("P:");
         assert!(!renderer.started());
-        renderer.push("x").unwrap();
+        renderer.push(&mut buf, "x").unwrap();
         assert!(renderer.started());
     }
 
     #[test]
     fn stream_renderer_line_breaks_content_and_resets_prefix() {
         let mut buf: Vec<u8> = Vec::new();
-        let mut renderer = StreamRenderer::new(&mut buf, "A: ");
-        renderer.push("part-a").unwrap();
-        renderer.line("🔧 echo").unwrap();
-        renderer.push("part-b").unwrap();
-        renderer.finish().unwrap();
+        let mut renderer = StreamRenderer::new("A: ");
+        renderer.push(&mut buf, "part-a").unwrap();
+        renderer.line(&mut buf, "🔧 echo").unwrap();
+        renderer.push(&mut buf, "part-b").unwrap();
+        renderer.finish(&mut buf).unwrap();
         // 内容行被断开、工具行独立、随后内容重新带前缀。
         assert_eq!(
             String::from_utf8(buf).unwrap(),
             "A: part-a\n🔧 echo\nA: part-b\n"
+        );
+    }
+
+    #[test]
+    fn spinner_tick_advances_frames_with_carriage_return() {
+        let mut buf: Vec<u8> = Vec::new();
+        let mut spinner = Spinner::new("Working");
+        spinner.tick(&mut buf).unwrap();
+        spinner.tick(&mut buf).unwrap();
+        assert_eq!(
+            String::from_utf8(buf).unwrap(),
+            format!(
+                "\r{} Working\r{} Working",
+                SPINNER_FRAMES[0], SPINNER_FRAMES[1]
+            )
+        );
+    }
+
+    #[test]
+    fn spinner_reports_active_after_tick() {
+        let mut buf: Vec<u8> = Vec::new();
+        let mut spinner = Spinner::new("Working");
+        assert!(!spinner.active());
+        spinner.tick(&mut buf).unwrap();
+        assert!(spinner.active());
+    }
+
+    #[test]
+    fn spinner_clear_erases_line_with_equal_width_spaces() {
+        let mut buf: Vec<u8> = Vec::new();
+        let mut spinner = Spinner::new("Working");
+        spinner.tick(&mut buf).unwrap();
+        buf.clear();
+        spinner.clear(&mut buf).unwrap();
+        let width = format!("{} Working", SPINNER_FRAMES[0]).chars().count();
+        assert_eq!(
+            String::from_utf8(buf).unwrap(),
+            format!("\r{}\r", " ".repeat(width))
+        );
+        assert!(!spinner.active());
+    }
+
+    #[test]
+    fn spinner_clear_is_noop_when_inactive() {
+        let mut buf: Vec<u8> = Vec::new();
+        let mut spinner = Spinner::new("Working");
+        spinner.clear(&mut buf).unwrap();
+        assert!(buf.is_empty());
+        assert!(!spinner.active());
+    }
+
+    #[test]
+    fn spinner_frame_wraps_after_full_cycle() {
+        let mut buf: Vec<u8> = Vec::new();
+        let mut spinner = Spinner::new("W");
+        // 走满一整圈后应回到首帧。
+        for _ in 0..SPINNER_FRAMES.len() {
+            spinner.tick(&mut buf).unwrap();
+        }
+        buf.clear();
+        spinner.tick(&mut buf).unwrap();
+        assert_eq!(
+            String::from_utf8(buf).unwrap(),
+            format!("\r{} W", SPINNER_FRAMES[0])
         );
     }
 
