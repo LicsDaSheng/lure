@@ -23,6 +23,19 @@ use crate::tool::ToolRegistry;
 /// 避免模型反复请求工具导致死循环。
 pub const MAX_TOOL_ITERATIONS: usize = 8;
 
+/// 空终响应的最大静默重试次数：达到后转 finalization。对齐上游 `_MAX_EMPTY_RETRIES`。
+pub const MAX_EMPTY_RETRIES: usize = 2;
+
+/// 静默重试 + finalization 仍为空时的固定兜底文案。对齐上游 `EMPTY_FINAL_RESPONSE_MESSAGE`。
+pub const EMPTY_FINAL_RESPONSE_MESSAGE: &str =
+    "I completed the tool steps but couldn't produce a final answer. \
+Please try again or narrow the task.";
+
+/// finalization 请求追加的用户提示（引导模型基于已有对话给出最终答复）。
+/// 对齐上游 `FINALIZATION_RETRY_PROMPT`。
+pub const FINALIZATION_RETRY_PROMPT: &str =
+    "Please provide your response to the user based on the conversation above.";
+
 /// 结构化 progress 事件。
 #[derive(Debug, Clone, PartialEq)]
 pub enum ProgressEvent {
@@ -57,6 +70,9 @@ pub struct TurnOutcome {
     pub reasoning: Option<String>,
     /// 结构化 progress 序列。
     pub progress: Vec<ProgressEvent>,
+    /// 终止原因：`completed`（正常产出）/ `empty_final_response`（空终响应兜底）/
+    /// `max_iterations`（达到 tool-call 迭代上限）。对齐上游 `stop_reason`。
+    pub stop_reason: String,
 }
 
 /// agent loop 结构化错误。
@@ -210,6 +226,7 @@ impl AgentLoop {
 
         let mut final_content = String::new();
         let mut final_reasoning = None;
+        let mut empty_retries = 0usize;
 
         for _ in 0..MAX_TOOL_ITERATIONS {
             // 构建 context（历史含此前所有 turn），调 provider。
@@ -231,6 +248,41 @@ impl AgentLoop {
             let run_tools = self.tools.is_some() && !response.tool_calls.is_empty();
 
             if !run_tools {
+                // 空终响应：先静默重试（不持久化、不改历史，下一轮重新请求），
+                // 达到上限后转 finalization（追加瞬态提示后请求一次）。
+                if content.trim().is_empty() {
+                    empty_retries += 1;
+                    if empty_retries < MAX_EMPTY_RETRIES {
+                        continue;
+                    }
+                    let (fin_content, fin_reasoning) = self.finalize_empty_response(
+                        &context,
+                        &key,
+                        &mut progress,
+                        on_content_delta,
+                    )?;
+                    let (final_text, stop_reason) = if fin_content.trim().is_empty() {
+                        (
+                            EMPTY_FINAL_RESPONSE_MESSAGE.to_string(),
+                            "empty_final_response",
+                        )
+                    } else {
+                        (fin_content, "completed")
+                    };
+                    persist_assistant(&mut self.sessions, &key, &final_text, &fin_reasoning, &[])?;
+                    self.sessions.save(&key, false)?;
+                    append_memory_history(self.memory.as_ref(), &key, &final_text)?;
+                    progress.push(ProgressEvent::FinalResponse {
+                        content: final_text.clone(),
+                    });
+                    return Ok(TurnOutcome {
+                        final_content: final_text,
+                        reasoning: fin_reasoning,
+                        progress,
+                        stop_reason: stop_reason.to_string(),
+                    });
+                }
+
                 // 终态：追加最终 assistant turn（reasoning 一并持久化，仅供展示）。
                 persist_assistant(&mut self.sessions, &key, &content, &reasoning, &[])?;
                 self.sessions.save(&key, false)?;
@@ -242,6 +294,7 @@ impl AgentLoop {
                     final_content: content,
                     reasoning,
                     progress,
+                    stop_reason: "completed".to_string(),
                 });
             }
 
@@ -282,7 +335,34 @@ impl AgentLoop {
             final_content,
             reasoning: final_reasoning,
             progress,
+            stop_reason: "max_iterations".to_string(),
         })
+    }
+
+    /// 空终响应达到静默重试上限后的 finalization 请求：在当前 context 之上追加**瞬态**
+    /// finalization 提示（不写入 session 历史，对齐上游 `messages_for_model` 副本语义），
+    /// 请求一次并返回 `(内容, reasoning)`。内容增量仍经 `on_content_delta` 流式推送。
+    fn finalize_empty_response(
+        &mut self,
+        context: &ContextBuilder,
+        key: &str,
+        progress: &mut Vec<ProgressEvent>,
+        on_content_delta: &mut dyn FnMut(&str),
+    ) -> Result<(String, Option<String>), AgentError> {
+        let history = self.sessions.get_or_create(key)?.get_history(0);
+        let mut messages = context.build(&history);
+        messages.push(json!({"role": "user", "content": FINALIZATION_RETRY_PROMPT}));
+
+        let runner = AgentRunner::new(self.provider.as_ref(), self.settings.clone());
+        let response = runner.run_streaming(&self.model, messages, &mut |chunk| {
+            if let Some(text) = chunk.content_delta.as_ref().filter(|t| !t.is_empty()) {
+                progress.push(ProgressEvent::ContentDelta { text: text.clone() });
+                on_content_delta(text);
+            }
+        })?;
+        let content = response.content.clone().unwrap_or_default();
+        let reasoning = response.reasoning_content.clone().filter(|r| !r.is_empty());
+        Ok((content, reasoning))
     }
 }
 

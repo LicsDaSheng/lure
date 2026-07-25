@@ -7,7 +7,10 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use lure_core::agent::{AgentLoop, ContextBuilder, ProgressEvent, MAX_TOOL_ITERATIONS};
+use lure_core::agent::{
+    AgentLoop, ContextBuilder, ProgressEvent, EMPTY_FINAL_RESPONSE_MESSAGE,
+    FINALIZATION_RETRY_PROMPT, MAX_TOOL_ITERATIONS,
+};
 use lure_core::bus::InboundMessage;
 use lure_core::provider::{CompletionRequest, LlmProvider, LlmResponse, ProviderError, ToolCall};
 use lure_core::session::SessionManager;
@@ -84,6 +87,17 @@ impl Tool for EchoTool {
         self.calls.borrow_mut().push(args.clone());
         let text = args.get("text").and_then(Value::as_str).unwrap_or("");
         ToolResult::ok(format!("tool-echo: {text}"))
+    }
+}
+
+/// 内容为空、无 tool_calls 的响应（触发空终响应路径）。
+fn blank_response() -> LlmResponse {
+    LlmResponse {
+        content: None,
+        reasoning_content: None,
+        finish_reason: "stop".to_string(),
+        usage: Default::default(),
+        tool_calls: Vec::new(),
     }
 }
 
@@ -297,6 +311,73 @@ fn empty_tool_result_is_replaced_with_marker() {
         .get_history(100);
     assert_eq!(history[2]["role"], "tool");
     assert_eq!(history[2]["content"], "(blank completed with no output)");
+}
+
+#[test]
+fn normal_final_response_has_completed_stop_reason() {
+    let (_dir, mut agent_loop, _calls, _seen) = setup(vec![LlmResponse::text("hi there")]);
+    let outcome = agent_loop
+        .process(&InboundMessage::new("cli", "direct", "go"))
+        .unwrap();
+    assert_eq!(outcome.final_content, "hi there");
+    assert_eq!(outcome.stop_reason, "completed");
+}
+
+#[test]
+fn empty_final_response_retries_then_finalizes_to_content() {
+    // 对齐上游 `test_runner_retries_empty_final_response_with_summary_prompt`：
+    // 空终响应先静默重试（<MAX_EMPTY_RETRIES），再触发 finalization（追加提示后请求一次）。
+    let (dir, mut agent_loop, _calls, seen) = setup(vec![
+        blank_response(),
+        blank_response(),
+        LlmResponse::text("final answer"),
+    ]);
+
+    let outcome = agent_loop
+        .process(&InboundMessage::new("cli", "direct", "go"))
+        .unwrap();
+
+    assert_eq!(outcome.final_content, "final answer");
+    assert_eq!(outcome.stop_reason, "completed");
+    // provider 调用 3 次：主 + 1 次静默重试 + 1 次 finalization。
+    assert_eq!(seen.borrow().len(), 3);
+
+    // 第 3 次（finalization）上下文含 finalization 提示。
+    let third = &seen.borrow()[2];
+    let has_prompt = third.iter().any(|m| {
+        m.get("role").and_then(Value::as_str) == Some("user")
+            && m.get("content").and_then(Value::as_str) == Some(FINALIZATION_RETRY_PROMPT)
+    });
+    assert!(has_prompt, "finalization 上下文应含提示: {third:?}");
+
+    // finalization 提示是瞬态的，不写入持久化历史：历史仅 user + assistant(final answer)。
+    let mut reloaded = SessionManager::new(dir.path()).unwrap();
+    let history = reloaded
+        .get_or_create("cli:direct")
+        .unwrap()
+        .get_history(100);
+    let roles: Vec<&str> = history
+        .iter()
+        .map(|m| m["role"].as_str().unwrap())
+        .collect();
+    assert_eq!(roles, vec!["user", "assistant"]);
+    assert_eq!(history[1]["content"], "final answer");
+}
+
+#[test]
+fn all_empty_yields_empty_final_response_message() {
+    // 对齐上游 `test_runner_uses_specific_message_after_empty_finalization_retry`：
+    // 静默重试 + finalization 全部为空 → 固定兜底文案 + stop_reason=empty_final_response。
+    let (_dir, mut agent_loop, _calls, seen) =
+        setup(vec![blank_response(), blank_response(), blank_response()]);
+
+    let outcome = agent_loop
+        .process(&InboundMessage::new("cli", "direct", "go"))
+        .unwrap();
+
+    assert_eq!(outcome.final_content, EMPTY_FINAL_RESPONSE_MESSAGE);
+    assert_eq!(outcome.stop_reason, "empty_final_response");
+    assert_eq!(seen.borrow().len(), 3);
 }
 
 #[test]

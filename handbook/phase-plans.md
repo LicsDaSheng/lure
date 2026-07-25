@@ -470,6 +470,30 @@
 - 下一步：
   - 续补核心 loop 健壮性（空终响应重试 / usage 累加），或进入 Phase 6/文件工具 edit/search。
 
+### 进度记录 2026-07-25（核心 loop：空终响应静默重试 + finalization，TDD）
+
+- 状态：partial
+- 依据：上游 `tests/agent/test_runner_core.py` 的空终响应恢复序列。
+- 本次完成：
+  - `TurnOutcome` 新增 `stop_reason` 字段（`completed` / `empty_final_response` / `max_iterations`）。
+  - `AgentLoop::process_streaming` 空终响应处理：内容为空（含纯空白）且非 tool 轮时，先静默重试
+    （`< MAX_EMPTY_RETRIES=2`，不持久化不改历史，下一轮重新请求）；达到上限后转 `finalize_empty_response`
+    ——在当前 context 之上追加**瞬态** `FINALIZATION_RETRY_PROMPT`（不写入 session 历史，对齐上游
+    `messages_for_model` 副本语义）请求一次；仍为空则回 `EMPTY_FINAL_RESPONSE_MESSAGE`
+    + `stop_reason=empty_final_response`，否则 `completed`。常量逐字对齐上游 `utils/runtime.py`。
+  - 从 agent 模块导出 `EMPTY_FINAL_RESPONSE_MESSAGE` / `FINALIZATION_RETRY_PROMPT` / `MAX_EMPTY_RETRIES`。
+- 验证：
+  - `rtk cargo fmt --all`；`clippy --workspace --all-targets -D warnings` 无问题。
+  - `rtk cargo test --workspace` 通过（261 passed，45 套件）：`agent_tool_loop.rs` 新增 3 例
+    （正常终态 `completed`、空→空→内容走 finalization 且提示瞬态不入历史、全空回兜底文案）。
+- 上游对照：
+  - 已覆盖：`test_runner_retries_empty_final_response_with_summary_prompt`、
+    `test_runner_uses_specific_message_after_empty_finalization_retry` 的静默重试 + finalization + stop_reason 语义。
+  - 暂未覆盖：usage 跨轮累加（`test_runner_accumulates_usage`）、空响应不打断 tool 链的计数细节、
+    wall-timeout（需 async/超时基建）。
+- 下一步：
+  - 续补 usage 跨轮累加（并打通 API usage 上报），或进入 Phase 6/文件工具 edit/search。
+
 ## Phase 6: Memory、Dream 与长期上下文
 
 ### Plan
