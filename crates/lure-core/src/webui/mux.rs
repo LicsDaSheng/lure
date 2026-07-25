@@ -134,9 +134,10 @@ impl<R: TurnRunner> MuxSession<R> {
 
         match result {
             Ok(text) => {
-                // 成功 turn → 写入 transcript。
+                // 成功 turn → 写入 transcript（用 session key，对齐 http_server 读取路径）。
                 if let Some(ref mut t) = self.transcript {
-                    let _ = t.append_turn(chat_id, content, &text);
+                    let session_key = format!("websocket:{chat_id}");
+                    let _ = t.append_turn(&session_key, content, &text);
                 }
                 out.push(json!({"event": "message", "chat_id": chat_id, "text": text}));
                 out.push(json!({"event": "turn_end", "chat_id": chat_id}));
