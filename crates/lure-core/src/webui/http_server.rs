@@ -49,7 +49,7 @@ pub struct WebuiServer<S: StaticAssets> {
     server: Server,
     assets: S,
     config: WebuiServerConfig,
-    issuer: TokenIssuer,
+    issuer: Arc<Mutex<TokenIssuer>>,
 }
 
 impl<S: StaticAssets> WebuiServer<S> {
@@ -114,7 +114,7 @@ impl<S: StaticAssets> WebuiServer<S> {
     }
 
     fn handle_bootstrap(&mut self, request: Request) -> io::Result<()> {
-        let Some(issued) = self.issuer.try_issue() else {
+        let Some(issued) = self.issuer.lock().expect("issuer 锁中毒").try_issue() else {
             return respond_json(
                 request,
                 429,
@@ -190,7 +190,10 @@ impl<S: StaticAssets> WebuiServer<S> {
             return false;
         };
         let token = header.value.as_str().trim_start_matches("Bearer ").trim();
-        self.issuer.check_api_token(token)
+        self.issuer
+            .lock()
+            .expect("issuer 锁中毒")
+            .check_api_token(token)
     }
 }
 
