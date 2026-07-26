@@ -6,7 +6,7 @@ use std::sync::{Arc, Mutex};
 use lure_core::agent::{AgentLoop, ContextBuilder, ProgressEvent};
 use lure_core::provider::EchoProvider;
 use lure_core::session::SessionManager;
-use lure_core::webui::mux::{MuxSession, TurnRunner};
+use lure_core::webui::mux::{self, MuxSession, TurnRunner};
 use lure_core::webui::tokens::TokenIssuer;
 use lure_core::webui::ws_server::{AgentTurnRunner, WsServer};
 use serde_json::{json, Value};
@@ -176,7 +176,10 @@ fn mux_session_accepts_agent_turn_runner_end_to_end() {
         ))
     };
     let mut mux = MuxSession::new(build());
-    let out = mux.handle_frame(&json!({"type": "message", "chat_id": "c1", "content": "ping"}));
+    let out = mux::collect_frames(
+        &mut mux,
+        &json!({"type": "message", "chat_id": "c1", "content": "ping"}),
+    );
     let names: Vec<&str> = out
         .iter()
         .filter_map(|f| f.get("event").and_then(Value::as_str))

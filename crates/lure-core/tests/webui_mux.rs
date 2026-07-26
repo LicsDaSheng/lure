@@ -4,7 +4,7 @@
 //! ready → attach/new_chat/message → delta/message/turn_end/error 事件序列。
 
 use lure_core::agent::ProgressEvent;
-use lure_core::webui::mux::{MuxSession, TurnRunner};
+use lure_core::webui::mux::{self, MuxSession, TurnRunner};
 use serde_json::{json, Value};
 
 /// 录制 progress 回调的 fake runner：按脚本产出事件并返回固定终文本。
@@ -77,7 +77,10 @@ fn ready_frame_announces_default_chat_and_client() {
 #[test]
 fn attach_valid_chat_id_acknowledges() {
     let mut session = MuxSession::new(ScriptedRunner::ok(vec![], ""));
-    let out = session.handle_frame(&json!({"type": "attach", "chat_id": "chat-1"}));
+    let out = mux::collect_frames(
+        &mut session,
+        &json!({"type": "attach", "chat_id": "chat-1"}),
+    );
     assert_eq!(out, vec![json!({"event": "attached", "chat_id": "chat-1"})]);
 }
 
@@ -90,7 +93,7 @@ fn attach_invalid_chat_id_errors() {
         json!({"type": "attach", "chat_id": 42}),
         json!({"type": "attach"}),
     ] {
-        let out = session.handle_frame(&bad);
+        let out = mux::collect_frames(&mut session, &bad);
         assert_eq!(
             out,
             vec![json!({"event": "error", "detail": "invalid chat_id"})],
@@ -107,7 +110,7 @@ fn new_chat_provisions_fresh_id_and_marks_metadata() {
         .unwrap()
         .to_string();
 
-    let out = session.handle_frame(&json!({"type": "new_chat"}));
+    let out = mux::collect_frames(&mut session, &json!({"type": "new_chat"}));
     assert_eq!(events(&out), vec!["attached", "session_updated"]);
     let new_id = out[0]["chat_id"].as_str().unwrap();
     assert_eq!(new_id.len(), 36);
@@ -119,19 +122,25 @@ fn new_chat_provisions_fresh_id_and_marks_metadata() {
 #[test]
 fn message_requires_valid_chat_id_and_content() {
     let mut session = MuxSession::new(ScriptedRunner::ok(vec![], ""));
-    let out = session.handle_frame(&json!({"type": "message", "chat_id": "!!", "content": "hi"}));
+    let out = mux::collect_frames(
+        &mut session,
+        &json!({"type": "message", "chat_id": "!!", "content": "hi"}),
+    );
     assert_eq!(
         out,
         vec![json!({"event": "error", "detail": "invalid chat_id"})]
     );
 
-    let out = session.handle_frame(&json!({"type": "message", "chat_id": "c1"}));
+    let out = mux::collect_frames(&mut session, &json!({"type": "message", "chat_id": "c1"}));
     assert_eq!(
         out,
         vec![json!({"event": "error", "detail": "missing content"})]
     );
 
-    let out = session.handle_frame(&json!({"type": "message", "chat_id": "c1", "content": "   "}));
+    let out = mux::collect_frames(
+        &mut session,
+        &json!({"type": "message", "chat_id": "c1", "content": "   "}),
+    );
     assert_eq!(
         out,
         vec![json!({"event": "error", "detail": "missing content"})]
@@ -149,8 +158,10 @@ fn message_streams_delta_then_message_turn_end_and_session_updated() {
     );
     let mut session = MuxSession::new(runner);
     // 不先 attach：首次 message 自动可用（上游 auto-attach 语义）。
-    let out =
-        session.handle_frame(&json!({"type": "message", "chat_id": "c1", "content": "hello"}));
+    let out = mux::collect_frames(
+        &mut session,
+        &json!({"type": "message", "chat_id": "c1", "content": "hello"}),
+    );
 
     assert_eq!(
         events(&out),
@@ -194,7 +205,10 @@ fn message_maps_reasoning_delta_events() {
         "答",
     );
     let mut session = MuxSession::new(runner);
-    let out = session.handle_frame(&json!({"type": "message", "chat_id": "c1", "content": "q"}));
+    let out = mux::collect_frames(
+        &mut session,
+        &json!({"type": "message", "chat_id": "c1", "content": "q"}),
+    );
     assert_eq!(
         events(&out),
         vec![
@@ -212,7 +226,10 @@ fn message_maps_reasoning_delta_events() {
 #[test]
 fn message_runner_failure_emits_error_then_turn_end() {
     let mut session = MuxSession::new(ScriptedRunner::failing("provider down"));
-    let out = session.handle_frame(&json!({"type": "message", "chat_id": "c1", "content": "hi"}));
+    let out = mux::collect_frames(
+        &mut session,
+        &json!({"type": "message", "chat_id": "c1", "content": "hi"}),
+    );
     assert_eq!(events(&out), vec!["goal_status", "error", "turn_end"]);
     assert_eq!(out[1]["chat_id"], "c1");
     assert_eq!(out[1]["detail"], "provider down");
@@ -223,7 +240,7 @@ fn message_runner_failure_emits_error_then_turn_end() {
 #[test]
 fn unknown_frame_type_errors() {
     let mut session = MuxSession::new(ScriptedRunner::ok(vec![], ""));
-    let out = session.handle_frame(&json!({"type": "teleport", "chat_id": "c1"}));
+    let out = mux::collect_frames(&mut session, &json!({"type": "teleport", "chat_id": "c1"}));
     assert_eq!(out.len(), 1);
     assert_eq!(out[0]["event"], "error");
     assert!(out[0]["detail"].as_str().unwrap().contains("unknown type"));
@@ -233,7 +250,10 @@ fn unknown_frame_type_errors() {
 fn runner_receives_chat_id_and_content() {
     let runner = ScriptedRunner::ok(vec![], "ok");
     let mut session = MuxSession::new(runner);
-    session.handle_frame(&json!({"type": "message", "chat_id": "room-9", "content": "ping"}));
+    mux::collect_frames(
+        &mut session,
+        &json!({"type": "message", "chat_id": "room-9", "content": "ping"}),
+    );
     assert_eq!(
         session.runner().calls,
         vec![("room-9".to_string(), "ping".to_string())]

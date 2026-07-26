@@ -160,11 +160,9 @@ fn serve_connection<R: TurnRunner>(
         let Ok(frame) = serde_json::from_str::<Value>(&text) else {
             continue;
         };
-        for outbound in mux.handle_frame(&frame) {
-            if !send_json(&mut ws, &outbound) {
-                return;
-            }
-        }
+        mux.handle_frame(&frame, &mut |outbound| {
+            let _ = send_json(&mut ws, outbound);
+        });
     }
 }
 
