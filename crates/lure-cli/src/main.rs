@@ -747,7 +747,14 @@ fn run_interactive_loop(
         });
         // 停止动画线程并擦除残帧，然后再处理结果/收尾输出。
         animator.stop();
-        let outcome = result.map_err(|e| e.to_string())?;
+        // 单轮 provider/turn 错误不终止会话：打印到 stderr（保持 stdout 干净）后回到提示符。
+        let outcome = match result {
+            Ok(outcome) => outcome,
+            Err(err) => {
+                eprintln!("⚠ 本轮出错: {err}");
+                continue;
+            }
+        };
 
         // Ctrl-C 中断本轮：core 返回 interrupted。断行后提示并回到提示符（不退出、不落库）。
         if outcome.stop_reason == "interrupted" {

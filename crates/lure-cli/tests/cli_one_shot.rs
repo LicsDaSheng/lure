@@ -603,3 +603,54 @@ fn one_shot_accepts_explicit_session_id() {
     .unwrap();
     assert!(session_text.contains("\"key\":\"cli:custom\""));
 }
+
+#[test]
+fn interactive_mode_survives_provider_error_and_continues() {
+    // 单轮 provider 错误（apiBase 指向未监听端口，出网即失败）不应终止交互会话：
+    // 打印错误后回到提示符，仍能读到 exit → Goodbye，进程正常退出。
+    let dir = tempdir().unwrap();
+    let config_path = dir.path().join("config.json");
+    std::fs::write(
+        &config_path,
+        r#"{"providers":{"deepseek":{"apiKey":"sk-test","apiBase":"http://127.0.0.1:1"}},"modelPresets":{"fast":{"model":"deepseek-chat","provider":"auto"}}}"#,
+    )
+    .unwrap();
+
+    let mut child = lure()
+        .args([
+            "agent",
+            "--config",
+            config_path.to_str().unwrap(),
+            "--preset",
+            "fast",
+            "--workspace",
+            dir.path().to_str().unwrap(),
+        ])
+        .env_remove("DEEPSEEK_API_KEY")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    {
+        let stdin = child.stdin.as_mut().unwrap();
+        stdin.write_all(b"hello\nexit\n").unwrap();
+    }
+    let output = child.wait_with_output().unwrap();
+
+    assert!(
+        output.status.success(),
+        "单轮错误不应使会话失败退出，实际 status: {:?}",
+        output.status
+    );
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(
+        stdout.contains("Goodbye!"),
+        "错误后应回到提示符并处理 exit，stdout: {stdout}"
+    );
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert!(
+        stderr.contains("本轮出错"),
+        "应打印本轮错误提示，stderr: {stderr}"
+    );
+}
