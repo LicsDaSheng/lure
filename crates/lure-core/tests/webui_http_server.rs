@@ -228,6 +228,65 @@ fn webui_thread_returns_404_until_transcript_lands() {
 }
 
 #[test]
+fn webui_readonly_stubs_return_shaped_payloads_with_auth() {
+    let dir = tempfile::tempdir().unwrap();
+    let (mut server, addr) = bind_server(&dir, fake_assets());
+    let boot = bootstrap(&mut server, addr);
+    let token = boot["api_token"].as_str().unwrap().to_string();
+
+    // 加载期只读 stub：鉴权后返回对齐上游顶层形状的空载荷（前端可平稳渲染）。
+    let cases = [
+        ("/api/commands", "commands"),
+        ("/api/webui/skills", "skills"),
+        ("/api/webui/automations", "jobs"),
+    ];
+    for (path, key) in cases {
+        let (status, body) = roundtrip(&mut server, addr, "GET", path, Some(&token));
+        assert_eq!(status, 200, "{path} 应 200");
+        let body: Value = serde_json::from_str(&body).unwrap();
+        assert!(body[key].is_array(), "{path} 顶层 {key} 应为数组: {body}");
+        assert_eq!(body[key].as_array().unwrap().len(), 0, "{path} 应为空");
+    }
+
+    // sidebar-state：默认态对象含 view 子结构。
+    let (status, body) = roundtrip(
+        &mut server,
+        addr,
+        "GET",
+        "/api/webui/sidebar-state",
+        Some(&token),
+    );
+    assert_eq!(status, 200);
+    let body: Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(body["schema_version"], 1);
+    assert_eq!(body["view"]["density"], "comfortable");
+    assert!(body["pinned_keys"].is_array());
+
+    // workspaces：默认壳含 controls。
+    let (status, body) = roundtrip(&mut server, addr, "GET", "/api/workspaces", Some(&token));
+    assert_eq!(status, 200);
+    let body: Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(body["default_access_mode"], "default");
+    assert_eq!(body["controls"]["can_change_project"], false);
+}
+
+#[test]
+fn webui_readonly_stubs_require_api_token() {
+    let dir = tempfile::tempdir().unwrap();
+    let (mut server, addr) = bind_server(&dir, fake_assets());
+
+    // 无 token → 401（与 /api/sessions 一致）。
+    for path in [
+        "/api/commands",
+        "/api/webui/skills",
+        "/api/webui/sidebar-state",
+    ] {
+        let (status, _) = roundtrip(&mut server, addr, "GET", path, None);
+        assert_eq!(status, 401, "{path} 无 token 应 401");
+    }
+}
+
+#[test]
 fn session_manager_delete_stored_removes_file_and_cache() {
     let dir = tempfile::tempdir().unwrap();
     let mut manager = SessionManager::new(dir.path()).unwrap();

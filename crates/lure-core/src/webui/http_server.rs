@@ -5,9 +5,11 @@
 //!   localhost-only 语义——server 只绑 127.0.0.1）。
 //! - `GET /api/sessions`：会话列表（`Authorization: Bearer <api_token>` 鉴权）。
 //! - `DELETE /api/sessions/{key}`：删除会话。
-//! - `GET /api/sessions/{key}/webui-thread`：404（transcript 表面留待后续切片，
-//!   前端按 null 处理）。
-//! - 其余 GET：静态资源（[`StaticAssets`]），未命中走 SPA fallback 到 `index.html`。
+//! - `GET /api/sessions/{key}/webui-thread`：transcript 线程视图（无则 404，前端按 null 处理）。
+//! - 前端加载期只读 stub（同鉴权，返回对齐上游顶层形状的空载荷）：`GET /api/commands`、
+//!   `/api/workspaces`、`/api/webui/skills`、`/api/webui/automations`、`/api/webui/sidebar-state`。
+//!   —— 让页面平稳渲染；写/更新与 `/api/settings/*` 大表面留待后续切片。
+//! - 其余 `/api/*`：404 JSON。其余 GET：静态资源（[`StaticAssets`]），未命中走 SPA fallback。
 //!
 //! WebSocket 复用协议在独立端口（`ws_url` 由 bootstrap 报告），不在本 server。
 
@@ -108,6 +110,21 @@ impl<S: StaticAssets> WebuiServer<S> {
         match (&method, path.as_str()) {
             (Method::Get, "/webui/bootstrap") => self.handle_bootstrap(request),
             (Method::Get, "/api/sessions") => self.handle_sessions(request),
+            // 前端加载期只读表面：能力未实现时返回对齐上游顶层形状的空载荷，
+            // 让页面正常渲染而非 404 报错（写/更新与 settings 大表面留待后续切片）。
+            (Method::Get, "/api/commands") => {
+                self.handle_api_stub(request, serde_json::json!({"commands": []}))
+            }
+            (Method::Get, "/api/workspaces") => self.handle_api_stub(request, workspaces_stub()),
+            (Method::Get, "/api/webui/skills") => {
+                self.handle_api_stub(request, serde_json::json!({"skills": []}))
+            }
+            (Method::Get, "/api/webui/automations") => {
+                self.handle_api_stub(request, serde_json::json!({"jobs": []}))
+            }
+            (Method::Get, "/api/webui/sidebar-state") => {
+                self.handle_api_stub(request, sidebar_state_stub())
+            }
             _ if path.starts_with("/api/sessions/") => self.handle_session_sub(request, &path),
             _ if path.starts_with("/api/") => {
                 respond_json(request, 404, serde_json::json!({"error": "not found"}))
@@ -142,6 +159,15 @@ impl<S: StaticAssets> WebuiServer<S> {
         let mut manager = SessionManager::new(&self.config.workspace)?;
         let rows = list_webui_sessions(&mut manager);
         respond_json(request, 200, sessions_payload(&rows))
+    }
+
+    /// 只读 /api stub：鉴权通过后返回固定空载荷（顶层形状对齐上游），供尚未实现的
+    /// 前端能力面平稳降级。
+    fn handle_api_stub(&mut self, request: Request, payload: serde_json::Value) -> io::Result<()> {
+        if !self.authorized(&request) {
+            return respond_json(request, 401, serde_json::json!({"error": "unauthorized"}));
+        }
+        respond_json(request, 200, payload)
     }
 
     fn handle_session_sub(&mut self, request: Request, path: &str) -> io::Result<()> {
@@ -207,6 +233,37 @@ impl<S: StaticAssets> WebuiServer<S> {
             .expect("issuer 锁中毒")
             .check_api_token(token)
     }
+}
+
+/// `/api/webui/sidebar-state` 默认态（对齐上游 `default_webui_sidebar_state`）。
+fn sidebar_state_stub() -> serde_json::Value {
+    serde_json::json!({
+        "schema_version": 1,
+        "pinned_keys": [],
+        "archived_keys": [],
+        "title_overrides": {},
+        "project_name_overrides": {},
+        "tags_by_key": {},
+        "collapsed_groups": {},
+        "view": {
+            "density": "comfortable",
+            "show_previews": false,
+            "show_timestamps": false,
+            "show_archived": false,
+            "sort": "updated_desc"
+        },
+        "updated_at": serde_json::Value::Null
+    })
+}
+
+/// `/api/workspaces` 默认壳（对齐上游 `workspaces_payload` 顶层；scope 细节留空占位）。
+fn workspaces_stub() -> serde_json::Value {
+    serde_json::json!({
+        "schema_version": 1,
+        "default_access_mode": "default",
+        "default_scope": {},
+        "controls": {"can_change_project": false, "can_use_full_access": false}
+    })
 }
 
 fn respond_json(request: Request, status: u16, body: serde_json::Value) -> io::Result<()> {
