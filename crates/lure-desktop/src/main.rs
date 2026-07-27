@@ -165,10 +165,20 @@ fn main() -> ExitCode {
         ws_url: format!("ws://{ws_addr}/ws"),
         token_ttl_secs: 3600,
     };
+    // lure config（缺省路径回落默认；解析失败也回落默认）：派生 /api/settings 载荷。
+    let lure_config = {
+        let path = args
+            .config
+            .clone()
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(lure_core::config::default_config_path);
+        lure_core::config::load_config(&path).unwrap_or_default()
+    };
     let mut http_server = match WebuiServer::bind(
         "127.0.0.1:0",
         FrontendAssets,
         http_config,
+        lure_config,
         issuer,
         transcript,
     ) {

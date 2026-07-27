@@ -15,6 +15,8 @@ pub mod http_api;
 pub mod http_server;
 /// WebUI 复用协议会话 handler（传输无关）。
 pub mod mux;
+/// `/api/settings` 载荷派生（从 lure Config）。
+pub mod settings_api;
 /// WebUI token 签发与校验。
 pub mod tokens;
 /// WebUI transcript 存储。

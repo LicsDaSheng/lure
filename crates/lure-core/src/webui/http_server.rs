@@ -6,10 +6,16 @@
 //! - `GET /api/sessions`：会话列表（`Authorization: Bearer <api_token>` 鉴权）。
 //! - `DELETE /api/sessions/{key}`：删除会话。
 //! - `GET /api/sessions/{key}/webui-thread`：transcript 线程视图（无则 404，前端按 null 处理）。
-//! - 前端加载期只读 stub（同鉴权，返回对齐上游顶层形状的空载荷）：`GET /api/commands`、
-//!   `/api/workspaces`、`/api/webui/skills`、`/api/webui/automations`、`/api/webui/sidebar-state`。
-//!   —— 让页面平稳渲染；写/更新与 `/api/settings/*` 大表面留待后续切片。
+//! - `GET /api/settings`：设置页主载荷，从 lure [`Config`] 派生（`agent`/`model_presets`/
+//!   `providers`/`advanced.exec` 填真实值，其余段结构完整默认值；见 [`settings_api`]）。
+//! - 前端加载期只读 stub（同鉴权，返回对齐上游顶层形状的空/默认载荷）：`GET /api/commands`、
+//!   `/api/workspaces`、`/api/webui/skills`、`/api/webui/automations`、`/api/webui/sidebar-state`、
+//!   `/api/settings/{usage,provider-models,cli-apps,nanobot-features,mcp-presets,pairing,`
+//!   `api-service,version-check}`。—— 让页面平稳渲染；**写/更新端点**（`*/update`、`*/start`、
+//!   `enable`/`disable`、channels/oauth 等）留待后续切片。
 //! - 其余 `/api/*`：404 JSON。其余 GET：静态资源（[`StaticAssets`]），未命中走 SPA fallback。
+//!
+//! [`settings_api`]: crate::webui::settings_api
 //!
 //! WebSocket 复用协议在独立端口（`ws_url` 由 bootstrap 报告），不在本 server。
 
@@ -20,9 +26,11 @@ use std::sync::{Arc, Mutex};
 
 use tiny_http::{Header, Method, Request, Response, Server};
 
+use crate::config::Config;
 use crate::session::SessionManager;
 use crate::webui::http_api::{bootstrap_payload, sessions_payload};
 use crate::webui::list_webui_sessions;
+use crate::webui::settings_api::{settings_payload, usage_payload};
 use crate::webui::tokens::TokenIssuer;
 use crate::webui::transcript::TranscripStore;
 
@@ -52,6 +60,8 @@ pub struct WebuiServer<S: StaticAssets> {
     server: Server,
     assets: S,
     config: WebuiServerConfig,
+    /// lure 运行时配置：派生 `/api/settings` 载荷。
+    lure_config: Config,
     issuer: Arc<Mutex<TokenIssuer>>,
     transcript: TranscripStore,
 }
@@ -65,6 +75,7 @@ impl<S: StaticAssets> WebuiServer<S> {
         addr: &str,
         assets: S,
         config: WebuiServerConfig,
+        lure_config: Config,
         issuer: Arc<Mutex<TokenIssuer>>,
         transcript: TranscripStore,
     ) -> io::Result<Self> {
@@ -74,6 +85,7 @@ impl<S: StaticAssets> WebuiServer<S> {
             server,
             assets,
             config,
+            lure_config,
             issuer,
             transcript,
         })
@@ -125,6 +137,34 @@ impl<S: StaticAssets> WebuiServer<S> {
             (Method::Get, "/api/webui/sidebar-state") => {
                 self.handle_api_stub(request, sidebar_state_stub())
             }
+            // 设置页主载荷：从 lure Config 派生（agent/presets/providers/exec 真实值，
+            // 其余段结构完整默认值）。
+            (Method::Get, "/api/settings") => {
+                let payload = settings_payload(&self.lure_config);
+                self.handle_api_stub(request, payload)
+            }
+            (Method::Get, "/api/settings/usage") => self.handle_api_stub(request, usage_payload()),
+            // 设置页外围只读切片：能力未实现时给对齐上游顶层形状的空载荷。
+            (Method::Get, "/api/settings/provider-models") => {
+                self.handle_api_stub(request, serde_json::json!({"models": []}))
+            }
+            (Method::Get, "/api/settings/cli-apps") => {
+                self.handle_api_stub(request, serde_json::json!({"apps": []}))
+            }
+            (Method::Get, "/api/settings/nanobot-features") => {
+                self.handle_api_stub(request, serde_json::json!({"features": []}))
+            }
+            (Method::Get, "/api/settings/mcp-presets") => {
+                self.handle_api_stub(request, serde_json::json!({"presets": []}))
+            }
+            (Method::Get, "/api/settings/pairing") => {
+                self.handle_api_stub(request, serde_json::json!({"requests": []}))
+            }
+            (Method::Get, "/api/settings/api-service") => {
+                self.handle_api_stub(request, serde_json::json!({"running": false, "port": null}))
+            }
+            (Method::Get, "/api/settings/version-check") => self
+                .handle_api_stub(request, serde_json::json!({"current": crate::version(), "latest": null, "update_available": false})),
             _ if path.starts_with("/api/sessions/") => self.handle_session_sub(request, &path),
             _ if path.starts_with("/api/") => {
                 respond_json(request, 404, serde_json::json!({"error": "not found"}))

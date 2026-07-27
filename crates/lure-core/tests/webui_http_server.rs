@@ -46,6 +46,14 @@ fn seed_session(dir: &TempDir, key: &str, user: &str) {
 }
 
 fn bind_server(dir: &TempDir, assets: MapAssets) -> (WebuiServer<MapAssets>, SocketAddr) {
+    bind_server_with_config(dir, assets, lure_core::config::Config::default())
+}
+
+fn bind_server_with_config(
+    dir: &TempDir,
+    assets: MapAssets,
+    lure_config: lure_core::config::Config,
+) -> (WebuiServer<MapAssets>, SocketAddr) {
     let config = WebuiServerConfig {
         workspace: dir.path().to_path_buf(),
         model_name: Some("echo".to_string()),
@@ -56,7 +64,15 @@ fn bind_server(dir: &TempDir, assets: MapAssets) -> (WebuiServer<MapAssets>, Soc
     let issuer = Arc::new(Mutex::new(TokenIssuer::new(config.token_ttl_secs, 16)));
     let transcript =
         lure_core::webui::transcript::TranscripStore::new(dir.path().join("webui")).unwrap();
-    let server = WebuiServer::bind("127.0.0.1:0", assets, config, issuer, transcript).unwrap();
+    let server = WebuiServer::bind(
+        "127.0.0.1:0",
+        assets,
+        config,
+        lure_config,
+        issuer,
+        transcript,
+    )
+    .unwrap();
     let addr = server.local_addr().unwrap();
     (server, addr)
 }
@@ -268,6 +284,99 @@ fn webui_readonly_stubs_return_shaped_payloads_with_auth() {
     let body: Value = serde_json::from_str(&body).unwrap();
     assert_eq!(body["default_access_mode"], "default");
     assert_eq!(body["controls"]["can_change_project"], false);
+}
+
+#[test]
+fn settings_payload_reflects_lure_config() {
+    use lure_core::config::{Config, ProviderConfig};
+
+    let dir = tempfile::tempdir().unwrap();
+    let mut cfg = Config::default();
+    cfg.agents.defaults.model = "deepseek-chat".to_string();
+    cfg.agents.defaults.provider = "deepseek".to_string();
+    cfg.agents.defaults.max_tokens = 4096;
+    cfg.providers.insert(
+        "deepseek".to_string(),
+        ProviderConfig {
+            api_key: Some("sk-secret".to_string()),
+            api_base: None,
+            enabled: true,
+        },
+    );
+
+    let (mut server, addr) = bind_server_with_config(&dir, fake_assets(), cfg);
+    let boot = bootstrap(&mut server, addr);
+    let token = boot["api_token"].as_str().unwrap().to_string();
+
+    let (status, body) = roundtrip(&mut server, addr, "GET", "/api/settings", Some(&token));
+    assert_eq!(status, 200);
+    let body: Value = serde_json::from_str(&body).unwrap();
+
+    // agent 段填真实 config 值。
+    assert_eq!(body["agent"]["model"], "deepseek-chat");
+    assert_eq!(body["agent"]["provider"], "deepseek");
+    assert_eq!(body["agent"]["max_tokens"], 4096);
+    assert_eq!(body["agent"]["has_api_key"], true);
+
+    // providers 段来自 config.providers；secret 只回显已配置、不泄明文。
+    let providers = body["providers"].as_array().unwrap();
+    let ds = providers.iter().find(|p| p["name"] == "deepseek").unwrap();
+    assert_eq!(ds["configured"], true);
+    assert_eq!(ds["default_api_base"], "https://api.deepseek.com");
+    assert_ne!(ds["api_key_hint"], "sk-secret", "不应泄露明文 key");
+
+    // 12 段顶层键都在（结构完整，前端不因缺字段崩溃）。
+    for key in [
+        "agent",
+        "model_presets",
+        "providers",
+        "web_search",
+        "web",
+        "api",
+        "observability",
+        "image_generation",
+        "transcription",
+        "runtime",
+        "usage",
+        "advanced",
+    ] {
+        assert!(!body[key].is_null(), "settings 缺顶层段 {key}");
+    }
+}
+
+#[test]
+fn settings_read_stubs_return_shaped_payloads() {
+    let dir = tempfile::tempdir().unwrap();
+    let (mut server, addr) = bind_server(&dir, fake_assets());
+    let boot = bootstrap(&mut server, addr);
+    let token = boot["api_token"].as_str().unwrap().to_string();
+
+    let cases = [
+        ("/api/settings/usage", "days"),
+        ("/api/settings/provider-models", "models"),
+        ("/api/settings/cli-apps", "apps"),
+        ("/api/settings/nanobot-features", "features"),
+        ("/api/settings/mcp-presets", "presets"),
+        ("/api/settings/pairing", "requests"),
+    ];
+    for (path, key) in cases {
+        let (status, body) = roundtrip(&mut server, addr, "GET", path, Some(&token));
+        assert_eq!(status, 200, "{path} 应 200");
+        let body: Value = serde_json::from_str(&body).unwrap();
+        assert!(body[key].is_array(), "{path} 顶层 {key} 应为数组: {body}");
+    }
+
+    // version-check 是对象。
+    let (status, body) = roundtrip(
+        &mut server,
+        addr,
+        "GET",
+        "/api/settings/version-check",
+        Some(&token),
+    );
+    assert_eq!(status, 200);
+    let body: Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(body["update_available"], false);
 }
 
 #[test]
