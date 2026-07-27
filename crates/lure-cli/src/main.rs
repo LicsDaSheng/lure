@@ -442,6 +442,11 @@ impl Spinner {
         self.active
     }
 
+    /// 更新标签（下一帧 `tick` 生效），用于按阶段切换语义文案（Thinking / Calling …）。
+    fn set_label(&mut self, label: impl Into<String>) {
+        self.label = label.into();
+    }
+
     /// 前进一帧并回车重画：`\r{frame} {label}`；标记 active。
     fn tick<W: Write>(&mut self, out: &mut W) -> io::Result<()> {
         let frame = SPINNER_FRAMES[self.index % SPINNER_FRAMES.len()];
@@ -535,6 +540,11 @@ impl<W: Write + Send + 'static> SpinnerAnimator<W> {
     /// 恢复动画（重新进入等待，如工具执行完毕）。下一个 `interval` 起继续滚动。
     fn resume(&self) {
         self.shared.lock().unwrap().paused = false;
+    }
+
+    /// 按阶段更新 spinner 标签（下一帧生效）：如工具轮切到 `Calling <tool>`。
+    fn set_label(&self, label: impl Into<String>) {
+        self.shared.lock().unwrap().spinner.set_label(label);
     }
 
     /// 结束动画线程并擦除残留 spinner；幂等（可与 `Drop` 重复调用）。
@@ -710,8 +720,9 @@ fn run_interactive_loop(
         let mut streamed_reasoning = false;
         // 定时动画：等待期（TurnStarted→首个 token）后台线程持续滚动帧；写真实输出
         // 前经 suspend 擦除+暂停，避免帧与正文交错。
+        // 初始标签「Thinking」：等待模型开始响应。工具轮会切到「Calling <tool>」。
         let mut animator =
-            SpinnerAnimator::new(io::stdout(), Spinner::new("Working"), SPINNER_INTERVAL);
+            SpinnerAnimator::new(io::stdout(), Spinner::new("Thinking"), SPINNER_INTERVAL);
         let result = agent_loop.process_streaming(&input, &mut |event| match event {
             // 动画已在跑，TurnStarted 无需额外处理。
             ProgressEvent::TurnStarted { .. } => {}
@@ -735,15 +746,18 @@ fn run_interactive_loop(
                     }
                 }
             }
-            other => {
-                if let Some(line) = format_progress_line(other) {
-                    animator.suspend(|out| {
+            ProgressEvent::ToolInvoked { name } => {
+                animator.suspend(|out| {
+                    if let Some(line) = format_progress_line(event) {
                         let _ = renderer.line(out, &line);
-                    });
-                    // 工具执行完毕、重新等待模型下一段输出：恢复滚动。
-                    animator.resume();
-                }
+                    }
+                });
+                // 工具执行 + 等待模型下一段：标签切到当前工具，恢复滚动。
+                animator.set_label(format!("Calling {name}"));
+                animator.resume();
             }
+            // 其它非内容事件（如 FinalResponse）无需在等待指示器上体现。
+            ProgressEvent::FinalResponse { .. } => {}
         });
         // 停止动画线程并擦除残帧，然后再处理结果/收尾输出。
         animator.stop();
@@ -922,6 +936,21 @@ mod tests {
         );
     }
 
+    #[test]
+    fn spinner_set_label_changes_next_frame() {
+        let mut buf: Vec<u8> = Vec::new();
+        let mut spinner = Spinner::new("Thinking");
+        spinner.tick(&mut buf).unwrap();
+        spinner.set_label("Calling echo");
+        buf.clear();
+        spinner.tick(&mut buf).unwrap();
+        // 换标签后下一帧用新文案（帧号已前进到 index 1）。
+        assert_eq!(
+            String::from_utf8(buf).unwrap(),
+            format!("\r{} Calling echo", SPINNER_FRAMES[1])
+        );
+    }
+
     /// 线程安全的可克隆 sink：动画线程持一份写入，测试持一份读取。
     #[derive(Clone)]
     struct SharedBuf(Arc<Mutex<Vec<u8>>>);
@@ -1004,6 +1033,25 @@ mod tests {
         assert!(
             tail.contains('\r'),
             "resume should restart ticking, tail={tail:?}"
+        );
+    }
+
+    #[test]
+    fn animator_set_label_updates_rendered_label() {
+        let sink = SharedBuf::new();
+        let mut animator = SpinnerAnimator::new(
+            sink.clone(),
+            Spinner::new("Thinking"),
+            Duration::from_millis(5),
+        );
+        animator.set_label("Calling grep");
+        thread::sleep(Duration::from_millis(30));
+        animator.stop();
+        // 后台线程滚动的帧应带上新标签。
+        assert!(
+            sink.contents().contains("Calling grep"),
+            "expected relabeled frames, got {:?}",
+            sink.contents()
         );
     }
 
