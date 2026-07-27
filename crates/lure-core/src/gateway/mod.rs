@@ -161,6 +161,7 @@ fn progress_update(inbound: &InboundMessage, event: &ProgressEvent) -> ProgressU
         ProgressEvent::ContentDelta { text } => (ProgressKind::ContentDelta, text.clone()),
         ProgressEvent::ReasoningDelta { text } => (ProgressKind::ReasoningDelta, text.clone()),
         ProgressEvent::ToolInvoked { name } => (ProgressKind::ToolInvoked, name.clone()),
+        ProgressEvent::Finalizing => (ProgressKind::Finalizing, String::new()),
         ProgressEvent::FinalResponse { content } => (ProgressKind::Final, content.clone()),
     };
     ProgressUpdate::new(

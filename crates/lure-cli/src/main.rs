@@ -756,6 +756,10 @@ fn run_interactive_loop(
                 animator.set_label(format!("Calling {name}"));
                 animator.resume();
             }
+            // 进入 finalization：切标签为「Finalizing」（spinner 继续滚动，无需断行）。
+            ProgressEvent::Finalizing => {
+                animator.set_label("Finalizing");
+            }
             // 其它非内容事件（如 FinalResponse）无需在等待指示器上体现。
             ProgressEvent::FinalResponse { .. } => {}
         });

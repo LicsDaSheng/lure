@@ -15,6 +15,8 @@ pub enum ProgressKind {
     ReasoningDelta,
     /// 调用了某个工具。
     ToolInvoked,
+    /// 进入 finalization 阶段（空终响应重试上限后追加提示重请求）。
+    Finalizing,
     /// 产生最终回复。
     Final,
 }

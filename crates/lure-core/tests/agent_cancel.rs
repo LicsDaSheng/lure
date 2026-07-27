@@ -65,11 +65,7 @@ fn pre_set_cancel_aborts_before_calling_provider() {
 
     assert_eq!(outcome.stop_reason, "interrupted");
     assert_eq!(outcome.final_content, "");
-    assert_eq!(
-        calls.load(Ordering::SeqCst),
-        0,
-        "已取消时不应调用 provider"
-    );
+    assert_eq!(calls.load(Ordering::SeqCst), 0, "已取消时不应调用 provider");
 }
 
 #[test]

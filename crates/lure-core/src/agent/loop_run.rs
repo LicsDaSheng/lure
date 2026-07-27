@@ -61,6 +61,9 @@ pub enum ProgressEvent {
         /// 工具名。
         name: String,
     },
+    /// 进入 finalization 阶段：空终响应达静默重试上限后，追加瞬态提示重请求一次。
+    /// 无 payload——纯阶段信号，供调用方（如 CLI 等待指示器）切换文案。
+    Finalizing,
     /// 产生最终回复。
     FinalResponse {
         /// 最终回复文本。
@@ -441,6 +444,9 @@ impl AgentLoop {
         usage: &mut Map<String, Value>,
         on_progress: &mut dyn FnMut(&ProgressEvent),
     ) -> Result<(String, Option<String>), AgentError> {
+        // 阶段信号：进入 finalization（供等待指示器切到 “Finalizing”）。
+        emit(progress, on_progress, ProgressEvent::Finalizing);
+
         let history = self.sessions.get_or_create(key)?.get_history(0);
         let mut messages = context.build(&history);
         messages.push(json!({"role": "user", "content": FINALIZATION_RETRY_PROMPT}));

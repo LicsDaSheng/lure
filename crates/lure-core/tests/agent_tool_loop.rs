@@ -436,6 +436,30 @@ fn empty_final_response_retries_then_finalizes_to_content() {
 }
 
 #[test]
+fn finalization_emits_finalizing_progress_event() {
+    // 空终响应触发 finalization 时应发出 ProgressEvent::Finalizing（供等待指示器切文案）。
+    let (_dir, mut agent_loop, _calls, _seen) = setup(vec![
+        blank_response(),
+        blank_response(),
+        LlmResponse::text("final answer"),
+    ]);
+
+    let outcome = agent_loop
+        .process(&InboundMessage::new("cli", "direct", "go"))
+        .unwrap();
+
+    assert_eq!(outcome.final_content, "final answer");
+    assert!(
+        outcome
+            .progress
+            .iter()
+            .any(|e| matches!(e, ProgressEvent::Finalizing)),
+        "finalization 应发出 Finalizing 事件: {:?}",
+        outcome.progress
+    );
+}
+
+#[test]
 fn all_empty_yields_empty_final_response_message() {
     // 对齐上游 `test_runner_uses_specific_message_after_empty_finalization_retry`：
     // 静默重试 + finalization 全部为空 → 固定兜底文案 + stop_reason=empty_final_response。
