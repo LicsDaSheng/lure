@@ -14,7 +14,7 @@ use std::fs;
 use std::io::{self, BufRead, Write};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicPtr, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
@@ -614,18 +614,67 @@ impl ReasoningBuffer {
     }
 }
 
+/// 指向当前交互会话取消令牌的裸指针，供 SIGINT handler 直接置位。
+/// 仅在 `run_interactive` 安装 handler 后、清空前有效（令牌 Arc 存活于该函数栈）。
+static CANCEL_PTR: AtomicPtr<AtomicBool> = AtomicPtr::new(std::ptr::null_mut());
+
+/// SIGINT（Ctrl-C）处理器：置位当前 turn 的取消令牌，使交互模式**中断本轮**而非退出进程。
+///
+/// 异步信号安全：仅做原子 load + 原子 store，无分配、无锁、无重入不安全调用。
+extern "C" fn on_sigint(_sig: libc::c_int) {
+    let ptr = CANCEL_PTR.load(Ordering::SeqCst);
+    if !ptr.is_null() {
+        // SAFETY: ptr 指向 run_interactive 栈上存活的 AtomicBool——其 Arc 在
+        // CANCEL_PTR 置入后、清空为 null 前始终存活；此处仅原子写。
+        unsafe { (*ptr).store(true, Ordering::SeqCst) };
+    }
+}
+
 fn run_interactive(
-    mut agent_loop: AgentLoop,
+    agent_loop: AgentLoop,
     channel: &str,
     chat_id: &str,
     show_reasoning: bool,
 ) -> Result<(), String> {
     println!(
-        "Lure interactive mode ({channel}:{chat_id}) — type exit, quit, /exit, /quit, or :q to quit"
+        "Lure interactive mode ({channel}:{chat_id}) — type exit, quit, /exit, /quit, or :q to quit；Ctrl-C 中断当前回合"
     );
+
+    // 取消令牌：SIGINT handler 经 CANCEL_PTR 置位，process_streaming 于检查点中止本轮。
+    let cancel = Arc::new(AtomicBool::new(false));
+    CANCEL_PTR.store(Arc::as_ptr(&cancel) as *mut AtomicBool, Ordering::SeqCst);
+    // 安装 SIGINT handler（Ctrl-C 中断当前 turn，而非默认终止进程）。
+    // SAFETY: on_sigint 异步信号安全（仅原子操作）。
+    unsafe { libc::signal(libc::SIGINT, on_sigint as *const () as libc::sighandler_t) };
+    let mut agent_loop = agent_loop.with_cancel(Arc::clone(&cancel));
 
     let stdin = io::stdin();
     let mut stdin = stdin.lock();
+    let result = run_interactive_loop(
+        &mut agent_loop,
+        &mut stdin,
+        channel,
+        chat_id,
+        show_reasoning,
+        &cancel,
+    );
+
+    // 复位信号处理与指针，避免退出后悬垂：先摘 handler 再清空指针。
+    unsafe { libc::signal(libc::SIGINT, libc::SIG_DFL) };
+    CANCEL_PTR.store(std::ptr::null_mut(), Ordering::SeqCst);
+    result
+}
+
+/// 交互主循环：读一行 → 驱动一轮流式 → 渲染/中断处理。抽出为独立函数，使
+/// [`run_interactive`] 能在其返回后统一复位信号处理与 [`CANCEL_PTR`]。
+fn run_interactive_loop(
+    agent_loop: &mut AgentLoop,
+    stdin: &mut impl BufRead,
+    channel: &str,
+    chat_id: &str,
+    show_reasoning: bool,
+    cancel: &Arc<AtomicBool>,
+) -> Result<(), String> {
     loop {
         print!("You: ");
         io::stdout()
@@ -654,6 +703,8 @@ fn run_interactive(
         // 流式驱动：内容增量实时写 stdout，工具调用等 progress 事件另起行显示，
         // 推理增量（show_reasoning 时）按句缓冲后写 stderr。
         let input = InboundMessage::new(channel, chat_id, line);
+        // 本轮开始前复位取消令牌（上一轮的 Ctrl-C 不应影响本轮）。
+        cancel.store(false, Ordering::SeqCst);
         let mut renderer = StreamRenderer::new("Assistant: ");
         let mut reasoning_buffer = ReasoningBuffer::new();
         let mut streamed_reasoning = false;
@@ -665,6 +716,10 @@ fn run_interactive(
             // 动画已在跑，TurnStarted 无需额外处理。
             ProgressEvent::TurnStarted { .. } => {}
             ProgressEvent::ContentDelta { text } => {
+                // 已按 Ctrl-C：停止渲染后续增量（core 会在流后作废本轮）。
+                if cancel.load(Ordering::Relaxed) {
+                    return;
+                }
                 animator.suspend(|out| {
                     let _ = renderer.push(out, text);
                 });
@@ -693,6 +748,12 @@ fn run_interactive(
         // 停止动画线程并擦除残帧，然后再处理结果/收尾输出。
         animator.stop();
         let outcome = result.map_err(|e| e.to_string())?;
+
+        // Ctrl-C 中断本轮：core 返回 interrupted。断行后提示并回到提示符（不退出、不落库）。
+        if outcome.stop_reason == "interrupted" {
+            println!("\n⚠ 已中断当前回合");
+            continue;
+        }
 
         let mut stdout = io::stdout();
         // 无增量（空内容/兜底文案）时回退打印最终内容。

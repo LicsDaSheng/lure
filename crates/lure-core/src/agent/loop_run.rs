@@ -8,6 +8,8 @@
 //! channel/gateway 投递。progress 先做结构化枚举，不急于完整事件流。
 
 use std::fmt;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 
 use serde_json::{json, Map, Value};
 
@@ -136,6 +138,8 @@ pub struct AgentLoop {
     model: String,
     tools: Option<ToolRegistry>,
     memory: Option<MemoryStore>,
+    /// 取消令牌：置位后 loop 在下个检查点中止本轮（见 [`with_cancel`](Self::with_cancel)）。
+    cancel: Option<Arc<AtomicBool>>,
 }
 
 impl AgentLoop {
@@ -154,6 +158,7 @@ impl AgentLoop {
             model,
             tools: None,
             memory: None,
+            cancel: None,
         }
     }
 
@@ -170,6 +175,21 @@ impl AgentLoop {
     pub fn with_memory(mut self, memory: MemoryStore) -> Self {
         self.memory = Some(memory);
         self
+    }
+
+    /// 挂载取消令牌：置位（`true`）后，`process_streaming` 在下个检查点——每轮迭代开始前、
+    /// 每次流式响应结束后——中止本轮，返回 `stop_reason="interrupted"` 的空产出，且**不**
+    /// 持久化 assistant turn、**不**保存 session（本轮作废）。供 CLI 的 Ctrl-C 中断使用。
+    pub fn with_cancel(mut self, cancel: Arc<AtomicBool>) -> Self {
+        self.cancel = Some(cancel);
+        self
+    }
+
+    /// 取消令牌是否已置位。
+    fn is_cancelled(&self) -> bool {
+        self.cancel
+            .as_ref()
+            .is_some_and(|flag| flag.load(Ordering::Relaxed))
     }
 
     /// 用可替换 [`DreamRunner`] 整合未处理历史；未挂 memory 或无未处理历史返回 `None`。
@@ -258,6 +278,10 @@ impl AgentLoop {
         let mut usage = Map::new();
 
         for _ in 0..MAX_TOOL_ITERATIONS {
+            // 取消检查点（调 provider 前）：置位则作废本轮，不持久化、不保存 session。
+            if self.is_cancelled() {
+                return Ok(interrupted_outcome(progress, usage));
+            }
             // 构建 context（历史含此前所有 turn），调 provider。
             let history = self.sessions.get_or_create(&key)?.get_history(0);
             let messages = context.build(&history);
@@ -282,6 +306,12 @@ impl AgentLoop {
                 })?
             };
             accumulate_usage(&mut usage, &response.usage);
+
+            // 取消检查点（流式响应结束后）：Ctrl-C 于本轮流式期间置位时，丢弃已收内容、
+            // 不持久化，返回 interrupted。
+            if self.is_cancelled() {
+                return Ok(interrupted_outcome(progress, usage));
+            }
 
             let content = response.content.clone().unwrap_or_default();
             let reasoning = response.reasoning_content.clone().filter(|r| !r.is_empty());
@@ -533,6 +563,18 @@ fn emit(
 ) {
     on_progress(&event);
     progress.push(event);
+}
+
+/// 构造中断产出：空内容、无 reasoning、`stop_reason="interrupted"`，保留已累积的
+/// progress 与 usage。不发 `FinalResponse`（本轮作废）。
+fn interrupted_outcome(progress: Vec<ProgressEvent>, usage: Map<String, Value>) -> TurnOutcome {
+    TurnOutcome {
+        final_content: String::new(),
+        reasoning: None,
+        progress,
+        stop_reason: "interrupted".to_string(),
+        usage,
+    }
 }
 
 /// 把语义为空（空串或纯空白）的工具结果替换为短标记，避免回灌历史时出现空白 tool turn
