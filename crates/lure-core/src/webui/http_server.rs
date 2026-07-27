@@ -127,7 +127,10 @@ impl<S: StaticAssets> WebuiServer<S> {
             (Method::Get, "/api/commands") => {
                 self.handle_api_stub(request, serde_json::json!({"commands": []}))
             }
-            (Method::Get, "/api/workspaces") => self.handle_api_stub(request, workspaces_stub()),
+            (Method::Get, "/api/workspaces") => {
+                let payload = workspaces_stub(&self.config.workspace);
+                self.handle_api_stub(request, payload)
+            }
             (Method::Get, "/api/webui/skills") => {
                 self.handle_api_stub(request, serde_json::json!({"skills": []}))
             }
@@ -296,12 +299,25 @@ fn sidebar_state_stub() -> serde_json::Value {
     })
 }
 
-/// `/api/workspaces` 默认壳（对齐上游 `workspaces_payload` 顶层；scope 细节留空占位）。
-fn workspaces_stub() -> serde_json::Value {
+/// `/api/workspaces` 默认壳（对齐上游 `workspaces_payload`）。
+///
+/// `default_scope.project_path` 为**必填**（前端 `projectNameFromPath` 在加载渲染时对其
+/// 调 `.replace()`，缺失即崩），故用真实 workspace 路径填充。
+fn workspaces_stub(workspace: &std::path::Path) -> serde_json::Value {
+    let project_path = workspace.to_string_lossy().into_owned();
+    let project_name = workspace
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_else(|| project_path.clone());
     serde_json::json!({
         "schema_version": 1,
         "default_access_mode": "default",
-        "default_scope": {},
+        "default_scope": {
+            "project_path": project_path,
+            "project_name": project_name,
+            "access_mode": "full",
+            "restrict_to_workspace": false,
+        },
         "controls": {"can_change_project": false, "can_use_full_access": false}
     })
 }

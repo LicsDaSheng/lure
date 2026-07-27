@@ -278,12 +278,19 @@ fn webui_readonly_stubs_return_shaped_payloads_with_auth() {
     assert_eq!(body["view"]["density"], "comfortable");
     assert!(body["pinned_keys"].is_array());
 
-    // workspaces：默认壳含 controls。
+    // workspaces：默认壳含 controls，且 default_scope.project_path 必须是非空 string
+    // （前端 projectNameFromPath 在加载渲染时对其调 .replace()，缺失即崩）。
     let (status, body) = roundtrip(&mut server, addr, "GET", "/api/workspaces", Some(&token));
     assert_eq!(status, 200);
     let body: Value = serde_json::from_str(&body).unwrap();
     assert_eq!(body["default_access_mode"], "default");
     assert_eq!(body["controls"]["can_change_project"], false);
+    let project_path = body["default_scope"]["project_path"].as_str();
+    assert!(
+        project_path.is_some_and(|p| !p.is_empty()),
+        "default_scope.project_path 必须为非空字符串: {body}"
+    );
+    assert!(body["default_scope"]["access_mode"].is_string());
 }
 
 #[test]
