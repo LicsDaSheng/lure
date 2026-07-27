@@ -20,7 +20,7 @@
 ## Phase 3: Agent Loop 最小纵向闭环
 
 - **状态**：partial
-- **完成**：`AgentLoop`/`AgentRunner`/`ContextBuilder` 纵向闭环、`LlmProvider` trait + `EchoProvider`、turn 保存与历史可读、结构化 `AgentError`、`ProgressEvent` 事件、CLI one-shot + interactive REPL + streaming renderer + spinner 动画、`--session`/`--show-reasoning`。
+- **完成**：`AgentLoop`/`AgentRunner`/`ContextBuilder` 纵向闭环、`LlmProvider` trait + `EchoProvider`（`--model echo` 显式离线脚手架）、turn 保存与历史可读、结构化 `AgentError`、`ProgressEvent` 事件（含 `Finalizing` 阶段信号）、CLI one-shot + interactive REPL、`--session`/`--show-reasoning`。**完整交互 UX**：实时流式渲染 + tool/progress 行 + reasoning delta 句级缓冲流 + spinner 后台定时动画 + 阶段语义标签（Thinking / Calling `<tool>` / Finalizing）+ Ctrl-C 中断当前 turn + 单轮 provider 错误不退出会话。
 - **待补**：slash commands。
 
 ## Phase 4: Provider 与模型运行时
@@ -73,8 +73,11 @@
 
 ## 下一步目标
 
-按「用户可感知价值 × 当前覆盖缺口」排序：
+CLI 交互体验已成体系并暂告段落：实时流式 → tool/progress 行 → reasoning delta 句级缓冲流 → spinner 后台定时动画 → 阶段语义标签（Thinking / Calling / Finalizing）→ Ctrl-C 中断当前 turn → 单轮 provider 错误容错。均以 TDD 落地，核心逻辑单测 + 本地 SSE mock 端到端验证。
+
+按「用户可感知价值 × 当前覆盖缺口」排序，下一步：
 
 1. **补前端所需 /api stub**：用 `lure-desktop --model echo` 启动后观察前端还调用哪些 /api 端点（`/api/settings`、`/api/webui/sidebar-state` 等），逐个补空载荷 stub → 页面完整可用。
-2. **真实 LLM dream 接入**：当前 `ProviderDreamRunner` 用 `EchoProvider`（离线安全但产出无意义）；接入 config 驱动的真实 provider 后 dream 产出才有质量。
+2. **dream 接入 config 驱动的真实 provider**：`ProviderDreamRunner` + `ws_server.with_dream` + 阈值触发已就位，但 `lure-desktop` 目前装配的是 `EchoProvider`（离线安全、产出无意义）；换成 config 解析出的真实 provider 后 dream 产出才有质量。
 3. **cron 表达式 + 工具化**：补 `croniter` 等价实现，让 cron job 真正可调度；暴露 cron/trigger 为 agent 可用工具。
+4. **CLI slash commands**：交互模式内 `/help`、`/model`、`/session` 等命令（Phase 3 待补）。
