@@ -50,8 +50,8 @@
 ## Phase 8: Automations、Cron 与 Trigger
 
 - **状态**：partial
-- **完成**：cron store 持久化、next-run 计算、session-bound delivery、heartbeat protected job、trigger at-least-once 投递队列（忙等/limit）。
-- **待补**：完整 cron 表达式、cron/trigger 工具化。
+- **完成**：cron store 持久化、next-run 计算（at/every/**cron 表达式**）、标准 5 字段 cron 解析（`* , - /`、dow 0-7、dom/dow OR）+ UTC/本地时区 next-run（`cron::expr`）、session-bound delivery、heartbeat protected job、trigger at-least-once 投递队列（忙等/limit）。
+- **待补**：IANA 具名时区（接 chrono-tz）、cron 名称/宏/扩展、cron/trigger 工具化、并发调度线程。
 
 ## Phase 9: OpenAI-compatible API 与 SDK 表面
 
@@ -75,11 +75,10 @@
 
 CLI 交互体验已成体系并暂告段落：实时流式 → tool/progress 行 → reasoning delta 句级缓冲流 → spinner 后台定时动画 → 阶段语义标签（Thinking / Calling / Finalizing）→ Ctrl-C 中断当前 turn → 单轮 provider 错误容错。均以 TDD 落地，核心逻辑单测 + 本地 SSE mock 端到端验证。
 
-已完成（按价值收口）：**前端 /api stub 表面**（加载期 + 按需读取降级 + delete 编码修复）、**dream 接真实 provider**、**真实浏览器 E2E 契约测试**（`--headless` + Playwright smoke，见 [phase-execution.md](./phase-execution.md) WebUI 契约门禁）。
+已完成（按价值收口）：**前端 /api stub 表面**（加载期 + 按需读取降级 + delete 编码修复）、**dream 接真实 provider**、**真实浏览器 E2E 契约测试**（`--headless` + Playwright smoke，见 [phase-execution.md](./phase-execution.md) WebUI 契约门禁）、**CLI slash commands**（`/help`/`/model`/`/session`）、**cron 表达式**（标准 5 字段 + UTC/本地时区）。
 
 按「用户可感知价值 × 当前覆盖缺口」排序，下一步：
 
-1. **cron 表达式 + 工具化**：补 `croniter` 等价实现，让 cron job 真正可调度；暴露 cron/trigger 为 agent 可用工具。
-2. **CLI slash commands**：交互模式内 `/help`、`/model`、`/session` 等命令（Phase 3 待补）。
+1. **cron/trigger 工具化**：把 cron/trigger 暴露为 agent 可用工具（cron 表达式调度本体已就位）；IANA 具名时区接 chrono-tz。
+2. **settings 变更大表面**：`/settings/*/update` 等 GET-style 写操作接真实能力（当前仅读端点有载荷）。
 3. **E2E 扩面**：settings 面板、跨会话切换、new-chat 等关键用户流补 Playwright 覆盖（加载/bootstrap、echo 往返、历史重开+侧栏、编码 key 删除已覆盖；本地 `make check` 统一门禁，不接远程 CI）。
-4. **settings 变更大表面**：`/settings/*/update` 等 GET-style 写操作接真实能力（当前仅读端点有载荷）。

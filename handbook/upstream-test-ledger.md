@@ -94,12 +94,13 @@ Phase 0 已完成，确定 phase 1-4 关键上游测试的 Rust 测试落点（�
 
 | 上游测试 | 归属 phase | Rust 测试 | 状态 | 说明 |
 |---|---:|---|---|---|
-| `tests/cron/test_cron_persistence.py` | 8 | `crates/lure-core/tests/cron_store.rs` | partial | 持久化/next-run(at,every)/camelCase/due/record_run/一次性删除/heartbeat 保护已覆盖；cron 表达式、run history 待补 |
+| `tests/cron/test_cron_persistence.py` | 8 | `crates/lure-core/tests/cron_store.rs` | partial | 持久化/next-run(at,every)/camelCase/due/record_run/一次性删除/heartbeat 保护已覆盖；run history 待补 |
+| `nanobot/cron/service.py::_compute_next_run`（cron 分支） | 8 | `crates/lure-core/tests/cron_schedule.rs` + `src/cron/expr.rs` 单测 | partial | 标准 5 字段（`* , - /`、dow 0-7、dom/dow OR）+ UTC/本地时区已覆盖；IANA 具名时区（无 chrono-tz）、名称(JAN/MON)、`L`/`#`/`W`/`@宏`、秒字段待补 |
 | `tests/cron/test_session_delivery.py` | 8 | `crates/lure-core/tests/cron_delivery.rs` | covered | origin delivery 上下文与缺失校验均覆盖 |
 | `tests/triggers/test_local_triggers.py` | 8 | `crates/lure-core/tests/trigger_queue.rs` | partial | enqueue/claim/complete/recover(at-least-once)/忙等/limit 已覆盖；文件 inbox 布局、trigger 定义存储待补 |
 
-> 注：Phase 8 用内存队列建模 trigger at-least-once 语义（上游为文件 inbox）；cron 表达式调度
-> （croniter）与并发调度线程留待后续。
+> 注：Phase 8 用内存队列建模 trigger at-least-once 语义（上游为文件 inbox）；cron 表达式已支持
+> 标准 5 字段 + UTC/本地时区（IANA 具名时区待接 chrono-tz），并发调度线程与 cron/trigger 工具化留待后续。
 
 ## Phase 7 明细映射
 

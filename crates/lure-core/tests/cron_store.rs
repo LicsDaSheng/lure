@@ -2,7 +2,7 @@
 
 use lure_core::cron::{
     compute_next_run, is_heartbeat, CronError, CronJob, CronPayload, CronSchedule, CronStore,
-    RunStatus, ScheduleKind,
+    RunStatus,
 };
 use tempfile::tempdir;
 
@@ -31,15 +31,11 @@ fn compute_next_run_for_at_and_every() {
         Some(1300)
     );
     assert_eq!(compute_next_run(&CronSchedule::every(0), 1000), None);
-    // cron：暂返回 None。
-    let cron = CronSchedule {
-        kind: ScheduleKind::Cron,
-        at_ms: None,
-        every_ms: None,
-        expr: Some("0 9 * * *".to_string()),
-        tz: None,
-    };
-    assert_eq!(compute_next_run(&cron, 1000), None);
+    // cron：有效表达式现可调度（细节见 cron_schedule.rs），无效表达式回落 None。
+    let cron = CronSchedule::cron("0 9 * * *", Some("UTC".to_string()));
+    assert!(compute_next_run(&cron, 1000).is_some());
+    let bad = CronSchedule::cron("nope", None);
+    assert_eq!(compute_next_run(&bad, 1000), None);
 }
 
 #[test]

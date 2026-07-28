@@ -61,6 +61,17 @@ impl CronSchedule {
             tz: None,
         }
     }
+
+    /// 构造 cron 表达式调度（`tz` 为 IANA 名，`None` 表示本地时区）。
+    pub fn cron(expr: impl Into<String>, tz: Option<String>) -> Self {
+        Self {
+            kind: ScheduleKind::Cron,
+            at_ms: None,
+            every_ms: None,
+            expr: Some(expr.into()),
+            tz,
+        }
+    }
 }
 
 /// 运行状态。

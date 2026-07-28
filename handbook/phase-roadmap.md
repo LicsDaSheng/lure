@@ -10,7 +10,7 @@
 | Phase 5 Tools | partial | Tool trait/registry、文件读写搜索（edit+grep+list）、shell 执行策略、tool-call 循环 | apply_patch、web/mcp |
 | Phase 6 Memory | partial | MemoryStore（读写/历史/迁移）、dream consolidation（FakeRunner + ProviderDreamRunner）、阈值自动触发、AgentLoop/CLI 记忆接入 | dream 运行时接真实 provider（现装配 Echo）、SOUL/USER 整合 |
 | Phase 7 Gateway | partial | Inbound/OutboundMessage、MessageBus、Channel trait、Gateway 编排、progress 事件传播 | 真实 channel 平台 |
-| Phase 8 Cron | partial | cron store 持久化/next-run/session delivery/heartbeat、trigger at-least-once | 完整 cron 表达式 |
+| Phase 8 Cron | partial | cron store 持久化/next-run(at/every/**cron 表达式**)/session delivery/heartbeat、trigger at-least-once、标准 5 字段 cron + UTC/本地时区 | IANA 具名时区(chrono-tz)、cron/trigger 工具化、并发调度线程 |
 | Phase 9 API | partial | ChatServer(tiny_http)、/v1/models、逐 token SSE、session 并发锁 | media 上传、SDK facade |
 | Phase 10 WebUI | partial | **desktop 闭环**——vendor React 前端、wry 窗口、loopback HTTP/WS、agent loop 每连接独立、transcript/webui-thread 持久化、/api 读表面全覆盖、dream 接真实 provider、`--headless` + Playwright E2E 契约测试 | settings 变更大表面、media 代理、非 macOS、E2E 扩面+CI |
 | Phase 11 打包 | partial | config/Docker/legacy 迁移骨架、release checklist | 完整 release pipeline |
