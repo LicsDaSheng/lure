@@ -72,9 +72,13 @@ method、WS、bootstrap）。典型：前端 `encodeURIComponent` 把 session ke
 - 前端 vendor（`frontend/webui`）同步或 `frontend/dist` 构建产物；
 - `lure-desktop` server 装配（provider、dream、transcript 接线）。
 
-运行：`cd e2e && bun run e2e`（`webServer` 自动构建 dist + 拉起 `lure-desktop
---headless --model echo`，离线确定性）。首次需 `bun install` + `bunx playwright
-install chromium`。详见 [../e2e/README.md](../e2e/README.md)。
+运行：`make e2e`（`webServer` 自动构建 dist + 拉起 `lure-desktop --headless
+--model echo`，离线确定性）。首次先 `make e2e-setup` 装依赖。详见
+[../e2e/README.md](../e2e/README.md)。
+
+**本地统一门禁入口**（见根目录 `Makefile`）：`make rust`（fmt+clippy+test）、
+`make e2e`（浏览器契约）、`make check`（两者全跑，提交前用）。本项目不接远程 CI，
+门禁靠本地 `make check` 把关。
 
 ## Git 卫生
 

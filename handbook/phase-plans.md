@@ -81,5 +81,5 @@ CLI 交互体验已成体系并暂告段落：实时流式 → tool/progress 行
 
 1. **cron 表达式 + 工具化**：补 `croniter` 等价实现，让 cron job 真正可调度；暴露 cron/trigger 为 agent 可用工具。
 2. **CLI slash commands**：交互模式内 `/help`、`/model`、`/session` 等命令（Phase 3 待补）。
-3. **E2E 扩面**：settings 面板、会话历史重开、跨会话切换等关键用户流补 Playwright 覆盖；接入 CI。
+3. **E2E 扩面**：settings 面板、跨会话切换、new-chat 等关键用户流补 Playwright 覆盖（加载/bootstrap、echo 往返、历史重开+侧栏、编码 key 删除已覆盖；本地 `make check` 统一门禁，不接远程 CI）。
 4. **settings 变更大表面**：`/settings/*/update` 等 GET-style 写操作接真实能力（当前仅读端点有载荷）。
