@@ -171,3 +171,43 @@ fn progress_update(inbound: &InboundMessage, event: &ProgressEvent) -> ProgressU
         content,
     )
 }
+
+/// 用 [`Gateway`] 执行 cron job 的 [`CronJobRunner`] 适配器。
+///
+/// 到期 job → 按其 origin 构造 [`InboundMessage`] 提交给 gateway → dispatch（agent 处理
+/// → outbound 路由回 origin channel）。缺 origin 上下文的 job 记为 `Skipped`，dispatch
+/// 失败记为 `Error`。持有 gateway 所有权，供专用 cron 宿主线程独占驱动。
+pub struct GatewayCronRunner {
+    gateway: Gateway,
+}
+
+impl GatewayCronRunner {
+    /// 绑定 gateway（自动置为运行态，确保 dispatch 生效）。
+    pub fn new(mut gateway: Gateway) -> Self {
+        gateway.start();
+        Self { gateway }
+    }
+
+    /// 只读访问内部 gateway（诊断/健康）。
+    pub fn gateway(&self) -> &Gateway {
+        &self.gateway
+    }
+}
+
+impl crate::cron::CronJobRunner for GatewayCronRunner {
+    fn run(&mut self, job: &crate::cron::CronJob) -> crate::cron::RunStatus {
+        let (channel, chat_id, _meta) = match crate::cron::origin_delivery_context(job) {
+            Ok(ctx) => ctx,
+            Err(_) => return crate::cron::RunStatus::Skipped,
+        };
+        self.gateway.submit(InboundMessage::new(
+            channel,
+            chat_id,
+            job.payload.message.clone(),
+        ));
+        match self.gateway.dispatch_pending() {
+            Ok(_) => crate::cron::RunStatus::Ok,
+            Err(_) => crate::cron::RunStatus::Error,
+        }
+    }
+}

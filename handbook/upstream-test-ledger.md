@@ -98,6 +98,7 @@ Phase 0 已完成，确定 phase 1-4 关键上游测试的 Rust 测试落点（�
 | `nanobot/cron/service.py::_compute_next_run`（cron 分支） | 8 | `crates/lure-core/tests/cron_schedule.rs` + `src/cron/expr.rs` 单测 | partial | 标准 5 字段（`* , - /`、dow 0-7、dom/dow OR）+ UTC/本地时区已覆盖；IANA 具名时区（无 chrono-tz）、名称(JAN/MON)、`L`/`#`/`W`/`@宏`、秒字段待补 |
 | `tests/cron/test_session_delivery.py` | 8 | `crates/lure-core/tests/cron_delivery.rs` | covered | origin delivery 上下文与缺失校验均覆盖 |
 | `nanobot/agent/tools/cron.py` | 8 | `crates/lure-core/tests/tool_cron.rs` | partial | `cron` 工具 add/list/remove、message/schedule 校验、origin 绑定、every/cron/at 调度、tz-only-with-cron 已覆盖；非 UTC 时区、at 的默认 tz、cron 上下文防重入待补 |
+| `nanobot/cron/service.py`（timer/_on_timer/_execute_job） | 8 | `crates/lure-core/tests/cron_service.rs` | partial | `CronService::tick`（到期执行 + record_run 推进/删一次性/error 状态/禁用跳过）、`next_wake_ms`、`CronScheduler` 后台轮询、`GatewayCronRunner` 端到端投递已覆盖；run history、精确睡到 next_wake、长驻宿主接入待补 |
 | `tests/triggers/test_local_triggers.py` | 8 | `crates/lure-core/tests/trigger_queue.rs` | partial | enqueue/claim/complete/recover(at-least-once)/忙等/limit 已覆盖；文件 inbox 布局、trigger 定义存储待补 |
 
 > 注：Phase 8 用内存队列建模 trigger at-least-once 语义（上游为文件 inbox）；cron 表达式已支持
