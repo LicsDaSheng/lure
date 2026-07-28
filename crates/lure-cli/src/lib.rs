@@ -53,6 +53,27 @@ pub fn build_agent_loop(
         .with_memory(memory))
 }
 
+/// 解析出与 chat 同源的独立 provider 实例（供 dream 等复用）。
+///
+/// 与 [`build_agent_loop`] 的 provider 选择完全一致：`--preset` 与 `--model` 互斥；
+/// `--model echo` 显式返回离线 [`EchoProvider`]；否则由 config/preset/model 解析出
+/// 真实 provider。用于让 desktop 的 dream consolidation 走真实 LLM 而非离线 Echo。
+pub fn build_provider(
+    config_path: Option<&str>,
+    preset: Option<&str>,
+    model: Option<&str>,
+) -> Result<Box<dyn LlmProvider>, String> {
+    if preset.is_some() && model.is_some() {
+        return Err("--preset 与 --model 互斥，只能二选一".to_string());
+    }
+    if model == Some("echo") {
+        return Ok(Box::new(EchoProvider::new()));
+    }
+    let config = load_cli_config(config_path)?;
+    let runtime = resolve_runtime(config.clone(), preset, model)?;
+    build_provider_from_runtime(&config, &runtime)
+}
+
 /// 加载 config 文件（缺省用 `default_config_path`）；文件不存在时回落到默认配置。
 pub fn load_cli_config(config_path: Option<&str>) -> Result<Config, String> {
     let path = config_path

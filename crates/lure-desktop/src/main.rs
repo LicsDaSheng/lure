@@ -9,7 +9,7 @@ use std::process::ExitCode;
 use std::sync::{Arc, Mutex};
 use std::thread;
 
-use lure_cli::build_agent_loop;
+use lure_cli::{build_agent_loop, build_provider};
 use lure_core::session::SessionManager;
 use lure_core::webui::http_server::{StaticAssets, WebuiServer, WebuiServerConfig};
 use lure_core::webui::tokens::TokenIssuer;
@@ -128,9 +128,12 @@ fn main() -> ExitCode {
                 sessions,
             )
             .expect("agent loop 构建失败（检查 --config/--preset/--model 与 API key）");
-            let dream = Box::new(lure_core::memory::ProviderDreamRunner::new(Box::new(
-                lure_core::provider::EchoProvider::new(),
-            )));
+            // dream consolidation 复用与 chat 同源的真实 provider（config 驱动）；
+            // 解析失败（缺 key 等）时优雅回落离线 Echo，避免拖垮整条连接。
+            let dream_provider =
+                build_provider(config.as_deref(), preset.as_deref(), model.as_deref())
+                    .unwrap_or_else(|_| Box::new(lure_core::provider::EchoProvider::new()));
+            let dream = Box::new(lure_core::memory::ProviderDreamRunner::new(dream_provider));
             AgentTurnRunner::new(agent).with_dream(dream, 10)
         }
     };
