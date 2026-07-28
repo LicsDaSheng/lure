@@ -1,5 +1,4 @@
 import { defineConfig, devices } from "@playwright/test";
-import net from "node:net";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -7,28 +6,10 @@ import { fileURLToPath } from "node:url";
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(here, "..");
 
-/**
- * 取一个当前空闲的本地端口。默认动态选取，避免固定端口在快速重跑时撞
- * 上一次运行遗留的 TIME_WAIT（tiny_http 不设 SO_REUSEADDR → EADDRINUSE）。
- * 需要稳定端口（如手动开浏览器观察）时用 LURE_E2E_PORT 覆盖。
- */
-async function pickPort(): Promise<number> {
-  const preferred = process.env.LURE_E2E_PORT;
-  if (preferred) return Number(preferred);
-  return await new Promise<number>((resolve, reject) => {
-    const srv = net.createServer();
-    srv.unref();
-    srv.on("error", reject);
-    srv.listen(0, "127.0.0.1", () => {
-      const addr = srv.address();
-      const port = typeof addr === "object" && addr ? addr.port : 0;
-      srv.close(() => resolve(port));
-    });
-  });
-}
-
-// HTTP 端口给 webServer 轮询用；WS 端口仍随机（前端从 bootstrap 取 ws_url）。
-const PORT = await pickPort();
+// HTTP 端口**必须固定**：Playwright 会多次加载本 config（主进程 + worker），
+// 动态端口会导致 webServer 与测试 baseURL 取到不同端口。用 LURE_E2E_PORT 覆盖。
+// webServer 启动前先清理占用该端口的残留进程（被中断的 headless 会一直 park）。
+const PORT = Number(process.env.LURE_E2E_PORT ?? 8788);
 const BASE_URL = `http://127.0.0.1:${PORT}`;
 
 // 后端 workspace（gitignored）；--model echo 使整条链路离线、确定性。
@@ -51,6 +32,7 @@ export default defineConfig({
     // 先用 vendored 前端产出 frontend/dist（供 lure-desktop rust-embed 嵌入），
     // 再拉起 headless 后端（同一套生产 server 装配，仅无窗口）。
     command:
+      `(lsof -ti tcp:${PORT} | xargs kill -9 2>/dev/null || true); ` +
       `(cd frontend/webui && bun run build -- --outDir ../dist --emptyOutDir) && ` +
       `cargo run --quiet -p lure-desktop -- --headless --model echo ` +
       `--http-port ${PORT} --workspace ${WORKSPACE}`,

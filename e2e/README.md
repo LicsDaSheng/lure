@@ -25,14 +25,15 @@ bun run e2e:report            # 打开上次 HTML 报告
 ```
 
 `webServer` 会自动：
+0. 先清理占用该端口的残留进程（被中断的 headless 会一直 park 占端口）
 1. `cd frontend/webui && bun run build`（产出 `frontend/dist` 供 rust-embed 嵌入）
-2. `cargo run -p lure-desktop -- --headless --model echo --http-port <动态空闲端口>`
+2. `cargo run -p lure-desktop -- --headless --model echo --http-port 8788`
 
-HTTP 端口默认**动态选取**，避免固定端口在快速重跑时撞上一次运行遗留的 TIME_WAIT
-（`EADDRINUSE`）。需要稳定端口手动开浏览器观察时：
+HTTP 端口**固定**为 8788（Playwright 会多次加载 config，动态端口会导致 webServer 与
+测试 baseURL 取到不同端口）。改端口：
 
 ```bash
-LURE_E2E_PORT=8788 bun run e2e
+LURE_E2E_PORT=9000 bun run e2e
 ```
 
 首次含 Rust 编译，可能数分钟（timeout 300s）。后端 workspace 落在 `e2e/.workspace`（已 gitignore）。
