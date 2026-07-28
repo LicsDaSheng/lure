@@ -23,6 +23,31 @@ test.describe.serial("webui smoke (headless backend + echo)", () => {
     await expect(page.getByText("echo: ping").first()).toBeVisible({ timeout: 20_000 });
   });
 
+  test("reload 后侧栏列出会话，webui-thread 用编码 key 取回历史", async ({ page }) => {
+    // 依赖前一用例创建的会话（串行、后端状态持久）。reload 保证走真实 /api/sessions
+    // 与 webui-thread 读取路径——后者曾因 key 未 URL 解码而静默丢历史（见 5142550）。
+    await page.goto("/");
+    // 侧栏空态文案消失 → 会话已落库并被 /api/sessions 列出。
+    await expect(page.getByText("No sessions yet.")).toBeHidden({ timeout: 15_000 });
+
+    // 在浏览器上下文用真实 encodeURIComponent 取 webui-thread，断言历史回得来。
+    const thread = await page.evaluate(async () => {
+      const boot = await (await fetch("/webui/bootstrap")).json();
+      const headers = { Authorization: `Bearer ${boot.api_token}` };
+      const list = await (await fetch("/api/sessions", { headers })).json();
+      const key: string | undefined = list.sessions?.[0]?.key;
+      if (!key) return { ok: false as const, reason: "无会话" };
+      const res = await fetch(`/api/sessions/${encodeURIComponent(key)}/webui-thread`, { headers });
+      const text = await res.text();
+      return { ok: true as const, key, status: res.status, hasPing: text.includes("ping") };
+    });
+    expect(thread.ok, thread.ok ? undefined : thread.reason).toBeTruthy();
+    if (!thread.ok) return;
+    expect(thread.key).toContain(":");
+    expect(thread.status).toBe(200);
+    expect(thread.hasPing, "webui-thread 应含已发消息").toBe(true);
+  });
+
   test("删除真实 session key 应 200（回归：URL 编码 %3A）", async ({ page }) => {
     await page.goto("/");
     // 直接在浏览器上下文用真实 encodeURIComponent + fetch，精确复现前端删除路径。
