@@ -86,13 +86,19 @@ pub struct CronScheduler {
 
 impl CronScheduler {
     /// 启动后台线程，每 `poll` 间隔对 `service` 执行一次 tick（用 `runner` 跑到期 job）。
-    pub fn spawn<R>(service: CronService, mut runner: R, poll: Duration) -> Self
+    ///
+    /// runner 由 `make_runner` 在**后台线程内**构建：runner 及其持有的 agent/gateway 等
+    /// 常常非 `Send`（含 `Rc`、trait 对象），线程内构建可避免跨线程移动约束——只要 factory
+    /// 本身 `Send`（通常只捕获 config 路径等可 Send 值）。
+    pub fn spawn<R, F>(service: CronService, make_runner: F, poll: Duration) -> Self
     where
-        R: CronJobRunner + Send + 'static,
+        F: FnOnce() -> R + Send + 'static,
+        R: CronJobRunner,
     {
         let stop = Arc::new(AtomicBool::new(false));
         let stop_thread = stop.clone();
         let handle = thread::spawn(move || {
+            let mut runner = make_runner();
             while !stop_thread.load(Ordering::Relaxed) {
                 let _ = service.tick(&mut runner, now_ms());
                 // 分片睡眠：及时响应 stop，不必等满一个 poll 周期。

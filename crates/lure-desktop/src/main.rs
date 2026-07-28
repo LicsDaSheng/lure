@@ -8,9 +8,61 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 use std::sync::{Arc, Mutex};
 use std::thread;
+use std::time::Duration;
 
 use lure_cli::{build_agent_loop, build_provider};
+use lure_core::agent::AgentLoop;
+use lure_core::bus::InboundMessage;
+use lure_core::cron::{
+    origin_delivery_context, CronJob, CronJobRunner, CronScheduler, CronService, RunStatus,
+};
 use lure_core::session::SessionManager;
+use lure_core::webui::transcript::TranscripStore;
+
+/// cron 调度默认轮询间隔（ms）：cron 最小粒度为分钟，30s 轮询确保到期后半分钟内触发。
+const CRON_POLL_DEFAULT_MS: u64 = 30_000;
+
+/// cron 轮询间隔：`LURE_CRON_POLL_MS` 环境变量覆盖（供测试用短间隔），否则默认 30s。
+fn cron_poll_interval() -> Duration {
+    let ms = std::env::var("LURE_CRON_POLL_MS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(CRON_POLL_DEFAULT_MS);
+    Duration::from_millis(ms)
+}
+
+/// 桌面 cron 执行：跑 job 的 agent turn，并把 (message, reply) 写入 origin 会话 transcript，
+/// 使 webui 下次打开该会话可见定时产出。缺 origin 记 `Skipped`，agent 出错记 `Error`。
+struct CronTurnRunner {
+    agent: AgentLoop,
+    transcript: TranscripStore,
+}
+
+impl CronJobRunner for CronTurnRunner {
+    fn run(&mut self, job: &CronJob) -> RunStatus {
+        let (channel, chat_id, _meta) = match origin_delivery_context(job) {
+            Ok(ctx) => ctx,
+            Err(_) => return RunStatus::Skipped,
+        };
+        let inbound = InboundMessage::new(&channel, &chat_id, &job.payload.message);
+        let session_key = job
+            .payload
+            .session_key
+            .clone()
+            .unwrap_or_else(|| inbound.session_key());
+        match self.agent.process(&inbound) {
+            Ok(outcome) => {
+                let _ = self.transcript.append_turn(
+                    &session_key,
+                    &job.payload.message,
+                    &outcome.final_content,
+                );
+                RunStatus::Ok
+            }
+            Err(_) => RunStatus::Error,
+        }
+    }
+}
 use lure_core::webui::http_server::{StaticAssets, WebuiServer, WebuiServerConfig};
 use lure_core::webui::tokens::TokenIssuer;
 use lure_core::webui::ws_server::{AgentTurnRunner, WsServer};
@@ -132,6 +184,8 @@ fn main() -> ExitCode {
     let webui_dir = workspace.join("webui");
     let transcript = lure_core::webui::transcript::TranscripStore::new(&webui_dir)
         .expect("创建 webui/ transcript 目录失败");
+    // cron 调度器用的 transcript 副本（transcript 稍后被 http server 移入）。
+    let cron_transcript = transcript.clone();
 
     // WS server：每条连接在连接线程内构建独立 AgentLoop（复用 CLI 构建逻辑）。
     let factory = {
@@ -223,6 +277,33 @@ fn main() -> ExitCode {
     thread::spawn(move || {
         let _ = http_server.serve_forever();
     });
+
+    // cron 后台调度：常驻线程每 CRON_POLL 轮询到期 job，跑 agent turn 并把结果写入
+    // transcript——用户下次在 webui 打开该会话即见定时任务的产出。runner 在线程内构建
+    // （AgentLoop/TranscripStore 非 Send，经工厂闭包避免跨线程移动）。
+    let _cron_scheduler = {
+        let config = args.config.clone();
+        let preset = args.preset.clone();
+        let model = args.model.clone();
+        let ws = workspace.clone();
+        let transcript = cron_transcript;
+        CronScheduler::spawn(
+            CronService::new(&workspace),
+            move || {
+                let sessions = SessionManager::new(&ws).expect("session 存储可用");
+                let agent = build_agent_loop(
+                    config.as_deref(),
+                    preset.as_deref(),
+                    model.as_deref(),
+                    &ws,
+                    sessions,
+                )
+                .expect("cron agent loop 构建失败（检查 --config/--preset/--model 与 API key）");
+                CronTurnRunner { agent, transcript }
+            },
+            cron_poll_interval(),
+        )
+    };
 
     // 桌面窗口加载内嵌应用。
     let url = format!("http://{http_addr}/");

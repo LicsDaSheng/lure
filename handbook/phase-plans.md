@@ -50,8 +50,8 @@
 ## Phase 8: Automations、Cron 与 Trigger
 
 - **状态**：partial
-- **完成**：cron store 持久化、next-run 计算（at/every/**cron 表达式**）、标准 5 字段 cron 解析（`* , - /`、dow 0-7、dom/dow OR）+ UTC/本地时区 next-run（`cron::expr`）、session-bound delivery、heartbeat protected job、trigger at-least-once 投递队列（忙等/limit）、**`cron` agent 工具**（add/list/remove，绑定会话 origin，已接入 CLI）、**cron service 定时执行**（`CronService::tick` 跑到期 job + `record_run` 推进/删一次性、`CronScheduler` 后台轮询线程、`GatewayCronRunner` 经 gateway 投递回 origin channel，端到端 echo 验证）。
-- **待补**：IANA 具名时区（接 chrono-tz）、cron 名称/宏/扩展、run history、把 `CronScheduler` 接入长驻宿主（desktop/gateway 常驻进程）。
+- **完成**：cron store 持久化、next-run 计算（at/every/**cron 表达式**）、标准 5 字段 cron 解析（`* , - /`、dow 0-7、dom/dow OR）+ UTC/本地时区 next-run（`cron::expr`）、session-bound delivery、heartbeat protected job、trigger at-least-once 投递队列（忙等/limit）、**`cron` agent 工具**（add/list/remove，绑定会话 origin，已接入 CLI）、**cron service 定时执行**（`CronService::tick` + `record_run` 推进/删一次性、`CronScheduler` 后台轮询工厂线程、`GatewayCronRunner` 经 gateway 投递）、**接入长驻宿主**（lure-desktop 常驻 `CronScheduler`，`CronTurnRunner` 跑 agent turn 并写 origin 会话 transcript → webui 下次打开可见，headless 端到端验证）。
+- **待补**：IANA 具名时区（接 chrono-tz）、cron 名称/宏/扩展、run history、cron 触发时向**在线** WS 连接实时推送（当前只落 transcript）、jobs.json 并发读写加锁。
 
 ## Phase 9: OpenAI-compatible API 与 SDK 表面
 
@@ -75,10 +75,10 @@
 
 CLI 交互体验已成体系并暂告段落：实时流式 → tool/progress 行 → reasoning delta 句级缓冲流 → spinner 后台定时动画 → 阶段语义标签（Thinking / Calling / Finalizing）→ Ctrl-C 中断当前 turn → 单轮 provider 错误容错。均以 TDD 落地，核心逻辑单测 + 本地 SSE mock 端到端验证。
 
-已完成（按价值收口）：**前端 /api stub 表面**（加载期 + 按需读取降级 + delete 编码修复）、**dream 接真实 provider**、**真实浏览器 E2E 契约测试**（`--headless` + Playwright smoke，见 [phase-execution.md](./phase-execution.md) WebUI 契约门禁）、**CLI slash commands**（`/help`/`/model`/`/session`）、**cron 表达式**（标准 5 字段 + UTC/本地时区）、**`cron` agent 工具**（add/list/remove，已接入 CLI）、**cron service 定时执行**（tick + 后台调度 + GatewayCronRunner 投递）。
+已完成（按价值收口）：**前端 /api stub 表面**、**dream 接真实 provider**、**真实浏览器 E2E 契约测试**（`--headless` + Playwright smoke，见 [phase-execution.md](./phase-execution.md) WebUI 契约门禁）、**CLI slash commands**、**cron 表达式**、**`cron` agent 工具**、**cron service 定时执行 + 接入 lure-desktop 长驻宿主**（排期任务后台自动跑，产出写 transcript，webui 下次打开可见）。**Phase 8 cron 链路已端到端打通**：工具排期 → 持久化 → 表达式调度 → 定时执行 → 会话投递。
 
 按「用户可感知价值 × 当前覆盖缺口」排序，下一步：
 
-1. **CronScheduler 接入长驻宿主**：cron 定时执行引擎已就绪，但尚无常驻进程驱动它——把 `CronScheduler`（配 `GatewayCronRunner`）挂进 desktop/gateway 常驻进程，让排期任务真正后台自动跑；IANA 具名时区接 chrono-tz。
-2. **settings 变更大表面**：`/settings/*/update` 等 GET-style 写操作接真实能力（当前仅读端点有载荷）。
-3. **E2E 扩面**：settings 面板、跨会话切换、new-chat 等关键用户流补 Playwright 覆盖（加载/bootstrap、echo 往返、历史重开+侧栏、编码 key 删除已覆盖；本地 `make check` 统一门禁，不接远程 CI）。
+1. **settings 变更大表面**：`/settings/*/update`、provider/model 配置等 GET-style 写操作接真实能力（当前仅读端点有载荷）——让用户能在 webui 里真正改配置。
+2. **cron 实时推送 + IANA 时区**：cron 触发时向**在线** WS 连接实时推送（当前只落 transcript，需刷新才见）；`schedule.tz` 具名时区接 chrono-tz。
+3. **E2E 扩面**：settings 面板、跨会话切换、new-chat 等关键用户流补 Playwright 覆盖。

@@ -106,3 +106,66 @@ fn headless_binds_requested_http_port() {
         std::panic::resume_unwind(e);
     }
 }
+
+#[test]
+fn headless_cron_scheduler_runs_due_job_into_transcript() {
+    use lure_core::cron::{CronJob, CronJobState, CronPayload, CronSchedule, CronStore};
+    use lure_core::webui::transcript::TranscripStore;
+
+    let dir = tempfile::tempdir().unwrap();
+
+    // 预置一个立即到期的循环 cron job：origin websocket:t1，消息 "ping"。
+    let mut store = CronStore::load(dir.path()).unwrap();
+    let job = CronJob {
+        id: "j1".to_string(),
+        name: "ping-job".to_string(),
+        enabled: true,
+        schedule: CronSchedule::every(1),
+        payload: CronPayload {
+            message: "ping".to_string(),
+            session_key: Some("websocket:t1".to_string()),
+            origin_channel: Some("websocket".to_string()),
+            origin_chat_id: Some("t1".to_string()),
+            ..CronPayload::default()
+        },
+        state: CronJobState::default(),
+        created_at_ms: 0,
+        updated_at_ms: 0,
+        delete_after_run: false,
+    };
+    store.add(job, 0).unwrap();
+
+    // 短轮询启动 headless（--model echo 离线确定性）。
+    let mut child = Command::new(env!("CARGO_BIN_EXE_lure-desktop"))
+        .args([
+            "--headless",
+            "--model",
+            "echo",
+            "--workspace",
+            dir.path().to_str().unwrap(),
+        ])
+        .env("LURE_CRON_POLL_MS", "200")
+        .stdout(Stdio::piped())
+        .spawn()
+        .expect("启动 headless 失败");
+
+    // 轮询 transcript：cron 跑通后应写入 (ping, echo: ping)。
+    let webui_dir = dir.path().join("webui");
+    let start = std::time::Instant::now();
+    let mut hit = false;
+    while start.elapsed() < Duration::from_secs(10) {
+        if let Ok(store) = TranscripStore::new(&webui_dir) {
+            if let Ok(Some(thread)) = store.read_thread("websocket:t1") {
+                if thread.to_string().contains("echo: ping") {
+                    hit = true;
+                    break;
+                }
+            }
+        }
+        thread::sleep(Duration::from_millis(150));
+    }
+
+    let _ = child.kill();
+    let _ = child.wait();
+    assert!(hit, "cron 调度应把到期 job 的产出写入 transcript");
+}

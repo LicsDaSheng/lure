@@ -180,9 +180,10 @@ fn scheduler_background_runs_due_job() {
         }
     }
     let count = Arc::new(AtomicUsize::new(0));
+    let count_for_factory = count.clone();
     let scheduler = CronScheduler::spawn(
         CronService::new(dir.path()),
-        CountingRunner(count.clone()),
+        move || CountingRunner(count_for_factory),
         Duration::from_millis(20),
     );
 
