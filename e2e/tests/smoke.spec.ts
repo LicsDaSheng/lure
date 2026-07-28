@@ -14,14 +14,13 @@ test.describe.serial("webui smoke (headless backend + echo)", () => {
 
   test("echo 往返创建会话（走真实 WS mux + transcript）", async ({ page }) => {
     await page.goto("/");
-    const input = page.getByTestId("thread-composer-dock").locator("textarea").first();
+    // 唯一的 composer 输入框（role=textbox，语言无关）；Enter（无 shift）发送。
+    const input = page.getByRole("textbox").first();
     await expect(input).toBeVisible({ timeout: 15_000 });
     await input.fill("ping");
     await input.press("Enter");
-    // EchoProvider 回显 "echo: ping"。
-    await expect(page.getByTestId("thread-message-region")).toContainText("echo: ping", {
-      timeout: 20_000,
-    });
+    // EchoProvider 回显 "echo: ping"，证明 WS mux 往返 + transcript 落库。
+    await expect(page.getByText("echo: ping").first()).toBeVisible({ timeout: 20_000 });
   });
 
   test("删除真实 session key 应 200（回归：URL 编码 %3A）", async ({ page }) => {
