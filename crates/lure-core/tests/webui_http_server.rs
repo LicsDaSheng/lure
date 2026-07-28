@@ -291,6 +291,85 @@ fn delete_session_via_get_delete_path_requires_api_token() {
 }
 
 #[test]
+fn session_automations_stub_returns_empty_jobs() {
+    // 会话级 automations 尚未实现：返回对齐上游形状的空 jobs，面板平稳显示"无"。
+    let dir = tempfile::tempdir().unwrap();
+    seed_session(&dir, "websocket:a1", "hi");
+    let (mut server, addr) = bind_server(&dir, fake_assets());
+    let boot = bootstrap(&mut server, addr);
+    let token = boot["api_token"].as_str().unwrap().to_string();
+
+    let (status, body) = roundtrip(
+        &mut server,
+        addr,
+        "GET",
+        "/api/sessions/websocket:a1/automations",
+        Some(&token),
+    );
+    assert_eq!(status, 200);
+    let body: Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(body["jobs"].as_array().unwrap().len(), 0);
+
+    // 无 token → 401。
+    let (status, _) = roundtrip(
+        &mut server,
+        addr,
+        "GET",
+        "/api/sessions/websocket:a1/automations",
+        None,
+    );
+    assert_eq!(status, 401);
+}
+
+#[test]
+fn file_preview_probe_reports_unavailable_and_fetch_404s() {
+    // 文件预览能力未实现：probe 返回 available:false 让前端隐藏入口；实际取内容 404。
+    let dir = tempfile::tempdir().unwrap();
+    seed_session(&dir, "websocket:f1", "hi");
+    let (mut server, addr) = bind_server(&dir, fake_assets());
+    let boot = bootstrap(&mut server, addr);
+    let token = boot["api_token"].as_str().unwrap().to_string();
+
+    let (status, body) = roundtrip(
+        &mut server,
+        addr,
+        "GET",
+        "/api/sessions/websocket:f1/file-preview?path=out.txt&probe=1",
+        Some(&token),
+    );
+    assert_eq!(status, 200);
+    let body: Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(body["available"], false);
+
+    let (status, _) = roundtrip(
+        &mut server,
+        addr,
+        "GET",
+        "/api/sessions/websocket:f1/file-preview?path=out.txt",
+        Some(&token),
+    );
+    assert_eq!(status, 404);
+}
+
+#[test]
+fn skill_detail_returns_404_when_no_skills() {
+    // 技能列表为空 → 详情端点对任何名称返回 404（前端 request 抛 ApiError，面板显错）。
+    let dir = tempfile::tempdir().unwrap();
+    let (mut server, addr) = bind_server(&dir, fake_assets());
+    let boot = bootstrap(&mut server, addr);
+    let token = boot["api_token"].as_str().unwrap().to_string();
+
+    let (status, _) = roundtrip(
+        &mut server,
+        addr,
+        "GET",
+        "/api/webui/skills/nonexistent",
+        Some(&token),
+    );
+    assert_eq!(status, 404);
+}
+
+#[test]
 fn webui_thread_returns_404_until_transcript_lands() {
     let dir = tempfile::tempdir().unwrap();
     seed_session(&dir, "websocket:t1", "hi");

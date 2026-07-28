@@ -230,6 +230,29 @@ impl<S: StaticAssets> WebuiServer<S> {
                 ),
             };
         }
+        // 会话级 automations 尚未实现：返回对齐上游形状的空 jobs，面板平稳降级。
+        if key.ends_with("/automations") {
+            return respond_json(request, 200, serde_json::json!({"jobs": []}));
+        }
+        // 文件预览能力尚未实现：probe 请求回 available:false 让前端隐藏预览入口，
+        // 实际取内容请求回 404。query 已在 handle() 从 path 剥离，故从 request.url() 读 probe。
+        if key.ends_with("/file-preview") {
+            let is_probe = request
+                .url()
+                .split('?')
+                .nth(1)
+                .map(|q| q.split('&').any(|kv| kv == "probe=1"))
+                .unwrap_or(false);
+            return if is_probe {
+                respond_json(request, 200, serde_json::json!({"available": false}))
+            } else {
+                respond_json(
+                    request,
+                    404,
+                    serde_json::json!({"error": "file preview 未实现"}),
+                )
+            };
+        }
         // 删除会话：前端走 GET /api/sessions/{key}/delete（附 delete_automations query，
         // 会话级 automations 尚未实现故忽略），此外保留 DELETE /api/sessions/{key} 语义。
         // query 已在 handle() 中剥离，故按 "/delete" 后缀即可取出 session key。
