@@ -57,6 +57,8 @@ struct Args {
     model: Option<String>,
     workspace: Option<String>,
     headless: bool,
+    /// HTTP server 绑定端口（默认 `0` = 随机）；E2E 固定端口便于 webServer 轮询。
+    http_port: Option<u16>,
 }
 
 fn parse_args(argv: &[String]) -> Result<Args, String> {
@@ -66,6 +68,7 @@ fn parse_args(argv: &[String]) -> Result<Args, String> {
         model: None,
         workspace: None,
         headless: false,
+        http_port: None,
     };
     let mut i = 0;
     while i < argv.len() {
@@ -82,6 +85,13 @@ fn parse_args(argv: &[String]) -> Result<Args, String> {
             "--preset" => args.preset = Some(value.clone()),
             "--model" => args.model = Some(value.clone()),
             "--workspace" => args.workspace = Some(value.clone()),
+            "--http-port" => {
+                args.http_port = Some(
+                    value
+                        .parse()
+                        .map_err(|_| format!("--http-port 非法: {value}"))?,
+                );
+            }
             other => return Err(format!("未知参数: {other}")),
         }
         i += 2;
@@ -188,8 +198,9 @@ fn main() -> ExitCode {
             .unwrap_or_else(lure_core::config::default_config_path);
         lure_core::config::load_config(&path).unwrap_or_default()
     };
+    let http_bind = format!("127.0.0.1:{}", args.http_port.unwrap_or(0));
     let mut http_server = match WebuiServer::bind(
-        "127.0.0.1:0",
+        &http_bind,
         FrontendAssets,
         http_config,
         lure_config,

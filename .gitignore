@@ -12,4 +12,13 @@
 !.env.example
 # Frontend (vendored nanobot WebUI)
 frontend/webui/node_modules/
-frontend/dist/
+frontend/nanobot/dist/
+frontend/nanobot/web/dist/
+frontend/dist
+
+# E2E (Playwright 契约测试)
+e2e/node_modules/
+e2e/.workspace/
+e2e/test-results/
+e2e/playwright-report/
+e2e/.playwright/
