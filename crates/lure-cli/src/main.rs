@@ -325,6 +325,17 @@ fn run_agent(args: &[String]) -> Result<AgentRun, String> {
     )?;
     let (channel, chat_id) = split_session_id(&session_id);
 
+    // cron 工具绑定当前会话 origin：agent 可 add/list/remove 定时任务，触发后投递回本会话。
+    agent_loop.register_tool(Box::new(lure_core::tool::CronTool::new(
+        workspace.clone(),
+        lure_core::tool::CronToolOrigin {
+            session_key: format!("{channel}:{chat_id}"),
+            channel: channel.clone(),
+            chat_id: chat_id.clone(),
+        },
+        "UTC",
+    )));
+
     match message {
         Some(message) => {
             let reply =

@@ -173,6 +173,15 @@ impl AgentLoop {
         self
     }
 
+    /// 追加注册单个工具（构造后动态挂载，如按会话绑定的 cron 工具）。
+    ///
+    /// 未挂载 registry 时自动创建；同名覆盖，保持首次注册顺序（见 [`ToolRegistry::register`]）。
+    pub fn register_tool(&mut self, tool: Box<dyn crate::tool::Tool>) {
+        self.tools
+            .get_or_insert_with(ToolRegistry::new)
+            .register(tool);
+    }
+
     /// 挂载长期记忆存储：每轮注入记忆块到 context，并把 user/assistant turn 追加到
     /// `history.jsonl`（供 dream consolidation）。
     pub fn with_memory(mut self, memory: MemoryStore) -> Self {
