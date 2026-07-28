@@ -48,11 +48,15 @@ fn mime_for(path: &str) -> &'static str {
 }
 
 /// 命令行参数（与 CLI 对齐：`--config`/`--preset`/`--model`/`--workspace`）。
+///
+/// `--headless`：不开窗口，仅起进程内 HTTP/WS server 并 park，stdout 打印
+/// `LURE_HTTP_URL=...` 供 E2E（Playwright）用真实浏览器驱动后端做契约测试。
 struct Args {
     config: Option<String>,
     preset: Option<String>,
     model: Option<String>,
     workspace: Option<String>,
+    headless: bool,
 }
 
 fn parse_args(argv: &[String]) -> Result<Args, String> {
@@ -61,10 +65,17 @@ fn parse_args(argv: &[String]) -> Result<Args, String> {
         preset: None,
         model: None,
         workspace: None,
+        headless: false,
     };
     let mut i = 0;
     while i < argv.len() {
         let flag = argv[i].as_str();
+        // 无值 flag 先处理，避免误吞下一个参数。
+        if flag == "--headless" {
+            args.headless = true;
+            i += 1;
+            continue;
+        }
         let value = argv.get(i + 1).ok_or_else(|| format!("{flag} 缺参数值"))?;
         match flag {
             "--config" => args.config = Some(value.clone()),
@@ -205,6 +216,17 @@ fn main() -> ExitCode {
     // 桌面窗口加载内嵌应用。
     let url = format!("http://{http_addr}/");
     eprintln!("Lure desktop 已启动: {url}（WS: ws://{ws_addr}/ws）");
+
+    // headless：不开窗口，打印机器可读 URL 后 park，供 E2E 真实浏览器驱动后端。
+    if args.headless {
+        println!("LURE_HTTP_URL={url}");
+        use std::io::Write;
+        let _ = std::io::stdout().flush();
+        loop {
+            thread::park();
+        }
+    }
+
     run_window(&url);
     ExitCode::SUCCESS
 }
