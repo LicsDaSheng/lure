@@ -230,10 +230,20 @@ impl<S: StaticAssets> WebuiServer<S> {
                 ),
             };
         }
-        if request.method() == &Method::Delete {
+        // 删除会话：前端走 GET /api/sessions/{key}/delete（附 delete_automations query，
+        // 会话级 automations 尚未实现故忽略），此外保留 DELETE /api/sessions/{key} 语义。
+        // query 已在 handle() 中剥离，故按 "/delete" 后缀即可取出 session key。
+        let delete_target = if key.ends_with("/delete") {
+            Some(key.trim_end_matches("/delete"))
+        } else if request.method() == &Method::Delete {
+            Some(key)
+        } else {
+            None
+        };
+        if let Some(session_key) = delete_target {
             let mut manager = SessionManager::new(&self.config.workspace)?;
-            return match manager.delete_stored(key) {
-                Ok(true) => respond_json(request, 200, serde_json::json!({"ok": true})),
+            return match manager.delete_stored(session_key) {
+                Ok(true) => respond_json(request, 200, serde_json::json!({"deleted": true})),
                 Ok(false) => respond_json(request, 404, serde_json::json!({"error": "not found"})),
                 Err(e) => respond_json(
                     request,

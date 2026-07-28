@@ -225,6 +225,72 @@ fn delete_session_removes_row() {
 }
 
 #[test]
+fn delete_session_via_get_delete_path_returns_deleted_shape() {
+    // 前端 deleteSession 走 GET /api/sessions/{key}/delete，并读取 result.deleted。
+    let dir = tempfile::tempdir().unwrap();
+    seed_session(&dir, "websocket:gone", "bye");
+    let (mut server, addr) = bind_server(&dir, fake_assets());
+    let boot = bootstrap(&mut server, addr);
+    let token = boot["api_token"].as_str().unwrap().to_string();
+
+    let (status, body) = roundtrip(
+        &mut server,
+        addr,
+        "GET",
+        "/api/sessions/websocket:gone/delete",
+        Some(&token),
+    );
+    assert_eq!(status, 200);
+    let body: Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(body["deleted"], true);
+
+    // 行已消失。
+    let (status, body) = roundtrip(&mut server, addr, "GET", "/api/sessions", Some(&token));
+    assert_eq!(status, 200);
+    let body: Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(body["sessions"].as_array().unwrap().len(), 0);
+
+    // 再删 → 404。
+    let (status, _) = roundtrip(
+        &mut server,
+        addr,
+        "GET",
+        "/api/sessions/websocket:gone/delete",
+        Some(&token),
+    );
+    assert_eq!(status, 404);
+
+    // delete_automations query 参数被接受（会话级 automations 尚未实现，删除照常）。
+    seed_session(&dir, "websocket:opt", "opt");
+    let (status, body) = roundtrip(
+        &mut server,
+        addr,
+        "GET",
+        "/api/sessions/websocket:opt/delete?delete_automations=true",
+        Some(&token),
+    );
+    assert_eq!(status, 200);
+    let body: Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(body["deleted"], true);
+}
+
+#[test]
+fn delete_session_via_get_delete_path_requires_api_token() {
+    let dir = tempfile::tempdir().unwrap();
+    seed_session(&dir, "websocket:gone", "bye");
+    let (mut server, addr) = bind_server(&dir, fake_assets());
+
+    let (status, _) = roundtrip(
+        &mut server,
+        addr,
+        "GET",
+        "/api/sessions/websocket:gone/delete",
+        None,
+    );
+    assert_eq!(status, 401);
+}
+
+#[test]
 fn webui_thread_returns_404_until_transcript_lands() {
     let dir = tempfile::tempdir().unwrap();
     seed_session(&dir, "websocket:t1", "hi");
