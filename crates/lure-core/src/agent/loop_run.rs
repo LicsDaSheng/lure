@@ -223,6 +223,16 @@ impl AgentLoop {
         self
     }
 
+    /// 当前生效的 model 标识（经 `with_runtime` 覆盖后为 runtime 快照的 model）。
+    pub fn model(&self) -> &str {
+        &self.model
+    }
+
+    /// 当前生成参数（temperature/max_tokens/reasoning_effort）。
+    pub fn settings(&self) -> &GenerationSettings {
+        &self.settings
+    }
+
     /// 只读访问 session 管理器（测试与诊断用）。
     pub fn sessions(&self) -> &SessionManager {
         &self.sessions

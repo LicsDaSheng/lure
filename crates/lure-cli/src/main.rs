@@ -647,7 +647,7 @@ fn run_interactive(
     show_reasoning: bool,
 ) -> Result<(), String> {
     println!(
-        "Lure interactive mode ({channel}:{chat_id}) — type exit, quit, /exit, /quit, or :q to quit；Ctrl-C 中断当前回合"
+        "Lure interactive mode ({channel}:{chat_id}) — /help 查看命令；exit/quit/:q 退出；Ctrl-C 中断当前回合"
     );
 
     // 取消令牌：SIGINT handler 经 CANCEL_PTR 置位，process_streaming 于检查点中止本轮。
@@ -705,9 +705,24 @@ fn run_interactive_loop(
         if command.is_empty() {
             continue;
         }
-        if is_exit_command(command) {
-            println!("Goodbye!");
-            break;
+        // slash 命令在发给 agent 前拦截：退出 / 打印信息 / 放行为普通消息。
+        let info = ReplInfo {
+            model: agent_loop.model().to_string(),
+            channel: channel.to_string(),
+            chat_id: chat_id.to_string(),
+            temperature: agent_loop.settings().temperature,
+            max_tokens: agent_loop.settings().max_tokens,
+        };
+        match handle_slash_command(command, &info) {
+            SlashResult::Quit => {
+                println!("Goodbye!");
+                break;
+            }
+            SlashResult::Output(text) => {
+                println!("{text}");
+                continue;
+            }
+            SlashResult::Passthrough => {}
         }
 
         // 流式驱动：内容增量实时写 stdout，工具调用等 progress 事件另起行显示，
@@ -822,6 +837,63 @@ fn is_exit_command(command: &str) -> bool {
         command.to_ascii_lowercase().as_str(),
         "exit" | "quit" | "/exit" | "/quit" | ":q"
     )
+}
+
+/// 交互模式当前状态快照，供 slash 命令渲染（纯数据，便于单测）。
+struct ReplInfo {
+    model: String,
+    channel: String,
+    chat_id: String,
+    temperature: f64,
+    max_tokens: u32,
+}
+
+/// 一行输入经 slash 分派后的结果。
+enum SlashResult {
+    /// slash 命令已处理：打印该文本后回到提示符。
+    Output(String),
+    /// 退出交互模式。
+    Quit,
+    /// 非命令：作为普通消息交给 agent。
+    Passthrough,
+}
+
+/// 交互模式帮助文案。
+fn slash_help_text() -> String {
+    [
+        "可用命令:",
+        "  /help              显示此帮助",
+        "  /model             显示当前模型与生成参数",
+        "  /session           显示当前会话信息",
+        "  /exit, /quit, :q   退出（exit / quit 亦可）",
+    ]
+    .join("\n")
+}
+
+/// 分派一行输入：退出命令、slash 命令或普通消息。
+///
+/// 只按首个 token 匹配，允许后缀参数（当前命令暂不消费）。未知 `/xxx` 返回引导 `/help`
+/// 的提示，不会误发给 agent。
+fn handle_slash_command(line: &str, info: &ReplInfo) -> SlashResult {
+    let trimmed = line.trim();
+    if is_exit_command(trimmed) {
+        return SlashResult::Quit;
+    }
+    if !trimmed.starts_with('/') {
+        return SlashResult::Passthrough;
+    }
+    match trimmed.split_whitespace().next().unwrap_or("") {
+        "/help" => SlashResult::Output(slash_help_text()),
+        "/model" => SlashResult::Output(format!(
+            "Model: {}\nTemperature: {}  Max tokens: {}",
+            info.model, info.temperature, info.max_tokens
+        )),
+        "/session" => SlashResult::Output(format!(
+            "Session: {}:{}\nChannel: {}  Chat: {}",
+            info.channel, info.chat_id, info.channel, info.chat_id
+        )),
+        other => SlashResult::Output(format!("未知命令: {other}（输入 /help 查看可用命令）")),
+    }
 }
 
 #[cfg(test)]
@@ -1104,5 +1176,82 @@ mod tests {
             }),
             None
         );
+    }
+
+    fn repl_info() -> ReplInfo {
+        ReplInfo {
+            model: "echo".to_string(),
+            channel: "cli".to_string(),
+            chat_id: "local".to_string(),
+            temperature: 0.7,
+            max_tokens: 4096,
+        }
+    }
+
+    #[test]
+    fn slash_help_lists_available_commands() {
+        let info = repl_info();
+        let SlashResult::Output(text) = handle_slash_command("/help", &info) else {
+            panic!("/help 应返回输出");
+        };
+        for token in ["/help", "/model", "/session", "/exit"] {
+            assert!(text.contains(token), "帮助应含 {token}: {text}");
+        }
+    }
+
+    #[test]
+    fn slash_model_shows_current_model_and_settings() {
+        let info = repl_info();
+        let SlashResult::Output(text) = handle_slash_command("/model", &info) else {
+            panic!("/model 应返回输出");
+        };
+        assert!(text.contains("echo"), "应含模型名: {text}");
+        assert!(text.contains("4096"), "应含 max_tokens: {text}");
+    }
+
+    #[test]
+    fn slash_session_shows_identity() {
+        let info = repl_info();
+        let SlashResult::Output(text) = handle_slash_command("/session", &info) else {
+            panic!("/session 应返回输出");
+        };
+        assert!(text.contains("cli"), "应含 channel: {text}");
+        assert!(text.contains("local"), "应含 chat_id: {text}");
+    }
+
+    #[test]
+    fn slash_command_ignores_trailing_args() {
+        // 只按首个 token 分派，允许后缀参数（暂不消费）。
+        assert!(matches!(
+            handle_slash_command("/model foo bar", &repl_info()),
+            SlashResult::Output(_)
+        ));
+    }
+
+    #[test]
+    fn unknown_slash_command_hints_help() {
+        let SlashResult::Output(text) = handle_slash_command("/nope", &repl_info()) else {
+            panic!("未知命令应返回提示输出");
+        };
+        assert!(text.contains("未知命令"), "应提示未知命令: {text}");
+        assert!(text.contains("/help"), "应引导 /help: {text}");
+    }
+
+    #[test]
+    fn exit_commands_quit() {
+        for cmd in ["exit", "quit", "/exit", "/quit", ":q"] {
+            assert!(
+                matches!(handle_slash_command(cmd, &repl_info()), SlashResult::Quit),
+                "{cmd} 应退出"
+            );
+        }
+    }
+
+    #[test]
+    fn plain_text_passes_through_to_agent() {
+        assert!(matches!(
+            handle_slash_command("hello world", &repl_info()),
+            SlashResult::Passthrough
+        ));
     }
 }

@@ -505,6 +505,53 @@ fn interactive_mode_processes_multibyte_utf8_turns() {
 }
 
 #[test]
+fn interactive_slash_commands_are_intercepted_not_sent_to_agent() {
+    // /help、/model 打印信息并回到提示符，不应产生 "echo: /help" 之类的回显。
+    let dir = tempdir().unwrap();
+    let mut child = lure()
+        .args([
+            "agent",
+            "--model",
+            "echo",
+            "--workspace",
+            dir.path().to_str().unwrap(),
+        ])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    {
+        let stdin = child.stdin.as_mut().unwrap();
+        stdin
+            .write_all(b"/help\n/model\n/nope\nhi\nexit\n")
+            .unwrap();
+    }
+
+    let output = child.wait_with_output().unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+
+    // slash 命令输出可见。
+    assert!(stdout.contains("可用命令:"), "/help 输出缺失: {stdout}");
+    assert!(stdout.contains("Model: echo"), "/model 输出缺失: {stdout}");
+    assert!(stdout.contains("未知命令"), "未知命令提示缺失: {stdout}");
+    // slash 命令未被当作消息发给 echo。
+    assert!(
+        !stdout.contains("echo: /help"),
+        "slash 不应发给 agent: {stdout}"
+    );
+    assert!(
+        !stdout.contains("echo: /model"),
+        "slash 不应发给 agent: {stdout}"
+    );
+    // 普通消息仍正常往返。
+    assert!(
+        stdout.contains("Assistant: echo: hi"),
+        "普通消息应回显: {stdout}"
+    );
+}
+
+#[test]
 fn interactive_mode_tolerates_non_utf8_input_bytes() {
     let dir = tempdir().unwrap();
     let mut child = lure()
