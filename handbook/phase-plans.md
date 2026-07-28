@@ -62,8 +62,8 @@
 ## Phase 10: WebUI 与 Desktop
 
 - **状态**：partial
-- **完成**：**desktop 纵向闭环**——原样 vendor 上游 React WebUI（`frontend/`，bun 构建，零改动）、`lure-desktop`（wry+tao 窗口）进程内 loopback HTTP（静态资源+SPA fallback、bootstrap/token 签发、`/api/sessions` 鉴权+DELETE）与 WS 复用协议（`webui::mux` + tungstenite transport）、agent loop 每连接独立实例（`AgentTurnRunner` 适配）。**transcript**：`TranscripStore` 在 turn 结束时写入 JSONL，`GET /api/sessions/{key}/webui-thread` 返回消息视图——桌面重开窗口可见历史对话。**dream**：`ProviderDreamRunner`（真实 LLM 驱动 memory consolidation）+ 阈值自动触发（`maybe_consolidate`，由 `AgentTurnRunner` 每轮 turn 后检查）。新增 42 个测试，smoke 验证通过。
-- **待补**：settings/skills/commands 等 /api 大表面、非 macOS 窗口适配。
+- **完成**：**desktop 纵向闭环**——原样 vendor 上游 React WebUI（`frontend/`，bun 构建，零改动）、`lure-desktop`（wry+tao 窗口）进程内 loopback HTTP（静态资源+SPA fallback、bootstrap/token 签发、`/api/sessions` 鉴权+DELETE）与 WS 复用协议（`webui::mux` + tungstenite transport）、agent loop 每连接独立实例（`AgentTurnRunner` 适配）。**transcript**：`TranscripStore` 在 turn 结束时写入 JSONL，`GET /api/sessions/{key}/webui-thread` 返回消息视图——桌面重开窗口可见历史对话。**dream**：`ProviderDreamRunner`（真实 LLM 驱动 memory consolidation）+ 阈值自动触发（`maybe_consolidate`，由 `AgentTurnRunner` 每轮 turn 后检查）+ config 驱动真实 provider（`build_provider`，缺 key 优雅回落 Echo）。**前端 /api 表面**：加载期读取全覆盖，按需读取（automations/file-preview/skill-detail）平稳降级，delete 改走 `GET /api/sessions/{key}/delete` + session key URL 解码（修 `%3A` 编码 404）。**E2E 契约测试**：`lure-desktop --headless`（无窗口起 server + 打印 `LURE_HTTP_URL`）+ `e2e/` Playwright smoke（加载/bootstrap → WS echo 往返 → 真实编码 key 删除回归），真实浏览器驱动。
+- **待补**：settings/channels 等变更大表面（GET-style 写）、media 代理、非 macOS 窗口适配。
 
 ## Phase 11: 打包、部署与迁移兼容
 
@@ -75,9 +75,11 @@
 
 CLI 交互体验已成体系并暂告段落：实时流式 → tool/progress 行 → reasoning delta 句级缓冲流 → spinner 后台定时动画 → 阶段语义标签（Thinking / Calling / Finalizing）→ Ctrl-C 中断当前 turn → 单轮 provider 错误容错。均以 TDD 落地，核心逻辑单测 + 本地 SSE mock 端到端验证。
 
+已完成（按价值收口）：**前端 /api stub 表面**（加载期 + 按需读取降级 + delete 编码修复）、**dream 接真实 provider**、**真实浏览器 E2E 契约测试**（`--headless` + Playwright smoke，见 [phase-execution.md](./phase-execution.md) WebUI 契约门禁）。
+
 按「用户可感知价值 × 当前覆盖缺口」排序，下一步：
 
-1. **补前端所需 /api stub**：用 `lure-desktop --model echo` 启动后观察前端还调用哪些 /api 端点（`/api/settings`、`/api/webui/sidebar-state` 等），逐个补空载荷 stub → 页面完整可用。
-2. **dream 接入 config 驱动的真实 provider**：`ProviderDreamRunner` + `ws_server.with_dream` + 阈值触发已就位，但 `lure-desktop` 目前装配的是 `EchoProvider`（离线安全、产出无意义）；换成 config 解析出的真实 provider 后 dream 产出才有质量。
-3. **cron 表达式 + 工具化**：补 `croniter` 等价实现，让 cron job 真正可调度；暴露 cron/trigger 为 agent 可用工具。
-4. **CLI slash commands**：交互模式内 `/help`、`/model`、`/session` 等命令（Phase 3 待补）。
+1. **cron 表达式 + 工具化**：补 `croniter` 等价实现，让 cron job 真正可调度；暴露 cron/trigger 为 agent 可用工具。
+2. **CLI slash commands**：交互模式内 `/help`、`/model`、`/session` 等命令（Phase 3 待补）。
+3. **E2E 扩面**：settings 面板、会话历史重开、跨会话切换等关键用户流补 Playwright 覆盖；接入 CI。
+4. **settings 变更大表面**：`/settings/*/update` 等 GET-style 写操作接真实能力（当前仅读端点有载荷）。

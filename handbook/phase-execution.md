@@ -60,6 +60,22 @@
 - 先阅读上游测试，不直接运行上游测试作为本项目完成证据。
 - 本项目必须有等价 Rust 测试或在台账中记录暂缓原因。
 
+## WebUI 契约门禁（真实浏览器 E2E）
+
+Rust 集成测试用字面参数、无浏览器，**照不出前后端契约错配**（URL 编码、响应形状、
+method、WS、bootstrap）。典型：前端 `encodeURIComponent` 把 session key 的 `:` 编码为
+`%3A`，服务端未解码导致删除 404——Rust 测试全绿仍漏。
+
+因此，凡改动满足以下任一，除 Rust 全量门禁外**必须过 `e2e/` 的 Playwright smoke**：
+
+- `webui` HTTP/WS 路由、响应形状或 key/路径编码；
+- 前端 vendor（`frontend/webui`）同步或 `frontend/dist` 构建产物；
+- `lure-desktop` server 装配（provider、dream、transcript 接线）。
+
+运行：`cd e2e && bun run e2e`（`webServer` 自动构建 dist + 拉起 `lure-desktop
+--headless --model echo`，离线确定性）。首次需 `bun install` + `bunx playwright
+install chromium`。详见 [../e2e/README.md](../e2e/README.md)。
+
 ## Git 卫生
 
 - 修改前后执行 `rtk git status --short --branch`。

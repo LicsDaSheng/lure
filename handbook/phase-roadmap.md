@@ -12,5 +12,5 @@
 | Phase 7 Gateway | partial | Inbound/OutboundMessage、MessageBus、Channel trait、Gateway 编排、progress 事件传播 | 真实 channel 平台 |
 | Phase 8 Cron | partial | cron store 持久化/next-run/session delivery/heartbeat、trigger at-least-once | 完整 cron 表达式 |
 | Phase 9 API | partial | ChatServer(tiny_http)、/v1/models、逐 token SSE、session 并发锁 | media 上传、SDK facade |
-| Phase 10 WebUI | partial | **desktop 闭环**——vendor React 前端、wry 窗口、loopback HTTP/WS、agent loop 每连接独立、transcript/webui-thread 持久化 | /api 大表面、非 macOS |
+| Phase 10 WebUI | partial | **desktop 闭环**——vendor React 前端、wry 窗口、loopback HTTP/WS、agent loop 每连接独立、transcript/webui-thread 持久化、/api 读表面全覆盖、dream 接真实 provider、`--headless` + Playwright E2E 契约测试 | settings 变更大表面、media 代理、非 macOS、E2E 扩面+CI |
 | Phase 11 打包 | partial | config/Docker/legacy 迁移骨架、release checklist | 完整 release pipeline |
