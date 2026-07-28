@@ -275,6 +275,33 @@ fn delete_session_via_get_delete_path_returns_deleted_shape() {
 }
 
 #[test]
+fn delete_session_via_get_delete_path_decodes_url_encoded_key() {
+    // 前端用 encodeURIComponent(key)，session key 的 ':' 被编码为 '%3A'；
+    // 服务端须 URL 解码后再查表，否则真实会话删不掉（404）。
+    let dir = tempfile::tempdir().unwrap();
+    seed_session(&dir, "websocket:e5e99458-fd74", "bye");
+    let (mut server, addr) = bind_server(&dir, fake_assets());
+    let boot = bootstrap(&mut server, addr);
+    let token = boot["api_token"].as_str().unwrap().to_string();
+
+    let (status, body) = roundtrip(
+        &mut server,
+        addr,
+        "GET",
+        "/api/sessions/websocket%3Ae5e99458-fd74/delete",
+        Some(&token),
+    );
+    assert_eq!(status, 200);
+    let body: Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(body["deleted"], true);
+
+    let (status, body) = roundtrip(&mut server, addr, "GET", "/api/sessions", Some(&token));
+    assert_eq!(status, 200);
+    let body: Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(body["sessions"].as_array().unwrap().len(), 0);
+}
+
+#[test]
 fn delete_session_via_get_delete_path_requires_api_token() {
     let dir = tempfile::tempdir().unwrap();
     seed_session(&dir, "websocket:gone", "bye");

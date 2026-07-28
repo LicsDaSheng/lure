@@ -219,8 +219,8 @@ impl<S: StaticAssets> WebuiServer<S> {
         }
         let key = path.trim_start_matches("/api/sessions/");
         if key.ends_with("/webui-thread") {
-            let session_key = key.trim_end_matches("/webui-thread");
-            return match self.transcript.read_thread(session_key) {
+            let session_key = percent_decode(key.trim_end_matches("/webui-thread"));
+            return match self.transcript.read_thread(&session_key) {
                 Ok(Some(payload)) => respond_json(request, 200, payload),
                 Ok(None) => respond_json(request, 404, serde_json::json!({"error": "not found"})),
                 Err(_) => respond_json(
@@ -264,8 +264,9 @@ impl<S: StaticAssets> WebuiServer<S> {
             None
         };
         if let Some(session_key) = delete_target {
+            let session_key = percent_decode(session_key);
             let mut manager = SessionManager::new(&self.config.workspace)?;
-            return match manager.delete_stored(session_key) {
+            return match manager.delete_stored(&session_key) {
                 Ok(true) => respond_json(request, 200, serde_json::json!({"deleted": true})),
                 Ok(false) => respond_json(request, 404, serde_json::json!({"error": "not found"})),
                 Err(e) => respond_json(
@@ -353,6 +354,35 @@ fn workspaces_stub(workspace: &std::path::Path) -> serde_json::Value {
         },
         "controls": {"can_change_project": false, "can_use_full_access": false}
     })
+}
+
+/// 最小百分号解码：还原 `%XX`。前端 `encodeURIComponent(key)` 会把 session key 的
+/// `:` 编码为 `%3A`，服务端须解码后再查表，否则真实会话删不掉/历史读不到。
+/// 不完整或非 UTF-8 的转义序列原样返回。
+fn percent_decode(input: &str) -> std::borrow::Cow<'_, str> {
+    if !input.contains('%') {
+        return std::borrow::Cow::Borrowed(input);
+    }
+    let bytes = input.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%' && i + 2 < bytes.len() {
+            let hi = (bytes[i + 1] as char).to_digit(16);
+            let lo = (bytes[i + 2] as char).to_digit(16);
+            if let (Some(hi), Some(lo)) = (hi, lo) {
+                out.push((hi * 16 + lo) as u8);
+                i += 3;
+                continue;
+            }
+        }
+        out.push(bytes[i]);
+        i += 1;
+    }
+    match String::from_utf8(out) {
+        Ok(s) => std::borrow::Cow::Owned(s),
+        Err(_) => std::borrow::Cow::Borrowed(input),
+    }
 }
 
 fn respond_json(request: Request, status: u16, body: serde_json::Value) -> io::Result<()> {
