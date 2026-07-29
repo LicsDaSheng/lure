@@ -4,8 +4,9 @@
 //! - `at`：`at_ms` 在未来则返回，否则 `None`（已过期不再触发）。
 //! - `every`：`now_ms + every_ms`（`every_ms` 需为正）。
 //! - `cron`：解析 5 字段表达式，从 `now` 起严格下一次匹配的墙钟分钟（见 [`crate::cron::expr`]）。
-//!   tz：`None`→本地时区、`UTC`/`Z`→UTC；其它 IANA 名暂不支持返回 `None`（无 chrono-tz，
-//!   见 upstream-test-ledger）。任何解析错误亦回落 `None`（对齐上游 except→None）。
+//!   tz：`None`→本地时区、`UTC`/`Z`→UTC、具名 IANA 名（如 `America/New_York`）经
+//!   chrono-tz 按其 DST 规则解释。任何解析错误（非法表达式 / 未知 tz 名）回落 `None`
+//!   （对齐上游 croniter/zoneinfo except→None）。
 
 use chrono::{LocalResult, TimeZone};
 
@@ -35,8 +36,12 @@ fn compute_cron_next_run(schedule: &CronSchedule, now_ms: i64) -> Option<i64> {
         Some(tz) if tz.eq_ignore_ascii_case("utc") || tz == "Z" => {
             next_after(&expr, &chrono::Utc, now_ms)
         }
-        // 其它 IANA 名需 chrono-tz，暂不支持。
-        Some(_) => None,
+        // 具名 IANA 时区（含 DST 规则）经 chrono-tz 解析；无法解析回落 None
+        // （对齐上游 zoneinfo 异常→None）。DST 跳变的处理见 [`next_after`]。
+        Some(name) => {
+            let tz: chrono_tz::Tz = name.parse().ok()?;
+            next_after(&expr, &tz, now_ms)
+        }
     }
 }
 

@@ -99,10 +99,25 @@ fn add_tz_without_cron_expr_errors() {
 }
 
 #[test]
-fn add_unsupported_tz_errors() {
+fn add_named_iana_tz_succeeds_and_persists() {
     let dir = tempfile::tempdir().unwrap();
     let res = tool(&dir).execute(&json!({
         "action": "add", "message": "x", "cron_expr": "0 9 * * *", "tz": "America/New_York"
+    }));
+    assert!(!res.is_error, "具名 IANA 时区应被接受: {}", res.content);
+
+    let store = CronStore::load(dir.path()).unwrap();
+    let job = &store.jobs()[0];
+    assert_eq!(job.schedule.tz.as_deref(), Some("America/New_York"));
+    // 具名时区能算出 next_run（经 chrono-tz）。
+    assert!(job.state.next_run_at_ms.is_some());
+}
+
+#[test]
+fn add_invalid_tz_name_errors() {
+    let dir = tempfile::tempdir().unwrap();
+    let res = tool(&dir).execute(&json!({
+        "action": "add", "message": "x", "cron_expr": "0 9 * * *", "tz": "Mars/Olympus"
     }));
     assert!(res.is_error);
     assert!(res.content.contains("时区"));

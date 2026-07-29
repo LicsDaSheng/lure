@@ -6,7 +6,8 @@
 //! 校验（顶层 schema 保持扁平，兼容不接受 oneOf/enum 根的 provider）。
 //!
 //! 存储：每次调用 load/save `CronStore`（workspace/cron/jobs.json），无共享可变状态。
-//! tz：仅支持 UTC（默认）；非 UTC IANA 名暂拒绝（无 chrono-tz，见 upstream-test-ledger）。
+//! tz：UTC（默认）或任意可被 chrono-tz 解析的 IANA 名（如 `Asia/Shanghai`），
+//! 按其 DST 规则解释；无法识别的名字在 add 时拒绝。
 
 use std::path::PathBuf;
 
@@ -37,7 +38,7 @@ pub struct CronTool {
 }
 
 impl CronTool {
-    /// 新建绑定到某会话的 cron 工具。`default_tz` 目前仅支持 `UTC`。
+    /// 新建绑定到某会话的 cron 工具。`default_tz` 为默认时区（`UTC` 或 IANA 名）。
     pub fn new(
         workspace: impl Into<PathBuf>,
         origin: CronToolOrigin,
@@ -80,7 +81,7 @@ impl CronTool {
             let effective_tz = tz.unwrap_or(&self.default_tz);
             if !is_supported_tz(effective_tz) {
                 return ToolResult::error(format!(
-                    "Error: 暂不支持时区 '{effective_tz}'（当前仅支持 UTC）"
+                    "Error: 无法识别时区 '{effective_tz}'（用 UTC 或 IANA 名如 Asia/Shanghai）"
                 ));
             }
             (
@@ -193,7 +194,7 @@ impl Tool for CronTool {
     fn description(&self) -> &str {
         "排期提醒与循环任务。action: add/list/remove。add 需 message 与一种调度\
          （every_seconds 循环、cron_expr 表达式、at 单次 ISO 时间）；remove 需 job_id。\
-         时区当前仅支持 UTC。"
+         cron_expr 可搭配 tz（UTC 或 IANA 名如 Asia/Shanghai）。"
     }
 
     fn parameters(&self) -> Value {
@@ -205,7 +206,7 @@ impl Tool for CronTool {
                 "message": {"type": "string", "description": "action=add 必填：触发时给 agent 的指令"},
                 "every_seconds": {"type": "integer", "description": "循环间隔秒数"},
                 "cron_expr": {"type": "string", "description": "cron 表达式，如 '0 9 * * *'"},
-                "tz": {"type": "string", "description": "cron_expr 的 IANA 时区（当前仅 UTC）"},
+                "tz": {"type": "string", "description": "cron_expr 的时区：UTC 或 IANA 名（如 Asia/Shanghai），默认 UTC"},
                 "at": {"type": "string", "description": "单次执行的 ISO 时间，如 '2026-02-12T10:30:00'"},
                 "job_id": {"type": "string", "description": "action=remove 必填：要删除的任务 id（用 list 获取）"}
             },
@@ -224,9 +225,9 @@ impl Tool for CronTool {
     }
 }
 
-/// 仅 UTC 视为受支持（无 chrono-tz）。
+/// UTC/Z 或任意可被 chrono-tz 解析的 IANA 名视为受支持。
 fn is_supported_tz(tz: &str) -> bool {
-    tz.eq_ignore_ascii_case("utc") || tz == "Z"
+    tz.eq_ignore_ascii_case("utc") || tz == "Z" || tz.parse::<chrono_tz::Tz>().is_ok()
 }
 
 /// 解析 ISO 时间为 epoch ms：带偏移用之，naive 视为 UTC。

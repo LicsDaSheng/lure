@@ -89,9 +89,38 @@ fn invalid_expr_returns_none() {
 }
 
 #[test]
-fn unsupported_named_timezone_returns_none() {
-    // 非 UTC IANA 名暂不支持（无 chrono-tz）→ None（对齐上游异常回落）。
+fn named_timezone_shanghai_offset_plus_eight() {
+    // Asia/Shanghai 恒为 UTC+8（无 DST）。NOW=2026-01-01T00:00Z=当地 08:00；
+    // 严格之后第一个 09:00 当地 = 09:00 CST = 01:00 UTC = NOW + 1h。
+    let sched = CronSchedule::cron("0 9 * * *", Some("Asia/Shanghai".to_string()));
+    assert_eq!(compute_next_run(&sched, NOW), Some(NOW + 3600 * 1000));
+}
+
+#[test]
+fn named_timezone_new_york_winter_is_est() {
+    // America/New_York 一月为 EST（UTC-5）。NOW 当地 = 2025-12-31 19:00 EST；
+    // 下个 09:00 EST = 2026-01-01 09:00 EST = 14:00 UTC = NOW + 14h。
     let sched = CronSchedule::cron("0 9 * * *", Some("America/New_York".to_string()));
+    assert_eq!(compute_next_run(&sched, NOW), Some(NOW + 14 * 3600 * 1000));
+}
+
+#[test]
+fn named_timezone_skips_dst_spring_forward_gap() {
+    // 2026-03-08 美东 02:00 EST→03:00 EDT：当地 02:00–02:59 不存在。
+    // cron 02:30 在 3-8 无对应 UTC 瞬间→跳过，落到 3-9 02:30 EDT（UTC-4）= 3-9 06:30 UTC。
+    // DST_NOW = 2026-03-08T00:00:00Z = NOW + 66 天；期望 = DST_NOW + 1 天 6.5 时。
+    const DST_NOW: i64 = NOW + 66 * 86_400 * 1000;
+    let sched = CronSchedule::cron("30 2 * * *", Some("America/New_York".to_string()));
+    assert_eq!(
+        compute_next_run(&sched, DST_NOW),
+        Some(DST_NOW + (86_400 + 6 * 3600 + 30 * 60) * 1000)
+    );
+}
+
+#[test]
+fn invalid_timezone_name_returns_none() {
+    // 无法解析的 tz 名 → None（对齐上游异常回落）。
+    let sched = CronSchedule::cron("0 9 * * *", Some("Mars/Olympus".to_string()));
     assert_eq!(compute_next_run(&sched, NOW), None);
 }
 

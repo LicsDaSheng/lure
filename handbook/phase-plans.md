@@ -50,8 +50,8 @@
 ## Phase 8: Automations、Cron 与 Trigger
 
 - **状态**：partial
-- **完成**：cron store 持久化、next-run 计算（at/every/**cron 表达式**）、标准 5 字段 cron 解析（`* , - /`、dow 0-7、dom/dow OR）+ UTC/本地时区 next-run（`cron::expr`）、session-bound delivery、heartbeat protected job、trigger at-least-once 投递队列（忙等/limit）、**`cron` agent 工具**（add/list/remove，绑定会话 origin，已接入 CLI）、**cron service 定时执行**（`CronService::tick` + `record_run` 推进/删一次性、`CronScheduler` 后台轮询工厂线程、`GatewayCronRunner` 经 gateway 投递）、**接入长驻宿主**（lure-desktop 常驻 `CronScheduler`，`CronTurnRunner` 跑 agent turn 并写 origin 会话 transcript → webui 下次打开可见，headless 端到端验证）、**cron 实时推送**（`webui::hub::WsHub` 按 chat_id 索引在线连接的出站 sender；WS 连接读循环改为「读超时 + drain 推送队列」模型，客户端 attach 某会话即幂等订阅、断开注销；`CronTurnRunner` 产出后 `hub.push` 向在线连接推 `message`+`session_updated`——**在线即刻可见、无需刷新**，离线回落 transcript；单元测试覆盖 hub 路由/隔离/剪枝，真实 WS 集成测试 + headless 端到端验证全链路）。
-- **待补**：IANA 具名时区（接 chrono-tz）、cron 名称/宏/扩展、run history、jobs.json 并发读写加锁。
+- **完成**：cron store 持久化、next-run 计算（at/every/**cron 表达式**）、标准 5 字段 cron 解析（`* , - /`、dow 0-7、dom/dow OR）+ UTC/本地时区 next-run（`cron::expr`）、session-bound delivery、heartbeat protected job、trigger at-least-once 投递队列（忙等/limit）、**`cron` agent 工具**（add/list/remove，绑定会话 origin，已接入 CLI）、**cron service 定时执行**（`CronService::tick` + `record_run` 推进/删一次性、`CronScheduler` 后台轮询工厂线程、`GatewayCronRunner` 经 gateway 投递）、**接入长驻宿主**（lure-desktop 常驻 `CronScheduler`，`CronTurnRunner` 跑 agent turn 并写 origin 会话 transcript → webui 下次打开可见，headless 端到端验证）、**cron 实时推送**（`webui::hub::WsHub` 按 chat_id 索引在线连接的出站 sender；WS 连接读循环改为「读超时 + drain 推送队列」模型，客户端 attach 某会话即幂等订阅、断开注销；`CronTurnRunner` 产出后 `hub.push` 向在线连接推 `message`+`session_updated`——**在线即刻可见、无需刷新**，离线回落 transcript；单元测试覆盖 hub 路由/隔离/剪枝，真实 WS 集成测试 + headless 端到端验证全链路）、**IANA 具名时区**（`schedule.tz` 具名 IANA 名经 chrono-tz 解析，`next_after` 泛型时区逐分钟步进天然处理 DST——spring-forward 不存在的墙钟分钟自动跳过；cron 工具 `is_supported_tz` 放开为任意合法 IANA 名，非法名 add 时拒绝；测试覆盖 Shanghai(+8)/New_York(EST) 偏移 + DST 跳变 + 非法名回落）。
+- **待补**：cron 名称/宏/扩展、run history、jobs.json 并发读写加锁。
 
 ## Phase 9: OpenAI-compatible API 与 SDK 表面
 
@@ -75,10 +75,10 @@
 
 CLI 交互体验已成体系并暂告段落：实时流式 → tool/progress 行 → reasoning delta 句级缓冲流 → spinner 后台定时动画 → 阶段语义标签（Thinking / Calling / Finalizing）→ Ctrl-C 中断当前 turn → 单轮 provider 错误容错。均以 TDD 落地，核心逻辑单测 + 本地 SSE mock 端到端验证。
 
-已完成（按价值收口）：**前端 /api stub 表面**、**dream 接真实 provider**、**真实浏览器 E2E 契约测试**（`--headless` + Playwright smoke，见 [phase-execution.md](./phase-execution.md) WebUI 契约门禁）、**CLI slash commands**、**cron 表达式**、**`cron` agent 工具**、**cron service 定时执行 + 接入 lure-desktop 长驻宿主**（排期任务后台自动跑，产出写 transcript，webui 下次打开可见）、**settings 写入大表面**（agent/provider/model-preset GET-style 写、原子落盘生效）、**settings 写入面 E2E 契约覆盖 + E2E hermetic 化**（隔离 config + 种子，消除对开发者真实 config 的隐式依赖）、**cron 实时推送**（WsHub 在线连接注册表 + 连接读循环 drain，cron 产出实时推给在线连接，无需刷新）。**Phase 8 cron 链路已端到端打通（含实时推送）**；**Phase 10 settings 读写双向 + 浏览器契约**已闭环。
+已完成（按价值收口）：**前端 /api stub 表面**、**dream 接真实 provider**、**真实浏览器 E2E 契约测试**（`--headless` + Playwright smoke，见 [phase-execution.md](./phase-execution.md) WebUI 契约门禁）、**CLI slash commands**、**cron 表达式**、**`cron` agent 工具**、**cron service 定时执行 + 接入 lure-desktop 长驻宿主**（排期任务后台自动跑，产出写 transcript，webui 下次打开可见）、**settings 写入大表面**（agent/provider/model-preset GET-style 写、原子落盘生效）、**settings 写入面 E2E 契约覆盖 + E2E hermetic 化**（隔离 config + 种子，消除对开发者真实 config 的隐式依赖）、**cron 实时推送**（WsHub 在线连接注册表 + 连接读循环 drain，cron 产出实时推给在线连接，无需刷新）、**IANA 具名时区**（chrono-tz，含 DST 正确处理；cron 工具接受任意合法 IANA 名）。**Phase 8 cron 链路已端到端打通（含实时推送 + 具名时区）**；**Phase 10 settings 读写双向 + 浏览器契约**已闭环。
 
 按「用户可感知价值 × 当前覆盖缺口」排序，下一步：
 
-1. **IANA 具名时区**：`schedule.tz` 接 chrono-tz，让 cron 表达式按用户时区（而非仅 UTC/本地）解释——具名时区是排期功能的常见真实需求。
-2. **E2E 扩面**：跨会话切换、new-chat、真实驱动 settings 面板 UI（当前 settings E2E 走浏览器上下文 fetch，未点透前端组件）等关键用户流补 Playwright 覆盖。
-3. **channels 真实平台 / media 代理**：Gateway 接真实 channel（telegram/discord…）、webui media 上传代理。
+1. **E2E 扩面**：跨会话切换、new-chat、真实驱动 settings 面板 UI（当前 settings E2E 走浏览器上下文 fetch，未点透前端组件）等关键用户流补 Playwright 覆盖。
+2. **channels 真实平台 / media 代理**：Gateway 接真实 channel（telegram/discord…）、webui media 上传代理。
+3. **cron run history / jobs.json 并发加锁**：cron 执行历史记录、多写者并发保护。
