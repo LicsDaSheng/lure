@@ -138,6 +138,57 @@ fn full_turn_over_real_websocket() {
 }
 
 #[test]
+fn hub_push_reaches_attached_connection() {
+    // 服务端主动推送（cron 定时产出）→ 已 attach 该会话的在线连接实时收到，无需刷新。
+    let issuer = Arc::new(Mutex::new(TokenIssuer::new(3600, 16)));
+    let token = issuer.lock().unwrap().issue().token;
+    let (mut server, addr) = bind(issuer);
+    let hub = server.hub();
+
+    let handle = std::thread::spawn(move || {
+        server.handle_next().unwrap();
+        server
+    });
+
+    let mut ws = connect_ws(addr, &format!("?token={token}"));
+    let _ready = read_frame(&mut ws);
+
+    // attach 到 cron 会话 chat_id；读到 attached 即证明服务端已处理并订阅。
+    ws.send(Message::Text(
+        json!({"type": "attach", "chat_id": "cron-chat"})
+            .to_string()
+            .into(),
+    ))
+    .unwrap();
+    let attached = read_frame(&mut ws);
+    assert_eq!(
+        attached,
+        json!({"event": "attached", "chat_id": "cron-chat"})
+    );
+
+    // 模拟 cron 推送；订阅可见性理论上有微小竞态，重试直到投递。
+    let frame = json!({"event": "message", "chat_id": "cron-chat", "text": "⏰ 定时产出"});
+    let mut delivered = 0;
+    for _ in 0..50 {
+        delivered = hub.push("cron-chat", &frame);
+        if delivered > 0 {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+    assert_eq!(delivered, 1, "推送应投递到已 attach 的在线连接");
+
+    // 客户端在读超时 drain 循环内收到推送帧（延迟上界约 READ_POLL）。
+    let pushed = read_frame(&mut ws);
+    assert_eq!(pushed["event"], "message");
+    assert_eq!(pushed["chat_id"], "cron-chat");
+    assert_eq!(pushed["text"], "⏰ 定时产出");
+
+    drop(ws);
+    let _ = handle.join();
+}
+
+#[test]
 fn agent_turn_runner_drives_agent_loop_streaming() {
     let dir = TempDir::new().unwrap();
     let sessions = SessionManager::new(dir.path()).unwrap();

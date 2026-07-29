@@ -17,6 +17,7 @@ use lure_core::cron::{
     origin_delivery_context, CronJob, CronJobRunner, CronScheduler, CronService, RunStatus,
 };
 use lure_core::session::SessionManager;
+use lure_core::webui::hub::WsHub;
 use lure_core::webui::transcript::TranscripStore;
 
 /// cron 调度默认轮询间隔（ms）：cron 最小粒度为分钟，30s 轮询确保到期后半分钟内触发。
@@ -31,11 +32,13 @@ fn cron_poll_interval() -> Duration {
     Duration::from_millis(ms)
 }
 
-/// 桌面 cron 执行：跑 job 的 agent turn，并把 (message, reply) 写入 origin 会话 transcript，
-/// 使 webui 下次打开该会话可见定时产出。缺 origin 记 `Skipped`，agent 出错记 `Error`。
+/// 桌面 cron 执行：跑 job 的 agent turn，把 (message, reply) 写入 origin 会话 transcript，
+/// 并向**在线**查看该会话的 WS 连接实时推送产出（无需刷新即见）。
+/// 缺 origin 记 `Skipped`，agent 出错记 `Error`。
 struct CronTurnRunner {
     agent: AgentLoop,
     transcript: TranscripStore,
+    hub: WsHub,
 }
 
 impl CronJobRunner for CronTurnRunner {
@@ -56,6 +59,18 @@ impl CronJobRunner for CronTurnRunner {
                     &session_key,
                     &job.payload.message,
                     &outcome.final_content,
+                );
+                // 向在线连接实时推送：assistant 回复 + session_updated 刷新侧栏。
+                // 无在线连接（push 返回 0）时静默——transcript 已落，下次打开可见。
+                let reply = serde_json::json!({
+                    "event": "message",
+                    "chat_id": chat_id,
+                    "text": outcome.final_content,
+                });
+                self.hub.push(&chat_id, &reply);
+                self.hub.push(
+                    &chat_id,
+                    &serde_json::json!({"event": "session_updated", "chat_id": chat_id}),
                 );
                 RunStatus::Ok
             }
@@ -231,6 +246,8 @@ fn main() -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
+    // 在移入 serve 线程前取 hub 句柄：交给 cron runner 做服务端实时推送。
+    let cron_hub = ws_server.hub();
     thread::spawn(move || {
         let _ = ws_server.serve_forever();
     });
@@ -279,15 +296,16 @@ fn main() -> ExitCode {
         let _ = http_server.serve_forever();
     });
 
-    // cron 后台调度：常驻线程每 CRON_POLL 轮询到期 job，跑 agent turn 并把结果写入
-    // transcript——用户下次在 webui 打开该会话即见定时任务的产出。runner 在线程内构建
-    // （AgentLoop/TranscripStore 非 Send，经工厂闭包避免跨线程移动）。
+    // cron 后台调度：常驻线程每 CRON_POLL 轮询到期 job，跑 agent turn，把结果写入
+    // transcript 并向在线连接实时推送——在线时即刻可见，离线时下次打开会话可见。
+    // runner 在线程内构建（AgentLoop/TranscripStore 非 Send，经工厂闭包避免跨线程移动）。
     let _cron_scheduler = {
         let config = args.config.clone();
         let preset = args.preset.clone();
         let model = args.model.clone();
         let ws = workspace.clone();
         let transcript = cron_transcript;
+        let hub = cron_hub;
         CronScheduler::spawn(
             CronService::new(&workspace),
             move || {
@@ -300,7 +318,11 @@ fn main() -> ExitCode {
                     sessions,
                 )
                 .expect("cron agent loop 构建失败（检查 --config/--preset/--model 与 API key）");
-                CronTurnRunner { agent, transcript }
+                CronTurnRunner {
+                    agent,
+                    transcript,
+                    hub: hub.clone(),
+                }
             },
             cron_poll_interval(),
         )

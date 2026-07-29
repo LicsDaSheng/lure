@@ -9,8 +9,11 @@
 
 use std::io;
 use std::net::{SocketAddr, TcpListener, TcpStream};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::mpsc::{self, Receiver};
 use std::sync::{Arc, Mutex};
 use std::thread;
+use std::time::Duration;
 
 use serde_json::Value;
 use tungstenite::handshake::server::{ErrorResponse, Request, Response};
@@ -19,9 +22,14 @@ use tungstenite::{accept_hdr, Message};
 use crate::agent::AgentLoop;
 use crate::bus::InboundMessage;
 use crate::memory::DreamRunner;
+use crate::webui::hub::WsHub;
 use crate::webui::mux::{MuxSession, TurnRunner};
 use crate::webui::tokens::TokenIssuer;
 use crate::webui::transcript::TranscripStore;
+
+/// 连接读循环的轮询超时：读阻塞至多这么久即回来 drain 一次服务端推送队列，
+/// 从而把 cron 推送延迟上界约束在此值内（同时保持单线程持有 socket，无并发写竞争）。
+const READ_POLL: Duration = Duration::from_millis(250);
 
 /// 把 [`AgentLoop`] 适配为 mux 的 [`TurnRunner`]（channel 固定 `websocket`）。
 ///
@@ -83,6 +91,8 @@ where
     factory: Arc<Mutex<F>>,
     issuer: Arc<Mutex<TokenIssuer>>,
     transcript: Option<TranscripStore>,
+    hub: WsHub,
+    next_conn_id: Arc<AtomicU64>,
     // `fn() -> R` 形态：Send/Sync 只取决于 F，与 R 无关（R 在连接线程内创建使用）。
     _marker: std::marker::PhantomData<fn() -> R>,
 }
@@ -104,6 +114,8 @@ where
             factory: Arc::new(Mutex::new(factory)),
             issuer,
             transcript,
+            hub: WsHub::new(),
+            next_conn_id: Arc::new(AtomicU64::new(1)),
             _marker: std::marker::PhantomData,
         })
     }
@@ -112,14 +124,21 @@ where
         self.listener.local_addr()
     }
 
+    /// 在线连接注册表的克隆句柄：交给 cron runner 等服务端主动推送方。
+    pub fn hub(&self) -> WsHub {
+        self.hub.clone()
+    }
+
     pub fn handle_next(&mut self) -> io::Result<bool> {
         let (stream, _) = self.listener.accept()?;
         let issuer = self.issuer.clone();
         let factory = self.factory.clone();
         let transcript = self.transcript.clone();
+        let hub = self.hub.clone();
+        let conn_id = self.next_conn_id.fetch_add(1, Ordering::Relaxed);
         thread::spawn(move || {
             let runner = factory.lock().expect("factory 锁中毒")();
-            serve_connection(stream, runner, issuer, transcript);
+            serve_connection(stream, runner, issuer, transcript, hub, conn_id);
         });
         Ok(true)
     }
@@ -135,6 +154,8 @@ fn serve_connection<R: TurnRunner>(
     runner: R,
     issuer: Arc<Mutex<TokenIssuer>>,
     transcript: Option<TranscripStore>,
+    hub: WsHub,
+    conn_id: u64,
 ) {
     let mut ws = match accept_hdr(stream, |req: &Request, resp: Response| {
         handshake_auth(req, resp, &issuer)
@@ -142,28 +163,83 @@ fn serve_connection<R: TurnRunner>(
         Ok(ws) => ws,
         Err(_) => return,
     };
+    // 读超时：令读循环周期性回来 drain 服务端推送队列（见 READ_POLL）。
+    // 设置失败不致命——退化为纯请求/响应，推送延迟到下次客户端活动。
+    let _ = ws.get_ref().set_read_timeout(Some(READ_POLL));
 
     let mut mux = match transcript {
         Some(t) => MuxSession::new_with_transcript(runner, t),
         None => MuxSession::new(runner),
     };
-    if !send_json(&mut ws, &mux.ready_frame()) {
+
+    // 本连接的服务端推送通道：hub 持 sender，读循环 drain receiver 写回 socket。
+    let (tx, rx) = mpsc::channel::<Value>();
+
+    let ready = mux.ready_frame();
+    // 订阅默认 chat_id：用户停留在新会话时，其中创建的 cron 产出可直达本连接。
+    if let Some(chat_id) = frame_chat_id(&ready) {
+        hub.subscribe(chat_id, conn_id, tx.clone());
+    }
+    if !send_json(&mut ws, &ready) {
+        hub.remove_conn(conn_id);
         return;
     }
 
+    let alive = connection_loop(&mut ws, &mut mux, &hub, conn_id, &tx, &rx);
+    hub.remove_conn(conn_id);
+    let _ = alive;
+}
+
+/// 连接主循环：每轮先 drain 服务端推送，再读一帧（至多阻塞 READ_POLL）。
+///
+/// 客户端每发一帧带 `chat_id`（attach/message）即（幂等）订阅该会话，使后续 cron
+/// 推送路由到本连接。返回值仅表示循环因何结束（socket 关闭/出错），调用方据此清理。
+fn connection_loop<R: TurnRunner>(
+    ws: &mut tungstenite::WebSocket<TcpStream>,
+    mux: &mut MuxSession<R>,
+    hub: &WsHub,
+    conn_id: u64,
+    tx: &mpsc::Sender<Value>,
+    rx: &Receiver<Value>,
+) -> bool {
     loop {
+        // 1) drain 服务端主动推送（cron 产出等）。
+        while let Ok(pushed) = rx.try_recv() {
+            if !send_json(ws, &pushed) {
+                return false;
+            }
+        }
+        // 2) 读一帧客户端入站（超时则回到步骤 1 继续 drain）。
         let text = match ws.read() {
             Ok(Message::Text(text)) => text,
-            Ok(Message::Close(_)) | Err(_) => break,
+            Ok(Message::Close(_)) => return true,
             Ok(_) => continue,
+            Err(tungstenite::Error::Io(e))
+                if e.kind() == io::ErrorKind::WouldBlock || e.kind() == io::ErrorKind::TimedOut =>
+            {
+                continue;
+            }
+            Err(_) => return false,
         };
         let Ok(frame) = serde_json::from_str::<Value>(&text) else {
             continue;
         };
+        // 客户端 attach/message 到某会话 → 订阅它，令 cron 推送可达。
+        if let Some(chat_id) = frame_chat_id(&frame) {
+            hub.subscribe(chat_id, conn_id, tx.clone());
+        }
         mux.handle_frame(&frame, &mut |outbound| {
-            let _ = send_json(&mut ws, outbound);
+            let _ = send_json(ws, outbound);
         });
     }
+}
+
+/// 从帧里取合法 `chat_id`（非空字符串）。
+fn frame_chat_id(frame: &Value) -> Option<&str> {
+    frame
+        .get("chat_id")
+        .and_then(Value::as_str)
+        .filter(|s| !s.is_empty())
 }
 
 fn send_json(ws: &mut tungstenite::WebSocket<TcpStream>, frame: &Value) -> bool {

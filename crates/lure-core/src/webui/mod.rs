@@ -13,6 +13,8 @@ mod ws;
 pub mod http_api;
 /// WebUI HTTP server 接线（tiny_http）。
 pub mod http_server;
+/// 在线 WS 连接注册表（服务端主动推送路由）。
+pub mod hub;
 /// WebUI 复用协议会话 handler（传输无关）。
 pub mod mux;
 /// `/api/settings` 载荷派生（从 lure Config）。

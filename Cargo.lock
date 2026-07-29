@@ -1336,6 +1336,7 @@ dependencies = [
  "serde_json",
  "tao",
  "tempfile",
+ "tungstenite",
  "ureq",
  "wry",
 ]
