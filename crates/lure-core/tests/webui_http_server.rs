@@ -518,6 +518,29 @@ fn model_configuration_create_then_update_roundtrips_preset() {
 }
 
 #[test]
+fn model_configurations_unknown_subpath_returns_404() {
+    // 上游 parity（settings_routes.py::dispatch 仅路由 create/update，
+    // test_websocket_channel.py:1956 断言 .../model-configurations/missing → 404）：
+    // preset 删除在上游前端与后端均不存在，故未知子路径回 404 JSON（非 HTML），
+    // 同时验证 create/update 不会误吞兄弟子路径。
+    let dir = tempfile::tempdir().unwrap();
+    let (mut server, addr) = bind_server(&dir, fake_assets());
+    let boot = bootstrap(&mut server, addr);
+    let token = boot["api_token"].as_str().unwrap().to_string();
+
+    let (status, body) = roundtrip(
+        &mut server,
+        addr,
+        "GET",
+        "/api/settings/model-configurations/missing",
+        Some(&token),
+    );
+    assert_eq!(status, 404);
+    let body: Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(body["error"], "not found");
+}
+
+#[test]
 fn model_configuration_create_rejects_reserved_default_name() {
     let dir = tempfile::tempdir().unwrap();
     let (mut server, addr) = bind_server(&dir, fake_assets());

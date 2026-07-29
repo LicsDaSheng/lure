@@ -35,7 +35,8 @@
 | `tests/gateway/` | 7,9 | partial | 编排闭环/启停/health 状态已覆盖；真实 HTTP endpoint、进程 runtime、API runtime 待补 |
 | `tests/cron/` | 8 | partial | store 持久化/next-run/session delivery/heartbeat 已覆盖；cron 表达式、工具 schema 待补 |
 | `tests/triggers/` | 8 | partial | at-least-once/忙等/limit 已覆盖；文件 inbox 布局、trigger 定义存储待补 |
-| `tests/webui/` | 10 | partial | session list/thread/status/WS 事件已覆盖；settings/transcript/token usage/媒体等大表面待补 |
+| `tests/webui/` | 10 | partial | session list/thread/status/WS 事件已覆盖；settings 读载荷 + **写入面**（`/api/settings/update`、`provider/update`、`model-configurations/{create,update}` —— GET+query 契约，映射回 Config 原子落盘并回派生载荷）已覆盖；transcript/token usage/媒体等大表面待补 |
+| `settings_routes.py`（model-configurations 删除） | 10 | n/a | **上游无此契约**：dispatch 仅路由 create/update，`test_websocket_channel.py:1956` 断言 `.../model-configurations/missing`→404；上游前端亦无删除入口。lure 对未知子路径走通用 404，已 parity（`webui_http_server.rs::model_configurations_unknown_subpath_returns_404`），故**不实现删除**（实现将偏离 parity + 死代码） |
 | `webui/src/tests/` | 10 | deferred | 前端行为测试，属外部前端构建资产，后续决定复用或重写 |
 || `tests/test_openai_api.py` | 9 | partial | 请求/响应/校验/鉴权/session、真实 HTTP server、`/v1/models` 已覆盖；per-session 并发锁原语（`SessionLocks`）已落地；media、锁接入 handler 待补 |
 | `tests/test_api_stream.py` | 9 | partial | 逐 token SSE 已接线（逐 delta chunk、跨 tool 轮不关流、单 id、默认回退）；token 级 usage 待补 |
