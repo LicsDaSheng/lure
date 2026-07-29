@@ -17,6 +17,8 @@ pub mod http_server;
 pub mod mux;
 /// `/api/settings` 载荷派生（从 lure Config）。
 pub mod settings_api;
+/// `/api/settings/*/update` 写入语义（映射回 lure Config）。
+pub mod settings_write;
 /// WebUI token 签发与校验。
 pub mod tokens;
 /// WebUI transcript 存储。

@@ -56,6 +56,7 @@ fn bind_server_with_config(
 ) -> (WebuiServer<MapAssets>, SocketAddr) {
     let config = WebuiServerConfig {
         workspace: dir.path().to_path_buf(),
+        config_path: dir.path().join("config.json"),
         model_name: Some("echo".to_string()),
         ws_path: "/ws".to_string(),
         ws_url: "ws://127.0.0.1:40099/ws".to_string(),
@@ -376,6 +377,161 @@ fn file_preview_probe_reports_unavailable_and_fetch_404s() {
         Some(&token),
     );
     assert_eq!(status, 404);
+}
+
+#[test]
+fn settings_update_persists_agent_defaults_and_returns_payload() {
+    // /api/settings/update：改 model/provider/context window → 落盘 config.json，
+    // 回派生后的 settings 载荷，且磁盘配置可被 load_config 读回。
+    let dir = tempfile::tempdir().unwrap();
+    let (mut server, addr) = bind_server(&dir, fake_assets());
+    let boot = bootstrap(&mut server, addr);
+    let token = boot["api_token"].as_str().unwrap().to_string();
+
+    let (status, body) = roundtrip(
+        &mut server,
+        addr,
+        "GET",
+        "/api/settings/update?model=deepseek%2Fdeepseek-chat&provider=deepseek&context_window_tokens=128000",
+        Some(&token),
+    );
+    assert_eq!(status, 200);
+    let payload: Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(payload["agent"]["model"], "deepseek/deepseek-chat");
+    assert_eq!(payload["agent"]["provider"], "deepseek");
+    assert_eq!(payload["agent"]["context_window_tokens"], 128000);
+
+    // 落盘可读回。
+    let saved = lure_core::config::load_config(&dir.path().join("config.json")).unwrap();
+    assert_eq!(saved.agents.defaults.model, "deepseek/deepseek-chat");
+    assert_eq!(saved.agents.defaults.provider, "deepseek");
+}
+
+#[test]
+fn settings_update_rejects_unknown_preset_with_400() {
+    let dir = tempfile::tempdir().unwrap();
+    let (mut server, addr) = bind_server(&dir, fake_assets());
+    let boot = bootstrap(&mut server, addr);
+    let token = boot["api_token"].as_str().unwrap().to_string();
+
+    let (status, body) = roundtrip(
+        &mut server,
+        addr,
+        "GET",
+        "/api/settings/update?model_preset=ghost",
+        Some(&token),
+    );
+    assert_eq!(status, 400);
+    let payload: Value = serde_json::from_str(&body).unwrap();
+    assert!(payload["error"].as_str().unwrap().contains("ghost"));
+    // 校验失败不落盘。
+    assert!(!dir.path().join("config.json").exists());
+}
+
+#[test]
+fn settings_update_requires_api_token() {
+    let dir = tempfile::tempdir().unwrap();
+    let (mut server, addr) = bind_server(&dir, fake_assets());
+
+    let (status, _) = roundtrip(
+        &mut server,
+        addr,
+        "GET",
+        "/api/settings/update?model=x%2Fy",
+        None,
+    );
+    assert_eq!(status, 401);
+}
+
+#[test]
+fn provider_update_writes_key_and_reflects_configured_flag() {
+    // /api/settings/provider/update：写 api_key → 载荷中该 provider configured=true、
+    // api_key_hint 脱敏；magic-key 不回明文。
+    let dir = tempfile::tempdir().unwrap();
+    let (mut server, addr) = bind_server(&dir, fake_assets());
+    let boot = bootstrap(&mut server, addr);
+    let token = boot["api_token"].as_str().unwrap().to_string();
+
+    let (status, body) = roundtrip(
+        &mut server,
+        addr,
+        "GET",
+        "/api/settings/provider/update?provider=deepseek&api_key=sk-secret",
+        Some(&token),
+    );
+    assert_eq!(status, 200);
+    let payload: Value = serde_json::from_str(&body).unwrap();
+    let row = payload["providers"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|p| p["name"] == "deepseek")
+        .expect("deepseek 行应存在");
+    assert_eq!(row["configured"], true);
+    assert_ne!(row["api_key_hint"], "sk-secret");
+
+    let saved = lure_core::config::load_config(&dir.path().join("config.json")).unwrap();
+    assert_eq!(
+        saved.provider_api_key("deepseek").as_deref(),
+        Some("sk-secret")
+    );
+}
+
+#[test]
+fn model_configuration_create_then_update_roundtrips_preset() {
+    // 命名 preset：create 新增 → 载荷含该行；update 改 model → 落盘生效。
+    let dir = tempfile::tempdir().unwrap();
+    let (mut server, addr) = bind_server(&dir, fake_assets());
+    let boot = bootstrap(&mut server, addr);
+    let token = boot["api_token"].as_str().unwrap().to_string();
+
+    let (status, body) = roundtrip(
+        &mut server,
+        addr,
+        "GET",
+        "/api/settings/model-configurations/create?name=fast&label=Fast&provider=deepseek&model=deepseek%2Fdeepseek-chat",
+        Some(&token),
+    );
+    assert_eq!(status, 200);
+    let payload: Value = serde_json::from_str(&body).unwrap();
+    let has_fast = payload["model_presets"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|p| p["name"] == "fast");
+    assert!(has_fast, "创建后 model_presets 应含 fast");
+
+    let (status, _) = roundtrip(
+        &mut server,
+        addr,
+        "GET",
+        "/api/settings/model-configurations/update?name=fast&model=deepseek%2Fdeepseek-reasoner",
+        Some(&token),
+    );
+    assert_eq!(status, 200);
+
+    let saved = lure_core::config::load_config(&dir.path().join("config.json")).unwrap();
+    assert_eq!(
+        saved.model_presets.get("fast").unwrap().model,
+        "deepseek/deepseek-reasoner"
+    );
+}
+
+#[test]
+fn model_configuration_create_rejects_reserved_default_name() {
+    let dir = tempfile::tempdir().unwrap();
+    let (mut server, addr) = bind_server(&dir, fake_assets());
+    let boot = bootstrap(&mut server, addr);
+    let token = boot["api_token"].as_str().unwrap().to_string();
+
+    let (status, _) = roundtrip(
+        &mut server,
+        addr,
+        "GET",
+        "/api/settings/model-configurations/create?name=default&model=x%2Fy",
+        Some(&token),
+    );
+    assert_eq!(status, 400);
 }
 
 #[test]

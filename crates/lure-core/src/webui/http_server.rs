@@ -26,11 +26,15 @@ use std::sync::{Arc, Mutex};
 
 use tiny_http::{Header, Method, Request, Response, Server};
 
-use crate::config::Config;
+use crate::config::{save_config, Config};
 use crate::session::SessionManager;
 use crate::webui::http_api::{bootstrap_payload, sessions_payload};
 use crate::webui::list_webui_sessions;
 use crate::webui::settings_api::{settings_payload, usage_payload};
+use crate::webui::settings_write::{
+    apply_agent_update, apply_provider_update, create_model_configuration,
+    update_model_configuration, Params,
+};
 use crate::webui::tokens::TokenIssuer;
 use crate::webui::transcript::TranscripStore;
 
@@ -45,6 +49,8 @@ pub trait StaticAssets {
 pub struct WebuiServerConfig {
     /// workspace 根（session 存储在其 `sessions/` 下）。
     pub workspace: PathBuf,
+    /// lure config 文件路径：`/api/settings/*/update` 写入落盘的目标。
+    pub config_path: PathBuf,
     /// bootstrap 报告的模型名。
     pub model_name: Option<String>,
     /// WS 复用协议路径（前端拼 `ws_url` 用）。
@@ -168,6 +174,20 @@ impl<S: StaticAssets> WebuiServer<S> {
             }
             (Method::Get, "/api/settings/version-check") => self
                 .handle_api_stub(request, serde_json::json!({"current": crate::version(), "latest": null, "update_available": false})),
+            // 设置页写入面（config-backed）：前端以 `GET .../update?a=b` 携带 snake_case
+            // query 参数（fetch 无 method 即 GET，同本 server 既有的 GET 删除语义）。
+            // 变更映射回 lure Config、原子落盘，回派生后的完整 settings 载荷供页面刷新。
+            // 方法用 `_` 放宽，兼容后续可能的 POST 客户端。
+            (_, "/api/settings/update") => self.handle_settings_write(request, SettingsWrite::Agent),
+            (_, "/api/settings/provider/update") => {
+                self.handle_settings_write(request, SettingsWrite::Provider)
+            }
+            (_, "/api/settings/model-configurations/create") => {
+                self.handle_settings_write(request, SettingsWrite::PresetCreate)
+            }
+            (_, "/api/settings/model-configurations/update") => {
+                self.handle_settings_write(request, SettingsWrite::PresetUpdate)
+            }
             _ if path.starts_with("/api/sessions/") => self.handle_session_sub(request, &path),
             _ if path.starts_with("/api/") => {
                 respond_json(request, 404, serde_json::json!({"error": "not found"}))
@@ -211,6 +231,37 @@ impl<S: StaticAssets> WebuiServer<S> {
             return respond_json(request, 401, serde_json::json!({"error": "unauthorized"}));
         }
         respond_json(request, 200, payload)
+    }
+
+    /// 设置页写入：鉴权 → 解析 query → 映射回 Config → 原子落盘 → 回派生载荷。
+    ///
+    /// 校验失败回 400 且不落盘；落盘失败回 500 且不改内存态——保证磁盘与内存一致。
+    fn handle_settings_write(&mut self, request: Request, kind: SettingsWrite) -> io::Result<()> {
+        if !self.authorized(&request) {
+            return respond_json(request, 401, serde_json::json!({"error": "unauthorized"}));
+        }
+        let params = parse_query(request.url());
+        let result = match kind {
+            SettingsWrite::Agent => apply_agent_update(&self.lure_config, &params),
+            SettingsWrite::Provider => apply_provider_update(&self.lure_config, &params),
+            SettingsWrite::PresetCreate => create_model_configuration(&self.lure_config, &params),
+            SettingsWrite::PresetUpdate => update_model_configuration(&self.lure_config, &params),
+        };
+        let next = match result {
+            Ok(next) => next,
+            Err(message) => {
+                return respond_json(request, 400, serde_json::json!({"error": message}))
+            }
+        };
+        if let Err(e) = save_config(&next, &self.config.config_path) {
+            return respond_json(
+                request,
+                500,
+                serde_json::json!({"error": format!("保存配置失败: {e}")}),
+            );
+        }
+        self.lure_config = next;
+        respond_json(request, 200, settings_payload(&self.lure_config))
     }
 
     fn handle_session_sub(&mut self, request: Request, path: &str) -> io::Result<()> {
@@ -354,6 +405,43 @@ fn workspaces_stub(workspace: &std::path::Path) -> serde_json::Value {
         },
         "controls": {"can_change_project": false, "can_use_full_access": false}
     })
+}
+
+/// 设置页写入端点的类别（路由分发用）。
+enum SettingsWrite {
+    /// `/api/settings/update`：默认 agent + 生效 preset 指针。
+    Agent,
+    /// `/api/settings/provider/update`：provider api_key / api_base 覆盖。
+    Provider,
+    /// `/api/settings/model-configurations/create`：新增命名 preset。
+    PresetCreate,
+    /// `/api/settings/model-configurations/update`：编辑既有命名 preset。
+    PresetUpdate,
+}
+
+/// 从完整 URL 解析 query 为已解码的参数表。
+///
+/// 值按 `application/x-www-form-urlencoded` 解码：先 `+` → 空格，再还原 `%XX`
+/// （前端 `URLSearchParams` 即此编码）。无 query 时回空表。
+fn parse_query(url: &str) -> Params {
+    let mut params = Params::new();
+    let Some(query) = url.split('?').nth(1) else {
+        return params;
+    };
+    for pair in query.split('&') {
+        if pair.is_empty() {
+            continue;
+        }
+        let (key, value) = pair.split_once('=').unwrap_or((pair, ""));
+        params.insert(decode_form_component(key), decode_form_component(value));
+    }
+    params
+}
+
+/// form-urlencoded 分量解码：`+` → 空格后走百分号解码。
+fn decode_form_component(raw: &str) -> String {
+    let spaced = raw.replace('+', " ");
+    percent_decode(&spaced).into_owned()
 }
 
 /// 最小百分号解码：还原 `%XX`。前端 `encodeURIComponent(key)` 会把 session key 的

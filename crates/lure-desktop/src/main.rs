@@ -235,23 +235,24 @@ fn main() -> ExitCode {
         let _ = ws_server.serve_forever();
     });
 
+    // lure config 路径（缺省回落 default_config_path）：既用于加载 /api/settings 载荷，
+    // 也作为 /api/settings/*/update 写入落盘的目标。
+    let config_path = args
+        .config
+        .clone()
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(lure_core::config::default_config_path);
     // HTTP server：静态资源 + bootstrap + /api/*。
     let http_config = WebuiServerConfig {
         workspace: workspace.clone(),
+        config_path: config_path.clone(),
         model_name: args.model.clone(),
         ws_path: "/ws".to_string(),
         ws_url: format!("ws://{ws_addr}/ws"),
         token_ttl_secs: 3600,
     };
-    // lure config（缺省路径回落默认；解析失败也回落默认）：派生 /api/settings 载荷。
-    let lure_config = {
-        let path = args
-            .config
-            .clone()
-            .map(std::path::PathBuf::from)
-            .unwrap_or_else(lure_core::config::default_config_path);
-        lure_core::config::load_config(&path).unwrap_or_default()
-    };
+    // lure config（解析失败回落默认）：派生 /api/settings 载荷。
+    let lure_config = lure_core::config::load_config(&config_path).unwrap_or_default();
     let http_bind = format!("127.0.0.1:{}", args.http_port.unwrap_or(0));
     let mut http_server = match WebuiServer::bind(
         &http_bind,
