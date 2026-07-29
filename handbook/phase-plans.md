@@ -62,8 +62,8 @@
 ## Phase 10: WebUI 与 Desktop
 
 - **状态**：partial
-- **完成**：**desktop 纵向闭环**——原样 vendor 上游 React WebUI（`frontend/`，bun 构建，零改动）、`lure-desktop`（wry+tao 窗口）进程内 loopback HTTP（静态资源+SPA fallback、bootstrap/token 签发、`/api/sessions` 鉴权+DELETE）与 WS 复用协议（`webui::mux` + tungstenite transport）、agent loop 每连接独立实例（`AgentTurnRunner` 适配）。**transcript**：`TranscripStore` 在 turn 结束时写入 JSONL，`GET /api/sessions/{key}/webui-thread` 返回消息视图——桌面重开窗口可见历史对话。**dream**：`ProviderDreamRunner`（真实 LLM 驱动 memory consolidation）+ 阈值自动触发（`maybe_consolidate`，由 `AgentTurnRunner` 每轮 turn 后检查）+ config 驱动真实 provider（`build_provider`，缺 key 优雅回落 Echo）。**前端 /api 表面**：加载期读取全覆盖，按需读取（automations/file-preview/skill-detail）平稳降级，delete 改走 `GET /api/sessions/{key}/delete` + session key URL 解码（修 `%3A` 编码 404）。**E2E 契约测试**：`lure-desktop --headless`（无窗口起 server + 打印 `LURE_HTTP_URL`）+ `e2e/` Playwright smoke（加载/bootstrap → WS echo 往返 → 真实编码 key 删除回归），真实浏览器驱动。
-- **待补**：settings/channels 等变更大表面（GET-style 写）、media 代理、非 macOS 窗口适配。
+- **完成**：**desktop 纵向闭环**——原样 vendor 上游 React WebUI（`frontend/`，bun 构建，零改动）、`lure-desktop`（wry+tao 窗口）进程内 loopback HTTP（静态资源+SPA fallback、bootstrap/token 签发、`/api/sessions` 鉴权+DELETE）与 WS 复用协议（`webui::mux` + tungstenite transport）、agent loop 每连接独立实例（`AgentTurnRunner` 适配）。**transcript**：`TranscripStore` 在 turn 结束时写入 JSONL，`GET /api/sessions/{key}/webui-thread` 返回消息视图——桌面重开窗口可见历史对话。**dream**：`ProviderDreamRunner`（真实 LLM 驱动 memory consolidation）+ 阈值自动触发（`maybe_consolidate`，由 `AgentTurnRunner` 每轮 turn 后检查）+ config 驱动真实 provider（`build_provider`，缺 key 优雅回落 Echo）。**前端 /api 表面**：加载期读取全覆盖，按需读取（automations/file-preview/skill-detail）平稳降级，delete 改走 `GET /api/sessions/{key}/delete` + session key URL 解码（修 `%3A` 编码 404）。**settings 写入大表面**（config-backed）：`/api/settings/update`（默认 agent + 生效 preset 指针）、`/api/settings/provider/update`（api_key/api_base 覆盖）、`/api/settings/model-configurations/{create,update}`（命名 preset）——前端 `GET .../update?a=b` 携 snake_case query，映射回 lure `Config`、`validate` 后原子落盘、回派生载荷；未建模字段静默忽略、非法值回 400 不落盘。未知子路径（如 model-configurations 删除，上游无此契约）走通用 404。**E2E 契约测试**：`lure-desktop --headless`（无窗口起 server + 打印 `LURE_HTTP_URL`）+ `e2e/` Playwright smoke——加载/bootstrap → WS echo 往返 → 真实编码 key 删除回归 → **settings 写入面**（GET+query 写、响应形状、重读确认落盘、非法值 400），真实浏览器 + 真实 desktop 全装配驱动。**E2E 现 hermetic**：`--config` 隔离到 workspace 内 + 启动前复制种子 config（已配置 provider，令应用确定性进聊天界面），不再隐式依赖开发者机器上的真实 `~/.nanobot/config.json`。
+- **待补**：channels 等其余变更表面、media 代理、非 macOS 窗口适配、E2E 扩面（跨会话切换/new-chat）。
 
 ## Phase 11: 打包、部署与迁移兼容
 
@@ -75,10 +75,10 @@
 
 CLI 交互体验已成体系并暂告段落：实时流式 → tool/progress 行 → reasoning delta 句级缓冲流 → spinner 后台定时动画 → 阶段语义标签（Thinking / Calling / Finalizing）→ Ctrl-C 中断当前 turn → 单轮 provider 错误容错。均以 TDD 落地，核心逻辑单测 + 本地 SSE mock 端到端验证。
 
-已完成（按价值收口）：**前端 /api stub 表面**、**dream 接真实 provider**、**真实浏览器 E2E 契约测试**（`--headless` + Playwright smoke，见 [phase-execution.md](./phase-execution.md) WebUI 契约门禁）、**CLI slash commands**、**cron 表达式**、**`cron` agent 工具**、**cron service 定时执行 + 接入 lure-desktop 长驻宿主**（排期任务后台自动跑，产出写 transcript，webui 下次打开可见）。**Phase 8 cron 链路已端到端打通**：工具排期 → 持久化 → 表达式调度 → 定时执行 → 会话投递。
+已完成（按价值收口）：**前端 /api stub 表面**、**dream 接真实 provider**、**真实浏览器 E2E 契约测试**（`--headless` + Playwright smoke，见 [phase-execution.md](./phase-execution.md) WebUI 契约门禁）、**CLI slash commands**、**cron 表达式**、**`cron` agent 工具**、**cron service 定时执行 + 接入 lure-desktop 长驻宿主**（排期任务后台自动跑，产出写 transcript，webui 下次打开可见）、**settings 写入大表面**（agent/provider/model-preset GET-style 写、原子落盘生效）、**settings 写入面 E2E 契约覆盖 + E2E hermetic 化**（隔离 config + 种子，消除对开发者真实 config 的隐式依赖）。**Phase 8 cron 链路已端到端打通**；**Phase 10 settings 读写双向 + 浏览器契约**已闭环。
 
 按「用户可感知价值 × 当前覆盖缺口」排序，下一步：
 
-1. **settings 变更大表面**：`/settings/*/update`、provider/model 配置等 GET-style 写操作接真实能力（当前仅读端点有载荷）——让用户能在 webui 里真正改配置。
-2. **cron 实时推送 + IANA 时区**：cron 触发时向**在线** WS 连接实时推送（当前只落 transcript，需刷新才见）；`schedule.tz` 具名时区接 chrono-tz。
-3. **E2E 扩面**：settings 面板、跨会话切换、new-chat 等关键用户流补 Playwright 覆盖。
+1. **cron 实时推送 + IANA 时区**：cron 触发时向**在线** WS 连接实时推送（当前只落 transcript，需刷新才见）；`schedule.tz` 具名时区接 chrono-tz。
+2. **E2E 扩面**：跨会话切换、new-chat、真实驱动 settings 面板 UI（当前 settings E2E 走浏览器上下文 fetch，未点透前端组件）等关键用户流补 Playwright 覆盖。
+3. **channels 真实平台 / media 代理**：Gateway 接真实 channel（telegram/discord…）、webui media 上传代理。

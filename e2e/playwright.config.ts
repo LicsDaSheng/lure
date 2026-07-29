@@ -14,6 +14,13 @@ const BASE_URL = `http://127.0.0.1:${PORT}`;
 
 // 后端 workspace（gitignored）；--model echo 使整条链路离线、确定性。
 const WORKSPACE = path.join(here, ".workspace");
+// 隔离 config：settings 写入面（/api/settings/*/update）会 save_config 落盘，
+// 必须指向 workspace 内的临时文件，否则回落 ~/.nanobot/config.json 污染真实用户配置。
+const CONFIG = path.join(WORKSPACE, "config.json");
+// 种子 config：每次启动前复制入 workspace，令 headless 以「已配置 provider」确定性
+// 进入聊天界面（否则默认 config 未配置，前端落到 Settings 引导页，echo 往返测不到）。
+// 使 E2E hermetic——不再隐式依赖开发者机器上的真实 ~/.nanobot/config.json。
+const SEED_CONFIG = path.join(here, "fixtures", "config.json");
 
 export default defineConfig({
   testDir: path.join(here, "tests"),
@@ -33,9 +40,10 @@ export default defineConfig({
     // 再拉起 headless 后端（同一套生产 server 装配，仅无窗口）。
     command:
       `(lsof -ti tcp:${PORT} | xargs kill -9 2>/dev/null || true); ` +
+      `mkdir -p ${WORKSPACE} && cp ${SEED_CONFIG} ${CONFIG} && ` +
       `(cd frontend/webui && bun run build -- --outDir ../dist --emptyOutDir) && ` +
       `cargo run --quiet -p lure-desktop -- --headless --model echo ` +
-      `--http-port ${PORT} --workspace ${WORKSPACE}`,
+      `--http-port ${PORT} --workspace ${WORKSPACE} --config ${CONFIG}`,
     cwd: repoRoot,
     url: BASE_URL,
     reuseExistingServer: !process.env.CI,

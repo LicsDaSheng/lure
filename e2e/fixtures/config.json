@@ -1,0 +1,15 @@
+{
+  "agents": {
+    "defaults": {
+      "provider": "deepseek",
+      "model": "deepseek/deepseek-chat",
+      "modelPreset": null
+    }
+  },
+  "providers": {
+    "deepseek": {
+      "apiKey": "sk-e2e-dummy",
+      "enabled": true
+    }
+  }
+}

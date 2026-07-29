@@ -77,3 +77,88 @@ test.describe.serial("webui smoke (headless backend + echo)", () => {
     expect(result.stillPresent, "删除后应从列表消失").toBe(false);
   });
 });
+
+// 设置页写入面契约：Rust 集成测试直连 http_server 模块，绕过 lure-desktop 全装配
+// 里的 config_path 接线（save_config 落盘目标）；门禁要求经真实浏览器 + 真实后端装配
+// 端到端验证 GET+query 写入语义、响应形状、以及重读确认落盘生效（--config 已隔离到
+// workspace 内，不会污染真实用户配置）。
+test.describe.serial("settings 写入面契约（headless backend + config-backed）", () => {
+  test("agent update：改 context_window，200 + 响应回派生载荷 + 重读持久", async ({ page }) => {
+    await page.goto("/");
+    const result = await page.evaluate(async () => {
+      const boot = await (await fetch("/webui/bootstrap")).json();
+      const headers = { Authorization: `Bearer ${boot.api_token}` };
+      // 前端以 GET .../update?a=b 携带 snake_case query（fetch 无 method 即 GET）。
+      const q = new URLSearchParams({ context_window_tokens: "123456" }).toString();
+      const put = await fetch(`/api/settings/update?${q}`, { headers });
+      const body = await put.json();
+      // 重读 /api/settings 证明变更已 save_config 落盘并被后端重新派生。
+      const reread = await (await fetch("/api/settings", { headers })).json();
+      return {
+        status: put.status,
+        written: body?.agent?.context_window_tokens,
+        persisted: reread?.agent?.context_window_tokens,
+      };
+    });
+    expect(result.status).toBe(200);
+    expect(result.written).toBe(123456);
+    expect(result.persisted, "重读应见落盘后的新值").toBe(123456);
+  });
+
+  test("preset create → agent 指向新 preset，均 200 且持久", async ({ page }) => {
+    await page.goto("/");
+    const result = await page.evaluate(async () => {
+      const boot = await (await fetch("/webui/bootstrap")).json();
+      const headers = { Authorization: `Bearer ${boot.api_token}` };
+      const createQ = new URLSearchParams({
+        name: "e2e-fast",
+        label: "E2E Fast",
+        provider: "auto",
+        model: "echo/echo",
+      }).toString();
+      const create = await fetch(`/api/settings/model-configurations/create?${createQ}`, { headers });
+      const createBody = await create.json();
+      // model_presets 是行数组（每行含 name），非 keyed object。
+      const rows: Array<{ name?: string }> = createBody?.model_presets ?? [];
+      // 让默认 agent 指向刚建的命名 preset。
+      const pointQ = new URLSearchParams({ model_preset: "e2e-fast" }).toString();
+      const point = await fetch(`/api/settings/update?${pointQ}`, { headers });
+      const pointBody = await point.json();
+      const reread = await (await fetch("/api/settings", { headers })).json();
+      return {
+        createStatus: create.status,
+        hasPreset: rows.some((p) => p.name === "e2e-fast"),
+        pointStatus: point.status,
+        activePreset: pointBody?.agent?.model_preset,
+        persistedPreset: reread?.agent?.model_preset,
+      };
+    });
+    expect(result.createStatus).toBe(200);
+    expect(result.hasPreset, "响应 model_presets 应含新建条目").toBe(true);
+    expect(result.pointStatus).toBe(200);
+    expect(result.activePreset).toBe("e2e-fast");
+    expect(result.persistedPreset, "重读应见 agent 指向新 preset").toBe("e2e-fast");
+  });
+
+  test("非法 context_window（非数字）应 400 且不落盘", async ({ page }) => {
+    await page.goto("/");
+    const result = await page.evaluate(async () => {
+      const boot = await (await fetch("/webui/bootstrap")).json();
+      const headers = { Authorization: `Bearer ${boot.api_token}` };
+      const before = await (await fetch("/api/settings", { headers })).json();
+      const q = new URLSearchParams({ context_window_tokens: "lots" }).toString();
+      const bad = await fetch(`/api/settings/update?${q}`, { headers });
+      const badBody = await bad.json().catch(() => ({}));
+      const after = await (await fetch("/api/settings", { headers })).json();
+      return {
+        status: bad.status,
+        hasError: typeof badBody?.error === "string",
+        unchanged:
+          before?.agent?.context_window_tokens === after?.agent?.context_window_tokens,
+      };
+    });
+    expect(result.status).toBe(400);
+    expect(result.hasError, "400 应回 JSON error 字段").toBe(true);
+    expect(result.unchanged, "校验失败不得落盘").toBe(true);
+  });
+});
