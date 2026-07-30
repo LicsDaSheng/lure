@@ -81,9 +81,23 @@ CLI 交互体验已成体系并暂告段落：实时流式 → tool/progress 行
 
 外围体验（CLI UX、cron 链路、webui 读写、settings、E2E）已成体系；但与上游对照后，**真正拉开差距的是几个成规模的独立子系统**，此前在阶段表中被"partial"掩盖。完整清单见 [phase-roadmap.md](./phase-roadmap.md)「跨阶段未建模的上游子系统」。核心差异点：
 
-- **MCP、Skills、Subagent、Pairing 四个子系统 lure 完全未建模**，上游均已成规模并有对应 slash 命令。
-- **命令路由**：CLI 仅 3 条 slash，上游 ~16 条。
-- **多模态**（图像生成 / 音频转写）整条链缺失。
+- ~~MCP、Skills、Subagent、Pairing 四个子系统 lure 完全未建模~~ → **均已补齐可测核心**（见下「进度」）。
+- ~~命令路由：CLI 仅 3 条 slash~~ → **CommandRouter 核心 + 全表登记已复刻**。
+- **多模态**（图像生成 / 音频转写）整条链缺失（仍是缺口）。
+
+### 进度（2026-07-30 本轮）
+
+按 handbook 固定 TDD 循环逐个补齐了此前四个未建模子系统 + 命令路由的**可测核心**（每个先写 Rust 测试再实现，全量 `cargo test`+clippy 绿，逐个提交）：
+
+| 子系统 | 已落地核心 | 暂缓（记台账） |
+|---|---|---|
+| **Pairing** | `PairingStore` 全套（31 例，对齐 test_store 全场景） | — |
+| **命令路由** | `CommandRouter` 三层派发 + 谓词 + 全表登记 + /help//pairing//skill（15 例） | 运行时命令处理器接线、CLI REPL 接入 |
+| **Skills** | `SkillsLoader` 两源枚举/需求过滤/YAML frontmatter/摘要（21 例）+ `/skill` 接入 | bundled skills 资产、webui skills_api |
+| **Subagent** | `SubagentStatus`/registry/`cancel_by_session`/partial-progress（21 例） | 真实后台执行（需异步运行时） |
+| **MCP** | 工具名净化/限长 + OpenAI schema 归一 + 畸形进度检测（14 例） | 真实连接/会话/传输（需 MCP SDK + 异步）、webui 预设 |
+
+共同暂缓项集中在**异步运行时**（subagent 后台执行、MCP 连接、运行时命令处理器）——lure 当前为同步模型，是这些子系统"活起来"的共同前置。
 
 > **范围决定**：provider 只做 **OpenAI-compat 一种线协议**。上游的原生 Anthropic Messages / Bedrock / Azure / Copilot / Codex 协议与 fallback 链**明确不复刻**——不视为缺口。多模态若做，也走 OpenAI 兼容端点实现。
 

@@ -178,6 +178,18 @@ Phase 0 已完成，确定 phase 1-4 关键上游测试的 Rust 测试落点（�
 > 命名入口与 config 驱动 `resolve_provider`（api_base 覆盖、auto 跳过禁用 provider、api_key
 > config 优先 env 回落）；provider 的 OAuth 凭据与 local fallback 仍待后续。
 
+## Phase 5 MCP 明细映射
+
+| 上游测试 | 归属 phase | Rust 测试 | 状态 | 说明 |
+|---|---:|---|---|---|
+| `tests/tools/test_mcp_tool.py`（纯变换子集） | 5 | `crates/lure-core/tests/tool_mcp.rs` | partial | `sanitize_name`（非法字符→`_`、折叠连续 `_`）、`limit_tool_name`（≤64 不变，超长 `<prefix>_<8 位 sha1>`）、`sanitize_mcp_tool_name`、`normalize_schema_for_openai`（type 联合含 null→nullable、oneOf/anyOf nullable 分支合并、递归 properties/items、object 补默认、非 object 回落）、`extract_nullable_branch`、JSON-RPC 畸形进度通知检测——14 例覆盖纯变换核心 |
+| `tests/agent/test_mcp_connection.py` / `test_mcp_reconnect_crash.py` / `test_mcp_transient_retry.py` / `test_mcp_probe.py` | 5 | 待定 | deferred | MCP 连接/会话/传输（stdio/HTTP/SSE）、enabled-tools 过滤、重连/瞬时重试、URL 探活——依赖 MCP 客户端 SDK + asyncio，lure 同步模型待引入异步运行时与 MCP 客户端库后回补 |
+| `tests/webui/test_mcp_presets_api.py` / `test_mcp_presets_runtime.py` | 10 | 待定 | deferred | MCP 预设 webui 大表面（45KB），随 Phase 10 webui 变更表面推进 |
+
+> 注：lure 复刻 MCP 的纯 wire-兼容变换核心（工具名净化/限长、OpenAI schema 归一、畸形进度检测）——
+> 这是把任意 MCP 服务器工具暴露给 lure 所用 OpenAI-compatible provider 的必要变换。sha1 用于限长
+> hash 后缀（对齐上游）。真实连接/会话/传输与 webui 预设表面留待异步运行时/Phase 10。
+
 ## Phase 3 Subagent 明细映射
 
 | 上游测试 | 归属 phase | Rust 测试 | 状态 | 说明 |
