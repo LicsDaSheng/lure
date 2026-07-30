@@ -9,6 +9,7 @@
 mod context;
 mod loop_run;
 mod runner;
+pub mod skills;
 
 pub use context::ContextBuilder;
 pub use loop_run::{

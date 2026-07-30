@@ -18,6 +18,7 @@ ureq = "2"
 tiny_http = "0.12"
 tungstenite = "0.26"
 uuid = { version = "1", features = ["v4"] }
+serde_yaml = "0.9.34"
 
 [dev-dependencies]
 tempfile = "3"

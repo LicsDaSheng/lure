@@ -26,6 +26,7 @@
 | `tests/config/` | 1 | partial | 核心 loader/paths/save 已覆盖；migration/env/gateway 相关暂缓，见下方明细 |
 | `tests/session/` | 2 | partial | 存储/clamp/cache/goal_state/list repair 已覆盖；turn continuation、weak-identity 暂缓，见下方明细 |
 | `tests/agent/` | 2,3,4,6 | partial | session/loop、stateful model runtime resolver、tool-call 循环、SSE 流式驱动、memory 接入 loop、legacy history migration 已覆盖；goal/subagent、真实 LLM dream 待后续 |
+| `tests/agent/test_skills_loader.py` | 3 | covered | `SkillsLoader`（workspace/builtin 两源枚举 + 同名遮蔽、跳过非目录/缺 SKILL.md、disabled 过滤、bins/env 需求可用性、openclaw 别名、YAML frontmatter flow/折叠/字面/原生类型、`build_skills_summary` 分组相对路径、`get_always_skills`、`load_skills_for_context` 剥离 frontmatter）21 例覆盖；`/skill` 命令已接入路由；bundled skills（update-setup/memory）暂缓——见下方明细 |
 | `tests/cli/` | 3 | partial | one-shot 与基础 interactive 已覆盖；上游 prompt_toolkit/progress/commands 待后续 |
 | `tests/command/` | 3 | partial | `CommandRouter` 三层派发 + `normalize_command_text`（@bot 后缀剥离）+ `is_priority`/`is_dispatchable_command` 谓词 + 内置命令全表登记 + `/help`/`/pairing` 完整处理器已覆盖（对齐 `test_router_dispatchable`）；运行时依赖型命令（/new /model /history /goal /trigger /dream* /skill /stop /restart）处理器待对应子系统接线，见下方明细 |
 | `tests/providers/` | 4 | partial | OpenAI-compatible 请求/响应/错误、选择顺序、SSE 流式消费（含末帧 usage 捕获 + `stream_options.include_usage`）、stateful resolver、config 驱动 provider 匹配（api_base/enabled/api_key）已覆盖；真实 provider opt-in、OAuth/local fallback 待补 |
@@ -176,6 +177,17 @@ Phase 0 已完成，确定 phase 1-4 关键上游测试的 Rust 测试落点（�
 > 的 provider 选择路径（`AgentLoop::with_runtime` 注入 model/settings），且已补 `--preset`
 > 命名入口与 config 驱动 `resolve_provider`（api_base 覆盖、auto 跳过禁用 provider、api_key
 > config 优先 env 回落）；provider 的 OAuth 凭据与 local fallback 仍待后续。
+
+## Phase 3 Skills 明细映射
+
+| 上游测试 | 归属 phase | Rust 测试 | 状态 | 说明 |
+|---|---:|---|---|---|
+| `tests/agent/test_skills_loader.py` | 3 | `crates/lure-core/tests/skills_loader.rs` | partial | 两源枚举/遮蔽/合并/跳过、bins/env 需求过滤（探针注入替代 monkeypatch）、openclaw 别名、disabled（list/summary/always）、`build_skills_summary` 按根分组相对路径、YAML frontmatter（flow mapping / 折叠 `>` / 字面 `|` / 原生 bool）、`load_skills_for_context` 剥离 frontmatter——21 例覆盖 |
+| `test_bundled_*`（update-setup/memory 描述与 agent-owned 路径） | 3 | 待定 | deferred | 依赖 nanobot 内置 `nanobot/skills/` vendored 资产，lure 未随包携带；后续决定是否 vendor |
+
+> 注：frontmatter 用 serde_yaml 解析为 `serde_json::Value` 统一消费；需求探针 which/env 以注入闭包
+> 替代 `shutil.which`/`os.environ`。`/skill` 命令经 `BuiltinDeps.skills` 接入命令路由（对齐 cmd_skill
+> 输出：`Available skills (N):` + `- **name** — desc`）。
 
 ## Phase 3 命令路由明细映射
 

@@ -25,6 +25,7 @@ fn router() -> (TempDir, Arc<PairingStore>, CommandRouter) {
         BuiltinDeps {
             pairing: pairing.clone(),
             clock: Arc::new(|| T0),
+            skills: None,
         },
     );
     (dir, pairing, r)
@@ -223,6 +224,43 @@ fn prefix_args_populated() {
     let mut c = ctx("test", "c1", "/test hello world");
     r.dispatch(&mut c);
     assert_eq!(*captured.lock().unwrap(), vec!["hello world".to_string()]);
+}
+
+// —— dispatch: /skill（接入 SkillsLoader）—— //
+
+#[test]
+fn skill_lists_available_skills() {
+    use lure_core::agent::skills::SkillsLoader;
+    use std::collections::BTreeSet;
+
+    let dir = TempDir::new().unwrap();
+    let ws = dir.path().join("ws");
+    let skills_root = ws.join("skills").join("alpha");
+    std::fs::create_dir_all(&skills_root).unwrap();
+    std::fs::write(
+        skills_root.join("SKILL.md"),
+        "---\nname: alpha\ndescription: Alpha does things.\n---\n\n# Alpha",
+    )
+    .unwrap();
+    let builtin = dir.path().join("builtin");
+    std::fs::create_dir_all(&builtin).unwrap();
+
+    let pairing = Arc::new(PairingStore::new(dir.path().join("pairing.json")));
+    let loader = Arc::new(SkillsLoader::new(&ws, Some(builtin), BTreeSet::new()));
+    let mut r = CommandRouter::new();
+    register_builtin_commands(
+        &mut r,
+        BuiltinDeps {
+            pairing,
+            clock: Arc::new(|| T0),
+            skills: Some(loader),
+        },
+    );
+
+    let mut c = ctx("test", "chat1", "/skill");
+    let out = r.dispatch(&mut c).expect("/skill 应有输出");
+    assert!(out.content.contains("Available skills (1):"));
+    assert!(out.content.contains("- **alpha** — Alpha does things."));
 }
 
 // —— dispatch_priority —— //

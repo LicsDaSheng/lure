@@ -13,6 +13,7 @@ use std::sync::Arc;
 
 use serde_json::Value;
 
+use crate::agent::skills::SkillsLoader;
 use crate::command::router::{CommandContext, CommandHandler, CommandOutput, CommandRouter};
 use crate::pairing::{PairingStore, PAIRING_COMMAND_META_KEY};
 
@@ -237,11 +238,17 @@ pub struct BuiltinDeps {
     pub pairing: Arc<PairingStore>,
     /// 墙钟秒时钟（可注入，便于测试；生产用 `pairing::now_secs`）。
     pub clock: Arc<dyn Fn() -> f64 + Send + Sync>,
+    /// skills 装载器（`/skill` 使用）；`None` 时 `/skill` 回落占位处理器。
+    pub skills: Option<Arc<SkillsLoader>>,
 }
 
 /// 注册默认 slash 命令集合（层级顺序对齐上游 `register_builtin_commands`）。
 pub fn register_builtin_commands(router: &mut CommandRouter, deps: BuiltinDeps) {
-    let BuiltinDeps { pairing, clock } = deps;
+    let BuiltinDeps {
+        pairing,
+        clock,
+        skills,
+    } = deps;
 
     // priority 层：锁前处理。
     router.priority("/stop", pending_handler("/stop"));
@@ -268,7 +275,10 @@ pub fn register_builtin_commands(router: &mut CommandRouter, deps: BuiltinDeps) 
     router.prefix("/dream-prompt ", pending_handler("/dream-prompt"));
     router.exact("/evaluator-prompt", pending_handler("/evaluator-prompt"));
     router.prefix("/evaluator-prompt ", pending_handler("/evaluator-prompt"));
-    router.exact("/skill", pending_handler("/skill"));
+    match skills {
+        Some(loader) => router.exact("/skill", skill_handler(loader)),
+        None => router.exact("/skill", pending_handler("/skill")),
+    }
     router.exact("/help", help_handler());
     router.exact("/pairing", pairing_handler(pairing.clone(), clock.clone()));
     router.prefix("/pairing ", pairing_handler(pairing, clock));
@@ -298,6 +308,27 @@ fn pairing_handler(
             CommandOutput::text(ctx, content)
                 .with_meta(PAIRING_COMMAND_META_KEY, Value::Bool(true)),
         )
+    })
+}
+
+/// `/skill` 处理器：列出可用 skills（名称 + 描述），对齐上游 `cmd_skill`。
+fn skill_handler(skills: Arc<SkillsLoader>) -> CommandHandler {
+    Box::new(move |ctx: &CommandContext| {
+        let list = skills.list_skills(false);
+        let content = if list.is_empty() {
+            "No skills available.".to_string()
+        } else {
+            let mut lines = vec![format!("Available skills ({}):", list.len()), String::new()];
+            for entry in &list {
+                lines.push(format!(
+                    "- **{}** — {}",
+                    entry.name,
+                    skills.skill_description(&entry.name)
+                ));
+            }
+            lines.join("\n")
+        };
+        Some(CommandOutput::text(ctx, content))
     })
 }
 
