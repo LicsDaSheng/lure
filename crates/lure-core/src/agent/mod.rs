@@ -10,6 +10,7 @@ mod context;
 mod loop_run;
 mod runner;
 pub mod skills;
+pub mod subagent;
 
 pub use context::ContextBuilder;
 pub use loop_run::{

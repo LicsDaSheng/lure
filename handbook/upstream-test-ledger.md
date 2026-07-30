@@ -178,6 +178,17 @@ Phase 0 已完成，确定 phase 1-4 关键上游测试的 Rust 测试落点（�
 > 命名入口与 config 驱动 `resolve_provider`（api_base 覆盖、auto 跳过禁用 provider、api_key
 > config 优先 env 回落）；provider 的 OAuth 凭据与 local fallback 仍待后续。
 
+## Phase 3 Subagent 明细映射
+
+| 上游测试 | 归属 phase | Rust 测试 | 状态 | 说明 |
+|---|---:|---|---|---|
+| `tests/agent/test_subagent_lifecycle.py`（状态/簿记/格式化子集） | 3 | `crates/lure-core/tests/subagent.rs` | partial | `SubagentStatus`（默认 phase initializing）、`derive_label`（短/长截断/自定义）、`format_partial_progress`（末 3 完成 + 失败 + error 回落 + 兜底）、`SubagentRegistry`（register/finish/mark_done、`get_running_count`、`get_running_count_by_session`、`cancel_by_session` + session 隔离）——21 例覆盖确定性核心 |
+| `tests/agent/test_subagent.py`（spawn/announce/run 执行） | 3 | 待定 | deferred | `spawn`/`_run_subagent` 起后台 agent turn、`_announce_result` 经 bus 回灌、exec session 级联终止——依赖 asyncio 后台任务 + 完整 agent 运行时，lure 同步模型待引入异步运行时后回补 |
+
+> 注：lure 同步模型下以 `done` 标志 + `finish`（cleanup 移除）建模 asyncio 任务生命周期；
+> `cancel_by_session` 是 `/stop` 级联终止的取消原语（上游还 `terminate_by_owner` exec session，此处
+> 不建模 exec 运行时）。真实后台执行与 `/stop` 命令接线待异步运行时。
+
 ## Phase 3 Skills 明细映射
 
 | 上游测试 | 归属 phase | Rust 测试 | 状态 | 说明 |
