@@ -5,7 +5,7 @@
 | Phase 0 骨架 | done | Cargo workspace、CLI/core crate、台账格式 | — |
 | Phase 1 配置 | partial | config schema/别名/默认值、路径解析、原子读写、migration、preset 解析 | onboard 交互式初始化、env 插值 |
 | Phase 2 Session | partial | session key/base64url 命名、JSONL 存储/修复、历史/offset/goal 派生、legacy 迁移 | turn continuation、weak-identity |
-| Phase 3 Agent Loop | partial | AgentLoop/AgentRunner/ContextBuilder、EchoProvider、CLI one-shot + 完整交互 UX（流式/tool 行/reasoning 流/spinner 定时动画/阶段标签/Ctrl-C 中断/单轮容错）、slash 命令 3 条（/help /model /session） | **slash 命令仅 3/16**（缺 /dream* /goal /history /new /pairing /restart /skill /status /stop /trigger）、**subagent**、goal 状态机 |
+| Phase 3 Agent Loop | partial | AgentLoop/AgentRunner/ContextBuilder、EchoProvider、CLI one-shot + 完整交互 UX（流式/tool 行/reasoning 流/spinner 定时动画/阶段标签/Ctrl-C 中断/单轮容错）、**CommandRouter 命令路由核心**（@bot 归一 + priority/exact/prefix 三层 + is_priority/is_dispatchable 谓词 + 内置命令全表登记 + /help//pairing 完整处理器） | 运行时命令处理器（/new /goal /history /dream* /skill /stop… 待各子系统接线）、CLI REPL 接入统一 router、**subagent**、goal 状态机 |
 | Phase 4 Provider | partial | ModelRuntimeResolver、OpenAI-compatible 线协议+SSE 流式、config 驱动 provider 匹配、CLI --config/--preset/--model | OAuth 凭据、重试策略、image 生成、audio 转写（**范围决定：仅做 OpenAI-compat 一种线协议，Anthropic/Bedrock/Azure/Copilot/Codex 原生协议不做**） |
 | Phase 5 Tools | partial | Tool trait/registry、文件读写搜索（edit+grep+list）、shell 执行策略、tool-call 循环 | **MCP（presets + tool 接入）**、apply_patch、web_search/find_files、文档解析、并行 tool、network SSRF 边界 |
 | Phase 6 Memory | partial | MemoryStore（读写/历史/迁移）、dream consolidation（FakeRunner + ProviderDreamRunner）、阈值自动触发、AgentLoop/CLI 记忆接入 | **GitStore 版本化**、**autocompact / context governance**、SOUL/USER 整合 |
@@ -26,7 +26,7 @@
 | **图像生成 / 音频转写** | `providers/image_generation.py`(64KB)、`providers/transcription.py`(28KB)、`audio/`、`webui/transcription_ws.py` | 无 | 多模态生成与语音输入整条链缺失（走 OpenAI-compat 端点实现，不涉原生协议） |
 | **Skills 系统** | `agent/skills.py`、`webui/skills_api.py`、`/skill` 命令 | 无 | 技能装载/发现/执行缺失 |
 | **Subagent** | `agent/subagent.py`(19KB)、级联 exec 终止 | 无 | 无法派生子代理 / 分解任务 |
-| **命令路由全量** | `command/builtin.py`(106KB)、`command/router.py` | CLI 仅 3 条 slash | 缺 /dream* /goal /history /new /pairing /restart /skill /status /stop /trigger |
+| **命令路由全量** | `command/builtin.py`(106KB)、`command/router.py` | **router 核心 + 全表登记已复刻**（`lure_core::command`，/help//pairing 完整，谓词对齐 test_router_dispatchable） | 运行时命令处理器（/new /goal /dream* /skill /stop…）随各子系统接线；CLI REPL 接入统一 router |
 | ~~Pairing 配对~~ | `pairing/store.py`(9.6KB) | **store 已复刻**（`lure_core::pairing`，31 例对齐 test_store） | 仅剩 `/pairing` 命令 UI 接入（随命令路由） |
 | **GitStore 记忆版本化** | `utils/gitstore.py`(20KB) | 无 | 记忆快照/回滚（/dream-restore）缺失 |
 | **Context governance / autocompact** | `agent/context_governance.py`(19KB)、`agent/autocompact.py` | 仅 `compact_history` 容量裁剪 | 大上下文治理策略缺失 |

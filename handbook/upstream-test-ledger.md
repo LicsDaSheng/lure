@@ -27,6 +27,7 @@
 | `tests/session/` | 2 | partial | 存储/clamp/cache/goal_state/list repair 已覆盖；turn continuation、weak-identity 暂缓，见下方明细 |
 | `tests/agent/` | 2,3,4,6 | partial | session/loop、stateful model runtime resolver、tool-call 循环、SSE 流式驱动、memory 接入 loop、legacy history migration 已覆盖；goal/subagent、真实 LLM dream 待后续 |
 | `tests/cli/` | 3 | partial | one-shot 与基础 interactive 已覆盖；上游 prompt_toolkit/progress/commands 待后续 |
+| `tests/command/` | 3 | partial | `CommandRouter` 三层派发 + `normalize_command_text`（@bot 后缀剥离）+ `is_priority`/`is_dispatchable_command` 谓词 + 内置命令全表登记 + `/help`/`/pairing` 完整处理器已覆盖（对齐 `test_router_dispatchable`）；运行时依赖型命令（/new /model /history /goal /trigger /dream* /skill /stop /restart）处理器待对应子系统接线，见下方明细 |
 | `tests/providers/` | 4 | partial | OpenAI-compatible 请求/响应/错误、选择顺序、SSE 流式消费（含末帧 usage 捕获 + `stream_options.include_usage`）、stateful resolver、config 驱动 provider 匹配（api_base/enabled/api_key）已覆盖；真实 provider opt-in、OAuth/local fallback 待补 |
 | `tests/tools/` | 5 | partial | registry/schema/文件读写+edit/list_dir+grep/shell allow-deny、tool-call 循环、config 驱动工具注册已覆盖；apply_patch/find_files/web/mcp/exec 平台细节待补 |
 | `tests/security/` | 5 | partial | workspace 边界已覆盖；network SSRF、启动安全待补 |
@@ -175,6 +176,17 @@ Phase 0 已完成，确定 phase 1-4 关键上游测试的 Rust 测试落点（�
 > 的 provider 选择路径（`AgentLoop::with_runtime` 注入 model/settings），且已补 `--preset`
 > 命名入口与 config 驱动 `resolve_provider`（api_base 覆盖、auto 跳过禁用 provider、api_key
 > config 优先 env 回落）；provider 的 OAuth 凭据与 local fallback 仍待后续。
+
+## Phase 3 命令路由明细映射
+
+| 上游测试 | 归属 phase | Rust 测试 | 状态 | 说明 |
+|---|---:|---|---|---|
+| `tests/command/test_router_dispatchable.py` | 3 | `crates/lure-core/tests/command_router.rs` | partial | `is_dispatchable_command`（exact/prefix 命中、priority 不计入、普通文本/未知不匹配、大小写不敏感、去空白）、`is_priority`（含 @bot 归一）、`normalize_command_text`、`dispatch`（/help 帮助文本 + render_as、/pairing list/approve/默认 list + `_pairing_command` 标记、非命令 None、prefix args 填充）——15 例覆盖路由核心；`dispatch_priority`/mid-turn loop 接线待 CLI/gateway |
+| `nanobot/command/builtin.py`（运行时命令处理器） | 3,4,6,8 | 待定 | deferred | /new /status /model /history /goal /trigger /dream* /evaluator-prompt /skill /stop /restart 需 loop/session/memory-dream/subagent 运行时上下文；命令名已登记（谓词对齐），处理器随对应子系统落地 |
+
+> 注：lure 路由为同步（上游 async），handler 为装箱闭包。核心可测面（归一 + 三层派发 + 谓词 +
+> /help//pairing）已对齐；CLI REPL 现仍用内联 /help /model /session，接入统一 router 与运行时
+> 命令处理器为后续工作。
 
 ## Phase 3 明细映射
 
