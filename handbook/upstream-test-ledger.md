@@ -32,6 +32,7 @@
 | `tests/security/` | 5 | partial | workspace 边界已覆盖；network SSRF、启动安全待补 |
 | `tests/bus/` | 7 | partial | InboundMessage/OutboundMessage、内存队列、outbound 运行时事件（`ProgressUpdate`）已覆盖；async 队列待补 |
 | `tests/channels/` | 7 | partial | channel 契约、配置校验、发送方访问控制（allowlist + pairing 兜底）已覆盖；manager 热加载、plugin、具体平台待补 |
+| `tests/pairing/` | 7 | covered | `PairingStore`（生成/审批/拒绝/撤销/clear、TTL 过期 GC、`handle_pairing_command` 纯派发、数字 sender_id 字符串化往返、损坏恢复）全覆盖，见下方明细；`/pairing` 命令 UI 接入随命令路由 |
 | `tests/gateway/` | 7,9 | partial | 编排闭环/启停/health 状态已覆盖；真实 HTTP endpoint、进程 runtime、API runtime 待补 |
 | `tests/cron/` | 8 | partial | store 持久化/next-run/session delivery/heartbeat 已覆盖；cron 表达式、工具 schema 待补 |
 | `tests/triggers/` | 8 | partial | at-least-once/忙等/limit 已覆盖；文件 inbox 布局、trigger 定义存储待补 |
@@ -117,6 +118,16 @@ Phase 0 已完成，确定 phase 1-4 关键上游测试的 Rust 测试落点（�
 
 > 注：Phase 7 为同步内存实现（上游 asyncio）；WebSocket 最小往返随 Phase 10 WebUI，
 > 真实 HTTP health endpoint 与进程管理 runtime 留待后续。
+
+## Phase 7 Pairing 明细映射
+
+| 上游测试 | 归属 phase | Rust 测试 | 状态 | 说明 |
+|---|---:|---|---|---|
+| `tests/pairing/test_store.py` | 7 | `crates/lure-core/tests/pairing_store.rs` | covered | generate_code 格式/唯一性/TTL、approve/deny（含过期）、revoke/clear_channel（scoped）、list_pending（过期剔除）、`handle_pairing_command`（list/approve/deny/revoke 单双参/unknown/默认 list）、数字 sender_id 手工编辑存储字符串化、损坏文件恢复空存储——31 例全覆盖 |
+
+> 注：lure 以 `PairingStore`（按路径参数化、每次调用 load/mutate/save）复刻上游模块级全局锁 +
+> 每调用重载语义；时间显式注入（秒，对齐 `time.time()`）；随机源用 UUIDv4 字节映射字符集替代
+> `secrets.choice`（无新增依赖）。`/pairing` 命令的 channel 上下文接入随命令路由子系统落地。
 
 ## Phase 6 明细映射
 

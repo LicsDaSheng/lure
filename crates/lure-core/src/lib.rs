@@ -10,6 +10,7 @@
 //! - [`security`]：Phase 5 的 workspace 路径边界。
 //! - [`tool`]：Phase 5 的 tool trait / registry / 文件与 shell 工具。
 //! - [`memory`]：Phase 6 的长期记忆存储、history 与 dream consolidation。
+//! - [`pairing`]：Phase 7 的 DM 发送者配对码存储与 `/pairing` 派发。
 //! - [`bus`]：Phase 7 的 InboundMessage/OutboundMessage 与消息总线。
 //! - [`channel`]：Phase 7 的 channel 契约。
 //! - [`gateway`]：Phase 7 的最小 gateway 编排。
@@ -26,6 +27,7 @@ pub mod config;
 pub mod cron;
 pub mod gateway;
 pub mod memory;
+pub mod pairing;
 pub mod provider;
 pub mod security;
 pub mod session;

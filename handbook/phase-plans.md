@@ -77,8 +77,18 @@ CLI 交互体验已成体系并暂告段落：实时流式 → tool/progress 行
 
 已完成（按价值收口）：**前端 /api stub 表面**、**dream 接真实 provider**、**真实浏览器 E2E 契约测试**（`--headless` + Playwright smoke，见 [phase-execution.md](./phase-execution.md) WebUI 契约门禁）、**CLI slash commands**、**cron 表达式**、**`cron` agent 工具**、**cron service 定时执行 + 接入 lure-desktop 长驻宿主**（排期任务后台自动跑，产出写 transcript，webui 下次打开可见）、**settings 写入大表面**（agent/provider/model-preset GET-style 写、原子落盘生效）、**settings 写入面 E2E 契约覆盖 + E2E hermetic 化**（隔离 config + 种子，消除对开发者真实 config 的隐式依赖）、**cron 实时推送**（WsHub 在线连接注册表 + 连接读循环 drain，cron 产出实时推给在线连接，无需刷新）、**IANA 具名时区**（chrono-tz，含 DST 正确处理；cron 工具接受任意合法 IANA 名）。**Phase 8 cron 链路已端到端打通（含实时推送 + 具名时区）**；**Phase 10 settings 读写双向 + 浏览器契约**已闭环。
 
-按「用户可感知价值 × 当前覆盖缺口」排序，下一步：
+### 与上游的核心能力差异（2026-07-30 复盘）
 
-1. **E2E 扩面**：跨会话切换、new-chat、真实驱动 settings 面板 UI（当前 settings E2E 走浏览器上下文 fetch，未点透前端组件）等关键用户流补 Playwright 覆盖。
-2. **channels 真实平台 / media 代理**：Gateway 接真实 channel（telegram/discord…）、webui media 上传代理。
-3. **cron run history / jobs.json 并发加锁**：cron 执行历史记录、多写者并发保护。
+外围体验（CLI UX、cron 链路、webui 读写、settings、E2E）已成体系；但与上游对照后，**真正拉开差距的是几个成规模的独立子系统**，此前在阶段表中被"partial"掩盖。完整清单见 [phase-roadmap.md](./phase-roadmap.md)「跨阶段未建模的上游子系统」。核心差异点：
+
+- **MCP、Skills、Subagent、Pairing 四个子系统 lure 完全未建模**，上游均已成规模并有对应 slash 命令。
+- **命令路由**：CLI 仅 3 条 slash，上游 ~16 条。
+- **多模态**（图像生成 / 音频转写）整条链缺失。
+
+> **范围决定**：provider 只做 **OpenAI-compat 一种线协议**。上游的原生 Anthropic Messages / Bedrock / Azure / Copilot / Codex 协议与 fallback 链**明确不复刻**——不视为缺口。多模态若做，也走 OpenAI 兼容端点实现。
+
+### 下一步优先级（按「用户可感知价值 × 与上游差距」排序）
+
+1. **命令路由补全 + subagent 基座**（P1）：把 `/status /history /new /goal /stop` 等无需外部依赖的 slash 命令按 `command/builtin.py` 契约补齐；`/stop` 需要 subagent/turn 生命周期，作为 subagent 建模的切入点。
+2. **MCP 最小接入**（P1）：MCP client + tool 注册，打通 `/skill` 与外部工具生态（对照 `webui/mcp_presets_api.py` 与 MCP tool 契约）。
+3. **E2E 扩面 / channels 真实平台 / cron run history**（P2）：既有外围收尾——跨会话切换与 new-chat 的 Playwright 覆盖、Gateway 接真实 channel、cron 执行历史与 jobs.json 并发加锁。
