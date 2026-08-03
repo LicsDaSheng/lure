@@ -120,6 +120,46 @@ fn new_chat_provisions_fresh_id_and_marks_metadata() {
 }
 
 #[test]
+fn new_chat_registers_listable_session_and_echoes_workspace_scope() {
+    use lure_core::session::SessionManager;
+    use lure_core::webui::list_webui_sessions;
+    use lure_core::webui::transcript::TranscripStore;
+    use tempfile::TempDir;
+
+    let dir = TempDir::new().unwrap();
+    let workspace = dir.path().to_path_buf();
+    let transcript = TranscripStore::new(workspace.join("webui")).unwrap();
+    let mut session = MuxSession::new_with_transcript(ScriptedRunner::ok(vec![], ""), transcript);
+
+    let scope = json!({
+        "access_mode": "full",
+        "project_name": "workspace",
+        "project_path": "/Users/scottlee/.lure/workspace",
+        "restrict_to_workspace": false,
+    });
+    let out = mux::collect_frames(
+        &mut session,
+        &json!({"type": "new_chat", "workspace_scope": scope}),
+    );
+    assert_eq!(events(&out), vec!["attached", "session_updated"]);
+    let new_id = out[0]["chat_id"].as_str().unwrap().to_string();
+
+    // session_updated 回带客户端 workspace_scope（对齐上游）。
+    assert_eq!(out[1]["workspace_scope"], scope);
+
+    // 关键回归：新会话在首条消息前即出现在 `/api/sessions`，否则前端导航后弹回欢迎页。
+    let mut manager = SessionManager::new(&workspace).unwrap();
+    let keys: Vec<String> = list_webui_sessions(&mut manager)
+        .into_iter()
+        .map(|row| row.key)
+        .collect();
+    assert!(
+        keys.contains(&format!("websocket:{new_id}")),
+        "新会话应可被列出: {keys:?}"
+    );
+}
+
+#[test]
 fn message_requires_valid_chat_id_and_content() {
     let mut session = MuxSession::new(ScriptedRunner::ok(vec![], ""));
     let out = mux::collect_frames(

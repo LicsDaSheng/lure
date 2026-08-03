@@ -42,6 +42,12 @@ impl TranscripStore {
         Ok(Self { webui_dir: dir })
     }
 
+    /// 所在 workspace 目录（`webui/` 的父目录），供需要按 workspace 定位其它子存储
+    /// （如 `sessions/`）的调用方使用。根目录（无父）返回 `None`。
+    pub fn workspace_dir(&self) -> Option<&Path> {
+        self.webui_dir.parent()
+    }
+
     /// 追加一轮对话（一条 user + 一条 assistant）。
     pub fn append_turn(
         &mut self,

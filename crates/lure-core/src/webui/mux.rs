@@ -71,7 +71,7 @@ impl<R: TurnRunner> MuxSession<R> {
         };
         match frame_type {
             "attach" => self.handle_attach(frame, on_outbound),
-            "new_chat" => self.handle_new_chat(on_outbound),
+            "new_chat" => self.handle_new_chat(frame, on_outbound),
             "message" => self.handle_message(frame, on_outbound),
             other => on_outbound(&error_event(&format!("unknown type: {other:?}"))),
         }
@@ -84,10 +84,44 @@ impl<R: TurnRunner> MuxSession<R> {
         }
     }
 
-    fn handle_new_chat(&mut self, on_outbound: &mut dyn FnMut(&Value)) {
+    fn handle_new_chat(&mut self, frame: &Value, on_outbound: &mut dyn FnMut(&Value)) {
         let chat_id = uuid::Uuid::new_v4().to_string();
+        let session_key = format!("websocket:{chat_id}");
+
+        // 立即登记一个可列出的空 session（对齐上游 new_chat → persist_scope →
+        // `get_or_create("websocket:{chat_id}")`）。否则该会话在首条消息落盘前不出现在
+        // `/api/sessions`，前端导航到新会话后因列表查不到而弹回欢迎页（stays on 初始页）。
+        self.ensure_listable_session(&session_key);
+
         on_outbound(&json!({"event": "attached", "chat_id": chat_id}));
-        on_outbound(&json!({"event": "session_updated", "chat_id": chat_id, "scope": "metadata"}));
+
+        // session_updated 回带客户端声明的 workspace_scope（对齐上游 runtime.py：
+        // `session_updated(scope="metadata", workspace_scope=scope.payload())`）。
+        let mut updated = json!({
+            "event": "session_updated",
+            "chat_id": chat_id,
+            "scope": "metadata",
+        });
+        if let Some(scope) = frame.get("workspace_scope") {
+            updated["workspace_scope"] = scope.clone();
+        }
+        on_outbound(&updated);
+    }
+
+    /// 持久化一个空 session 使其可被 `/api/sessions` 列出（best-effort，失败不影响握手）。
+    ///
+    /// session store 与 transcript 同处 workspace（`webui/` 的父目录）；无 transcript
+    /// （纯内存测试装配）时跳过。
+    fn ensure_listable_session(&self, session_key: &str) {
+        let Some(workspace) = self.transcript.as_ref().and_then(|t| t.workspace_dir()) else {
+            return;
+        };
+        let Ok(mut manager) = crate::session::SessionManager::new(workspace) else {
+            return;
+        };
+        if manager.get_or_create(session_key).is_ok() {
+            let _ = manager.save(session_key, false);
+        }
     }
 
     fn handle_message(&mut self, frame: &Value, on_outbound: &mut dyn FnMut(&Value)) {
