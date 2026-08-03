@@ -353,6 +353,12 @@ fn run_window(url: &str) {
     use wry::WebViewBuilder;
 
     let event_loop = EventLoop::new();
+    // NSApplication 已由 EventLoop::new() 建立；此时挂载菜单栏，让标准编辑快捷键
+    // （Cmd+C/V/X/A、撤销/重做）经响应链抵达聚焦的 webview——否则窗口无菜单时
+    // macOS 不会把这些按键投递到输入框，表现为“粘贴不进 apikey”等所有输入框都无法粘贴。
+    // `event_loop.run` 发散不返回，故此局部菜单在进程生命周期内不被 drop（AppKit 依赖其存活）。
+    let _menu = install_macos_menu();
+
     let window = WindowBuilder::new()
         .with_title("Lure")
         .with_inner_size(tao::dpi::LogicalSize::new(1280.0, 860.0))
@@ -365,6 +371,46 @@ fn run_window(url: &str) {
     event_loop.run(|_event, _, control_flow| {
         *control_flow = ControlFlow::Wait;
     });
+}
+
+/// 安装 macOS 菜单栏：应用菜单 + 标准编辑菜单。
+///
+/// 编辑菜单用 muda 预置项（undo/redo/cut/copy/paste/select_all），它们绑定系统默认
+/// 快捷键并通过响应链触发 `cut:`/`copy:`/`paste:`/`selectAll:` 选择子，作用于当前聚焦的
+/// WKWebView 输入控件。没有这些菜单项时，Cmd+V 等在无菜单窗口里不生效。
+#[cfg(target_os = "macos")]
+fn install_macos_menu() -> muda::Menu {
+    use muda::{Menu, PredefinedMenuItem, Submenu};
+
+    let menu = Menu::new();
+
+    let app_menu = Submenu::new("Lure", true);
+    let _ = app_menu.append_items(&[
+        &PredefinedMenuItem::about(None, None),
+        &PredefinedMenuItem::separator(),
+        &PredefinedMenuItem::services(None),
+        &PredefinedMenuItem::separator(),
+        &PredefinedMenuItem::hide(None),
+        &PredefinedMenuItem::hide_others(None),
+        &PredefinedMenuItem::show_all(None),
+        &PredefinedMenuItem::separator(),
+        &PredefinedMenuItem::quit(None),
+    ]);
+
+    let edit_menu = Submenu::new("Edit", true);
+    let _ = edit_menu.append_items(&[
+        &PredefinedMenuItem::undo(None),
+        &PredefinedMenuItem::redo(None),
+        &PredefinedMenuItem::separator(),
+        &PredefinedMenuItem::cut(None),
+        &PredefinedMenuItem::copy(None),
+        &PredefinedMenuItem::paste(None),
+        &PredefinedMenuItem::select_all(None),
+    ]);
+
+    let _ = menu.append_items(&[&app_menu, &edit_menu]);
+    menu.init_for_nsapp();
+    menu
 }
 
 #[cfg(not(target_os = "macos"))]
