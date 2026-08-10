@@ -69,7 +69,7 @@ method、WS、bootstrap）。典型：前端 `encodeURIComponent` 把 session ke
 因此，凡改动满足以下任一，除 Rust 全量门禁外**必须过 `e2e/` 的 Playwright smoke**：
 
 - `webui` HTTP/WS 路由、响应形状或 key/路径编码；
-- 前端 vendor（`frontend/webui`）同步或 `frontend/dist` 构建产物；
+- 前端（`frontend/app`）改动或 `frontend/dist` 构建产物；
 - `lure-desktop` server 装配（provider、dream、transcript 接线）。
 
 运行：`make e2e`（`webServer` 自动构建 dist + 拉起 `lure-desktop --headless

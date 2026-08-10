@@ -13,10 +13,6 @@
 # Frontend build product (embedded by lure-desktop)
 frontend/dist
 
-# Frontend (vendored nanobot 遗留，仅历史参考)
-frontend/nanobot/dist/
-frontend/nanobot/web/dist/
-
 # Frontend (自有 shadcn/Tailwind v4 WebUI，构建产物输出到 frontend/dist)
 frontend/app/node_modules/
 frontend/app/*.tsbuildinfo

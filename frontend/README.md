@@ -5,8 +5,6 @@ Lure 桌面 WebUI 的前端源码。
 - `app/`：自有 WebUI，React 18 + shadcn/ui + Tailwind v4（Vite 构建）。对接 `lure-core::webui`
   的后端契约（HTTP `/api/*`、`/webui/bootstrap`，WS 复用协议），非 vendored。
 - `dist/`：构建产物（gitignore），由 `lure-desktop` 经 rust-embed 嵌入二进制。
-- `nanobot/`、`UPSTREAM_COMMIT`：旧 vendored nanobot 前端的遗留物（`webui/` 已移除），
-  仅历史参考，不参与构建。
 
 ## 构建
 
