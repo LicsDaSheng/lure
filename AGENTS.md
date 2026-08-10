@@ -17,10 +17,17 @@
 ## Project Context
 
 - 这是一个 Rust 项目。
-- 项目目标是使用 Rust 完整重新实现 `nanobot` 项目。
+- 项目目标是使用 Rust 完整重新实现 `nanobot` 的**后端与领域行为**（不做功能删减或额外新增）。
 - 原始 `nanobot` 代码路径为 `/Users/scottlee/workspace/github/nanobot`。
 - 当原始 `nanobot` 的行为、契约、数据流和运行时边界可用时，以上游实现为事实来源。
 - 未验证上游行为之前，不要自行发明产品行为或协议契约。
+
+### 前端与桌面（已偏离 vendored）
+
+- **WebUI 前端已改为自有重写**：React + shadcn/ui + Tailwind v4，位于 `frontend/app`，构建产物输出到 `frontend/dist`（被 `lure-desktop` 内嵌）。它对接的是 lure 自己的 webui 后端契约（`lure-core::webui` 的 HTTP `/api/*`、`/webui/bootstrap` 与 WS 复用协议），**不再原样 vendored nanobot 前端**。
+- 旧的 `frontend/webui`（vendored nanobot WebUI）**保留作参考、已不参与构建**，可择机移除。
+- **桌面外壳为 Tauri V2**（`lure-desktop`）：仅作窗口/打包外壳，加载进程内 loopback WebUI；能力仍走进程内 HTTP/WS，**不迁移到 Tauri IPC**。
+- 因此「以 nanobot 为事实来源、不增删」约束**适用于后端/领域/协议契约**；前端交互与视觉是有意的自有实现，不要求与上游 nanobot WebUI 一致。
 
 ## Architecture Principles
 

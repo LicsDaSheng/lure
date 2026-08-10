@@ -1,6 +1,6 @@
 # Lure
 
-用 Rust 实现的轻量 AI agent 框架，目标行为对齐 [`nanobot`](https://github.com/)。提供 CLI 命令行与 desktop 桌面应用两种入口。
+用 Rust 实现的轻量 AI agent 框架，后端行为对齐 [`nanobot`](https://github.com/)。提供 CLI 命令行与 desktop 桌面应用两种入口。桌面前端为自有重写（React + shadcn/ui + Tailwind v4），桌面外壳为 Tauri V2（仅外壳，能力仍由进程内 HTTP/WS 提供）。
 
 ## 架构
 
@@ -9,7 +9,10 @@ Cargo workspace，以 crate 边界作为主要模块化机制：
 ```
 lure/
 ├── Cargo.toml                  # workspace 根
-├── frontend/                   # vendored 上游 nanobot WebUI（React，零改动）
+├── frontend/
+│   ├── app/                    # 自有 WebUI（React + shadcn/ui + Tailwind v4）
+│   ├── dist/                   # 前端构建产物（由 lure-desktop 内嵌，gitignore）
+│   └── webui/                  # 旧 vendored nanobot WebUI（保留参考，已不参与构建）
 └── crates/
     ├── lure-core/              # 核心领域库
     │   └── src/
@@ -28,14 +31,14 @@ lure/
     │       ├── trigger/        # trigger at-least-once 队列
     │       └── webui/          # WebUI 后端协议 / HTTP server / WS multiplex
     ├── lure-cli/               # CLI（二进制 `lure`）
-    └── lure-desktop/           # 桌面应用（wry webview，二进制 `lure-desktop`）
+    └── lure-desktop/           # 桌面应用（Tauri V2 外壳，二进制 `lure-desktop`）
 ```
 
 设计原则：优先类型化 API、枚举、trait 与结构化错误；保持解析、领域逻辑、运行时执行、存储与传输之间的清晰边界。
 
 ## 构建与测试
 
-需要 Rust（edition 2021，`rust-version = 1.85`）。desktop 构建还需要 `bun`（前端构建）。
+需要 Rust（edition 2021，`rust-version = 1.85`）。desktop 构建还需要 `bun`（构建 `frontend/app` 前端）。
 
 ```bash
 cargo build
@@ -74,14 +77,18 @@ cargo run --bin lure -- agent -m "你好" \
 # 确保先跑过 onboard
 cargo run --bin lure -- onboard
 
-# 在项目根目录构建前端（首次或 webui 源码有变更时）
-cd frontend/webui && bun install && bun run build -- --outDir ../dist --emptyOutDir && cd ../..
+# 构建前端（首次或前端源码有变更时；产物输出到 frontend/dist）
+cd frontend/app && bun install && bun run build && cd ../..
 
 # 启动桌面应用
 cargo run --bin lure-desktop -- --model echo
 ```
 
-窗口加载后打开内嵌 WebUI（交互/渲染与上游 nanobot WebUI 一致）；所有能力由 desktop 进程内提供（不跑独立 web 服务）。`--model`/`--preset`/`--config`/`--workspace` 参数与 CLI 对齐。
+Tauri V2 窗口加载进程内 WebUI（自有 shadcn/Tailwind 前端）；所有能力由 desktop 进程内 HTTP/WS 提供（不跑独立 web 服务，也不走 Tauri IPC）。`--model`/`--preset`/`--config`/`--workspace` 参数与 CLI 对齐。
+
+> 前端开发热更：一端跑 `cargo run --bin lure-desktop -- --headless --http-port 1789 --model echo`
+> 起后端，另一端在 `frontend/app` 跑 `LURE_BACKEND=http://127.0.0.1:1789 bun run dev`，
+> 浏览器打开 Vite dev server（`/webui`、`/api` 已代理到后端，WS 走 bootstrap 返回的绝对地址）。
 
 ## CLI 用法
 
