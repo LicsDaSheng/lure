@@ -186,6 +186,7 @@ export function useChat() {
 
   return {
     conn,
+    apiToken: boot?.api_token ?? "",
     modelName: boot?.model_name ?? null,
     sessions,
     activeKey,

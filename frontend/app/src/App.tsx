@@ -1,12 +1,15 @@
+import * as React from "react";
 import { Sidebar } from "@/components/Sidebar";
 import { Thread } from "@/components/Thread";
 import { Composer } from "@/components/Composer";
+import { SettingsView } from "@/components/settings/SettingsView";
 import { useChat } from "@/hooks/useChat";
 import { cn } from "@/lib/utils";
 
 export default function App() {
   const {
     conn,
+    apiToken,
     modelName,
     sessions,
     activeKey,
@@ -16,6 +19,7 @@ export default function App() {
     newChat,
     send,
   } = useChat();
+  const [settingsOpen, setSettingsOpen] = React.useState(false);
 
   return (
     <div className="flex h-full">
@@ -24,6 +28,7 @@ export default function App() {
         activeKey={activeKey}
         onSelect={selectSession}
         onNew={newChat}
+        onOpenSettings={() => setSettingsOpen(true)}
       />
       <main className="flex min-w-0 flex-1 flex-col">
         <header className="flex h-12 items-center justify-between border-b px-5">
@@ -51,6 +56,10 @@ export default function App() {
         <Thread messages={messages} modelName={modelName} />
         <Composer disabled={streaming || conn !== "ready"} onSend={send} />
       </main>
+
+      {settingsOpen && apiToken ? (
+        <SettingsView token={apiToken} onClose={() => setSettingsOpen(false)} />
+      ) : null}
     </div>
   );
 }

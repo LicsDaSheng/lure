@@ -1,4 +1,4 @@
-import { Plus, MessageSquare } from "lucide-react";
+import { Plus, MessageSquare, Settings } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
@@ -9,19 +9,32 @@ export function Sidebar({
   activeKey,
   onSelect,
   onNew,
+  onOpenSettings,
 }: {
   sessions: SessionRow[];
   activeKey: string | null;
   onSelect: (key: string) => void;
   onNew: () => void;
+  onOpenSettings: () => void;
 }) {
   return (
     <aside className="flex h-full w-[264px] shrink-0 flex-col border-r bg-sidebar text-sidebar-foreground">
-      <div className="flex items-center gap-2 px-4 py-3.5">
-        <div className="flex size-7 items-center justify-center rounded-lg bg-accent text-accent-foreground">
-          <span className="text-sm font-bold">L</span>
+      <div className="flex items-center justify-between px-4 py-3.5">
+        <div className="flex items-center gap-2">
+          <div className="flex size-7 items-center justify-center rounded-lg bg-accent text-accent-foreground">
+            <span className="text-sm font-bold">L</span>
+          </div>
+          <span className="text-sm font-semibold tracking-tight">Lure</span>
         </div>
-        <span className="text-sm font-semibold tracking-tight">Lure</span>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="size-8"
+          onClick={onOpenSettings}
+          aria-label="设置"
+        >
+          <Settings className="size-4" />
+        </Button>
       </div>
 
       <div className="px-3 pb-2">
