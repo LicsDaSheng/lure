@@ -25,7 +25,7 @@
 ### 前端与桌面（已偏离 vendored）
 
 - **WebUI 前端已改为自有重写**：React + shadcn/ui + Tailwind v4，位于 `frontend/app`，构建产物输出到 `frontend/dist`（被 `lure-desktop` 内嵌）。它对接的是 lure 自己的 webui 后端契约（`lure-core::webui` 的 HTTP `/api/*`、`/webui/bootstrap` 与 WS 复用协议），**不再原样 vendored nanobot 前端**。
-- 旧的 `frontend/webui`（vendored nanobot WebUI）**保留作参考、已不参与构建**，可择机移除。
+- 旧的 vendored nanobot WebUI（`frontend/webui`）**已移除**；`frontend/nanobot`、`UPSTREAM_COMMIT` 为其遗留物，仅历史参考、不参与构建。
 - **桌面外壳为 Tauri V2**（`lure-desktop`）：仅作窗口/打包外壳，加载进程内 loopback WebUI；能力仍走进程内 HTTP/WS，**不迁移到 Tauri IPC**。
 - 因此「以 nanobot 为事实来源、不增删」约束**适用于后端/领域/协议契约**；前端交互与视觉是有意的自有实现，不要求与上游 nanobot WebUI 一致。
 

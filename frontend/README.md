@@ -1,23 +1,27 @@
-# Frontend（vendor 自上游 nanobot）
+# Frontend
 
-本目录原样拷贝上游 nanobot 的 WebUI 前端源码，**不修改交互与渲染**。
+Lure 桌面 WebUI 的前端源码。
 
-- 上游仓库：`/Users/scottlee/workspace/github/nanobot`
-- 基线 commit：见 [UPSTREAM_COMMIT](./UPSTREAM_COMMIT)（同步时更新此文件）
-- `webui/`：上游 `webui/` 完整拷贝（不含 `node_modules/`）
-- `nanobot/channels/*/webui/`：上游 channel UI 贡献（前端 `import.meta.glob`
-  以 `../../../nanobot/channels/*/webui/**` 相对路径引用，目录结构必须保留）
+- `app/`：自有 WebUI，React 18 + shadcn/ui + Tailwind v4（Vite 构建）。对接 `lure-core::webui`
+  的后端契约（HTTP `/api/*`、`/webui/bootstrap`，WS 复用协议），非 vendored。
+- `dist/`：构建产物（gitignore），由 `lure-desktop` 经 rust-embed 嵌入二进制。
+- `nanobot/`、`UPSTREAM_COMMIT`：旧 vendored nanobot 前端的遗留物（`webui/` 已移除），
+  仅历史参考，不参与构建。
 
 ## 构建
 
 ```bash
-cd frontend/webui
+cd frontend/app
 bun install
-bun run build -- --outDir ../dist --emptyOutDir
+bun run build          # 产物输出到 ../dist（vite.config 已配 outDir + emptyOutDir）
 ```
 
-产物输出到 `frontend/dist/`，由 `lure-desktop` 经 rust-embed 嵌入二进制。
+## 开发热更
 
-## 同步上游
+```bash
+# 终端 1：起 headless 后端
+cargo run --bin lure-desktop -- --headless --http-port 1789 --model echo
 
-重新执行拷贝后运行 `bun run test` 验证 vendor 完整性，并更新 UPSTREAM_COMMIT。
+# 终端 2：Vite dev server（/webui、/api 代理到后端；WS 走 bootstrap 返回的绝对地址）
+cd frontend/app && LURE_BACKEND=http://127.0.0.1:1789 bun run dev
+```

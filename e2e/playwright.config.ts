@@ -36,12 +36,12 @@ export default defineConfig({
   },
   projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
   webServer: {
-    // 先用 vendored 前端产出 frontend/dist（供 lure-desktop rust-embed 嵌入），
+    // 先构建前端产出 frontend/dist（供 lure-desktop rust-embed 嵌入），
     // 再拉起 headless 后端（同一套生产 server 装配，仅无窗口）。
     command:
       `(lsof -ti tcp:${PORT} | xargs kill -9 2>/dev/null || true); ` +
       `mkdir -p ${WORKSPACE} && cp ${SEED_CONFIG} ${CONFIG} && ` +
-      `(cd frontend/webui && bun run build -- --outDir ../dist --emptyOutDir) && ` +
+      `(cd frontend/app && bun run build) && ` +
       `cargo run --quiet -p lure-desktop -- --headless --model echo ` +
       `--http-port ${PORT} --workspace ${WORKSPACE} --config ${CONFIG}`,
     cwd: repoRoot,

@@ -27,7 +27,7 @@ rust: fmt-check lint test ## Rust 完整门禁：fmt-check + lint + test
 ## ---- E2E（真实浏览器契约测试）----
 
 e2e-setup: ## 安装 E2E 依赖（前端 + Playwright + Chromium）
-	cd frontend/webui && bun install
+	cd frontend/app && bun install
 	cd e2e && bun install && bunx playwright install chromium
 
 e2e: ## 运行 Playwright 契约 smoke（自动构建 dist + 起 headless 后端）

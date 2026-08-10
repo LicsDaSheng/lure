@@ -5,7 +5,7 @@
 测试（字面 key、无浏览器）照不出的盲区。本次的删除 404 bug（前端 `encodeURIComponent`
 把 `:` 编码为 `%3A`，服务端未解码）正属此类。
 
-独立于 vendor 的 `frontend/webui`，不污染上游源码。
+仅驱动 headless 后端做前后端契约验证，独立于前端实现（`frontend/app`）。
 
 ## 一次性准备
 
@@ -26,7 +26,7 @@ bun run e2e:report            # 打开上次 HTML 报告
 
 `webServer` 会自动：
 0. 先清理占用该端口的残留进程（被中断的 headless 会一直 park 占端口）
-1. `cd frontend/webui && bun run build`（产出 `frontend/dist` 供 rust-embed 嵌入）
+1. `cd frontend/app && bun run build`（产出 `frontend/dist` 供 rust-embed 嵌入）
 2. `cargo run -p lure-desktop -- --headless --model echo --http-port 8788`
 
 HTTP 端口**固定**为 8788（Playwright 会多次加载 config，动态端口会导致 webServer 与

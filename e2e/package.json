@@ -2,7 +2,7 @@
   "name": "lure-e2e",
   "private": true,
   "version": "0.0.0",
-  "description": "真实浏览器契约测试：Playwright 驱动 headless lure-desktop（--model echo）验证前后端 /api、WS、bootstrap 契约。独立于 vendor 前端，不污染 frontend/webui。",
+  "description": "真实浏览器契约测试：Playwright 驱动 headless lure-desktop（--model echo）验证前后端 /api、WS、bootstrap 契约。独立于前端实现（frontend/app）。",
   "type": "module",
   "scripts": {
     "e2e": "playwright test",

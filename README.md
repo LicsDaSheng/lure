@@ -11,8 +11,7 @@ lure/
 ├── Cargo.toml                  # workspace 根
 ├── frontend/
 │   ├── app/                    # 自有 WebUI（React + shadcn/ui + Tailwind v4）
-│   ├── dist/                   # 前端构建产物（由 lure-desktop 内嵌，gitignore）
-│   └── webui/                  # 旧 vendored nanobot WebUI（保留参考，已不参与构建）
+│   └── dist/                   # 前端构建产物（由 lure-desktop 内嵌，gitignore）
 └── crates/
     ├── lure-core/              # 核心领域库
     │   └── src/
