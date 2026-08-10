@@ -1,8 +1,8 @@
-//! 确保 rust-embed 的内嵌目录 `frontend/dist/` 在编译期存在。
-//!
-//! `frontend/dist` 是 gitignore 的前端构建产物；干净检出时不存在，rust-embed 的
-//! 派生宏扫不到目录会编译失败。此处按需创建空目录，让 `cargo build`/`cargo test`
-//! 在未先 `bun run build` 时也能通过（此时无内嵌资源，需构建前端后才有页面）。
+//! 编译期准备：
+//! 1) 确保 rust-embed 内嵌目录 `frontend/dist/` 存在（gitignore 产物，干净检出时缺失，
+//!    rust-embed 派生宏扫不到目录会编译失败；按需建空目录让构建通过，需 `bun run build`
+//!    后才有真实页面）。
+//! 2) 运行 `tauri_build::build()` 生成 Tauri context/capabilities schema。
 
 use std::path::Path;
 
@@ -12,6 +12,7 @@ fn main() {
     if !dist.exists() {
         let _ = std::fs::create_dir_all(&dist);
     }
-    // dist 内容变化时无需重跑 build.rs（rust-embed 自行处理资源变更）。
     println!("cargo:rerun-if-changed=build.rs");
+
+    tauri_build::build();
 }

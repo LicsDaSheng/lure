@@ -1,8 +1,9 @@
 //! `lure-desktop`：内嵌 WebUI 的桌面应用。
 //!
 //! 进程内启动 loopback HTTP server（静态资源 + `/webui/bootstrap` + `/api/*`）与
-//! WS server（复用协议），wry webview 窗口加载 `http://127.0.0.1:<port>`——
-//! 前端原样复用 nanobot WebUI（浏览器模式路径），不跑独立 web 服务进程。
+//! WS server（复用协议），Tauri V2 窗口加载 `http://127.0.0.1:<port>`——
+//! 前端为自有 shadcn/Tailwind WebUI（`frontend/app` 构建到 `frontend/dist`），
+//! Tauri 仅作外壳（不迁移到 IPC），能力仍由进程内 HTTP/WS 提供。
 
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -346,77 +347,21 @@ fn main() -> ExitCode {
     ExitCode::SUCCESS
 }
 
-#[cfg(target_os = "macos")]
-fn run_window(url: &str) {
-    use tao::event_loop::{ControlFlow, EventLoop};
-    use tao::window::WindowBuilder;
-    use wry::WebViewBuilder;
-
-    let event_loop = EventLoop::new();
-    // NSApplication 已由 EventLoop::new() 建立；此时挂载菜单栏，让标准编辑快捷键
-    // （Cmd+C/V/X/A、撤销/重做）经响应链抵达聚焦的 webview——否则窗口无菜单时
-    // macOS 不会把这些按键投递到输入框，表现为“粘贴不进 apikey”等所有输入框都无法粘贴。
-    // `event_loop.run` 发散不返回，故此局部菜单在进程生命周期内不被 drop（AppKit 依赖其存活）。
-    let _menu = install_macos_menu();
-
-    let window = WindowBuilder::new()
-        .with_title("Lure")
-        .with_inner_size(tao::dpi::LogicalSize::new(1280.0, 860.0))
-        .build(&event_loop)
-        .expect("创建窗口失败");
-    let _webview = WebViewBuilder::new()
-        .with_url(url)
-        .build(&window)
-        .expect("创建 webview 失败");
-    event_loop.run(|_event, _, control_flow| {
-        *control_flow = ControlFlow::Wait;
-    });
-}
-
-/// 安装 macOS 菜单栏：应用菜单 + 标准编辑菜单。
+/// Tauri V2 外壳：在主线程启动应用，运行期创建 `main` 窗口加载 loopback URL。
 ///
-/// 编辑菜单用 muda 预置项（undo/redo/cut/copy/paste/select_all），它们绑定系统默认
-/// 快捷键并通过响应链触发 `cut:`/`copy:`/`paste:`/`selectAll:` 选择子，作用于当前聚焦的
-/// WKWebView 输入控件。没有这些菜单项时，Cmd+V 等在无菜单窗口里不生效。
-#[cfg(target_os = "macos")]
-fn install_macos_menu() -> muda::Menu {
-    use muda::{Menu, PredefinedMenuItem, Submenu};
-
-    let menu = Menu::new();
-
-    let app_menu = Submenu::new("Lure", true);
-    let _ = app_menu.append_items(&[
-        &PredefinedMenuItem::about(None, None),
-        &PredefinedMenuItem::separator(),
-        &PredefinedMenuItem::services(None),
-        &PredefinedMenuItem::separator(),
-        &PredefinedMenuItem::hide(None),
-        &PredefinedMenuItem::hide_others(None),
-        &PredefinedMenuItem::show_all(None),
-        &PredefinedMenuItem::separator(),
-        &PredefinedMenuItem::quit(None),
-    ]);
-
-    let edit_menu = Submenu::new("Edit", true);
-    let _ = edit_menu.append_items(&[
-        &PredefinedMenuItem::undo(None),
-        &PredefinedMenuItem::redo(None),
-        &PredefinedMenuItem::separator(),
-        &PredefinedMenuItem::cut(None),
-        &PredefinedMenuItem::copy(None),
-        &PredefinedMenuItem::paste(None),
-        &PredefinedMenuItem::select_all(None),
-    ]);
-
-    let _ = menu.append_items(&[&app_menu, &edit_menu]);
-    menu.init_for_nsapp();
-    menu
-}
-
-#[cfg(not(target_os = "macos"))]
+/// 窗口以 `WebviewUrl::External` 指向进程内 HTTP server（能力仍走 HTTP/WS，不用 IPC）。
+/// macOS 下 Tauri 自带标准菜单（含 Edit 的 Cut/Copy/Paste/Select All），故无需手挂菜单，
+/// 输入框粘贴等标准编辑快捷键开箱可用。`run` 接管主线程事件循环，发散不返回。
 fn run_window(url: &str) {
-    eprintln!("当前平台暂未接入桌面窗口；请在浏览器打开 {url}");
-    loop {
-        std::thread::park();
-    }
+    let external: tauri::Url = url.parse().expect("非法 loopback URL");
+    tauri::Builder::default()
+        .setup(move |app| {
+            tauri::WebviewWindowBuilder::new(app, "main", tauri::WebviewUrl::External(external))
+                .title("Lure")
+                .inner_size(1280.0, 860.0)
+                .build()?;
+            Ok(())
+        })
+        .run(tauri::generate_context!())
+        .expect("运行 Tauri 应用失败");
 }

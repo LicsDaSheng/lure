@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
-description = "Lure desktop：内嵌 WebUI 的桌面应用（wry webview + 进程内 HTTP/WS 能力）"
+description = "Lure desktop：内嵌 WebUI 的桌面应用（Tauri V2 外壳 + 进程内 HTTP/WS 能力）"
 
 [[bin]]
 name = "lure-desktop"
@@ -14,10 +14,11 @@ path = "src/main.rs"
 lure-core = { path = "../lure-core" }
 lure-cli = { path = "../lure-cli" }
 serde_json = "1"
-wry = "0.55.1"
-tao = "0.35.3"
 rust-embed = "8.12.0"
-muda = "0.19.3"
+tauri = { version = "2", features = [] }
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
 
 [dev-dependencies]
 ureq = "2"
