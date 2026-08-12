@@ -10,16 +10,16 @@ fn store() -> (tempfile::TempDir, MemoryStore) {
     (dir, store)
 }
 
-#[test]
-fn read_memory_empty_when_missing_then_round_trips() {
+#[tokio::test]
+async fn read_memory_empty_when_missing_then_round_trips() {
     let (_dir, store) = store();
     assert_eq!(store.read_memory(), "");
     store.write_memory("hello");
     assert_eq!(store.read_memory(), "hello");
 }
 
-#[test]
-fn soul_and_user_round_trip() {
+#[tokio::test]
+async fn soul_and_user_round_trip() {
     let (_dir, store) = store();
     assert_eq!(store.read_soul(), "");
     store.write_soul("soul content");
@@ -30,8 +30,8 @@ fn soul_and_user_round_trip() {
     assert_eq!(store.read_user(), "user content");
 }
 
-#[test]
-fn memory_context_formats_only_when_present() {
+#[tokio::test]
+async fn memory_context_formats_only_when_present() {
     let (_dir, store) = store();
     assert_eq!(store.get_memory_context(), "");
     store.write_memory("important fact");
@@ -40,16 +40,16 @@ fn memory_context_formats_only_when_present() {
     assert!(ctx.contains("important fact"));
 }
 
-#[test]
-fn append_history_returns_incrementing_cursor() {
+#[tokio::test]
+async fn append_history_returns_incrementing_cursor() {
     let (_dir, store) = store();
     assert_eq!(store.append_history("event 1", None).unwrap(), 1);
     assert_eq!(store.append_history("event 2", None).unwrap(), 2);
     assert_eq!(store.append_history("event 3", None).unwrap(), 3);
 }
 
-#[test]
-fn append_history_persists_cursor_and_session_key() {
+#[tokio::test]
+async fn append_history_persists_cursor_and_session_key() {
     let (_dir, store) = store();
     store
         .append_history("event 1", Some("telegram:chat-1"))
@@ -60,8 +60,8 @@ fn append_history_persists_cursor_and_session_key() {
     assert_eq!(data["session_key"], "telegram:chat-1");
 }
 
-#[test]
-fn append_history_strips_thinking_content() {
+#[tokio::test]
+async fn append_history_strips_thinking_content() {
     let (_dir, store) = store();
     store
         .append_history("<think>reasoning</think>final answer", None)
@@ -71,8 +71,8 @@ fn append_history_strips_thinking_content() {
     assert_eq!(data["content"], "final answer");
 }
 
-#[test]
-fn append_history_drops_pure_leak_content() {
+#[tokio::test]
+async fn append_history_drops_pure_leak_content() {
     let (_dir, store) = store();
     store
         .append_history("<think>nothing user-facing</think>", None)
@@ -87,8 +87,8 @@ fn append_history_drops_pure_leak_content() {
     assert_eq!(last["content"], "");
 }
 
-#[test]
-fn read_unprocessed_history_filters_by_cursor() {
+#[tokio::test]
+async fn read_unprocessed_history_filters_by_cursor() {
     let (_dir, store) = store();
     store.append_history("event 1", None).unwrap();
     store.append_history("event 2", None).unwrap();
@@ -101,8 +101,8 @@ fn read_unprocessed_history_filters_by_cursor() {
     assert_eq!(store.read_unprocessed_history(0).len(), 3);
 }
 
-#[test]
-fn compact_history_drops_oldest_beyond_cap() {
+#[tokio::test]
+async fn compact_history_drops_oldest_beyond_cap() {
     // 对齐上游 `test_compact_history_drops_oldest`：max_history_entries=2，追加 5 条后
     // compact 仅保留最新 2 条。
     let dir = tempdir().unwrap();
@@ -121,8 +121,8 @@ fn compact_history_drops_oldest_beyond_cap() {
     assert_eq!(entries[1].content, "event 5");
 }
 
-#[test]
-fn compact_history_noop_without_cap() {
+#[tokio::test]
+async fn compact_history_noop_without_cap() {
     let (_dir, store) = store();
     for i in 1..=5 {
         store.append_history(&format!("event {i}"), None).unwrap();
@@ -131,8 +131,8 @@ fn compact_history_noop_without_cap() {
     assert_eq!(store.read_unprocessed_history(0).len(), 5, "无上限时不压缩");
 }
 
-#[test]
-fn compact_history_preserves_session_key() {
+#[tokio::test]
+async fn compact_history_preserves_session_key() {
     let dir = tempdir().unwrap();
     let store = MemoryStore::new(dir.path())
         .unwrap()
@@ -147,8 +147,8 @@ fn compact_history_preserves_session_key() {
     assert_eq!(entries[0].session_key.as_deref(), Some("api:b"));
 }
 
-#[test]
-fn oversized_entry_is_truncated_with_marker() {
+#[tokio::test]
+async fn oversized_entry_is_truncated_with_marker() {
     // 对齐上游 `TestAppendHistoryHardCap`：超硬上限条目被截断并带 `... (truncated)` 标记。
     let (_dir, store) = store();
     let huge = "x".repeat(HISTORY_ENTRY_HARD_CAP + 10_000);
@@ -158,16 +158,16 @@ fn oversized_entry_is_truncated_with_marker() {
     assert!(entry.content.contains("truncated"), "应含截断标记");
 }
 
-#[test]
-fn normal_sized_entry_unaffected_by_cap() {
+#[tokio::test]
+async fn normal_sized_entry_unaffected_by_cap() {
     let (_dir, store) = store();
     store.append_history("normal short entry", None).unwrap();
     let entry = &store.read_unprocessed_history(0)[0];
     assert_eq!(entry.content, "normal short entry");
 }
 
-#[test]
-fn prompt_history_filters_to_current_session() {
+#[tokio::test]
+async fn prompt_history_filters_to_current_session() {
     let (_dir, store) = store();
     store.append_history("legacy entry", None).unwrap();
     store
@@ -185,8 +185,8 @@ fn prompt_history_filters_to_current_session() {
     assert_eq!(store.read_unprocessed_history(0).len(), 3);
 }
 
-#[test]
-fn cursor_persists_across_store_reopen() {
+#[tokio::test]
+async fn cursor_persists_across_store_reopen() {
     let dir = tempdir().unwrap();
     {
         let store = MemoryStore::new(dir.path()).unwrap();
@@ -197,8 +197,8 @@ fn cursor_persists_across_store_reopen() {
     assert_eq!(reopened.append_history("event 3", None).unwrap(), 3);
 }
 
-#[test]
-fn migrates_legacy_history_md_preserving_partial_entries() {
+#[tokio::test]
+async fn migrates_legacy_history_md_preserving_partial_entries() {
     let dir = tempdir().unwrap();
     let memory_dir = dir.path().join("memory");
     std::fs::create_dir_all(&memory_dir).unwrap();
@@ -241,8 +241,8 @@ fn migrates_legacy_history_md_preserving_partial_entries() {
     );
 }
 
-#[test]
-fn migrates_consecutive_legacy_entries_without_blank_lines() {
+#[tokio::test]
+async fn migrates_consecutive_legacy_entries_without_blank_lines() {
     let dir = tempdir().unwrap();
     let memory_dir = dir.path().join("memory");
     std::fs::create_dir_all(&memory_dir).unwrap();
@@ -269,8 +269,8 @@ fn migrates_consecutive_legacy_entries_without_blank_lines() {
     );
 }
 
-#[test]
-fn existing_nonempty_history_jsonl_skips_legacy_migration() {
+#[tokio::test]
+async fn existing_nonempty_history_jsonl_skips_legacy_migration() {
     let dir = tempdir().unwrap();
     let memory_dir = dir.path().join("memory");
     std::fs::create_dir_all(&memory_dir).unwrap();
@@ -291,8 +291,8 @@ fn existing_nonempty_history_jsonl_skips_legacy_migration() {
     assert!(!memory_dir.join("HISTORY.md.bak").exists());
 }
 
-#[test]
-fn empty_history_jsonl_still_allows_legacy_migration() {
+#[tokio::test]
+async fn empty_history_jsonl_still_allows_legacy_migration() {
     let dir = tempdir().unwrap();
     let memory_dir = dir.path().join("memory");
     std::fs::create_dir_all(&memory_dir).unwrap();
@@ -310,8 +310,8 @@ fn empty_history_jsonl_still_allows_legacy_migration() {
     assert!(memory_dir.join("HISTORY.md.bak").exists());
 }
 
-#[test]
-fn migrates_legacy_history_with_invalid_utf8_bytes() {
+#[tokio::test]
+async fn migrates_legacy_history_with_invalid_utf8_bytes() {
     let dir = tempdir().unwrap();
     let memory_dir = dir.path().join("memory");
     std::fs::create_dir_all(&memory_dir).unwrap();

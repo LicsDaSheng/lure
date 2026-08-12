@@ -36,16 +36,17 @@ impl ScriptedRunner {
     }
 }
 
+#[async_trait::async_trait]
 impl TurnRunner for ScriptedRunner {
-    fn run_turn(
+    async fn run_turn(
         &mut self,
         chat_id: &str,
         content: &str,
-        on_progress: &mut dyn FnMut(&ProgressEvent),
+        on_progress: &mut (dyn FnMut(ProgressEvent) + Send),
     ) -> Result<String, String> {
         self.calls.push((chat_id.to_string(), content.to_string()));
         for event in &self.progress {
-            on_progress(event);
+            on_progress(event.clone());
         }
         match &self.fail {
             Some(detail) => Err(detail.clone()),
@@ -61,9 +62,12 @@ fn events(frames: &[Value]) -> Vec<&str> {
         .collect()
 }
 
-#[test]
-fn ready_frame_announces_default_chat_and_client() {
-    let session = MuxSession::new(ScriptedRunner::ok(vec![], ""));
+#[tokio::test]
+async fn ready_frame_announces_default_chat_and_client() {
+    let session = MuxSession::new(
+        ScriptedRunner::ok(vec![], ""),
+        tokio::runtime::Handle::current(),
+    );
     let ready = session.ready_frame();
     assert_eq!(ready["event"], "ready");
     let chat_id = ready["chat_id"].as_str().unwrap();
@@ -74,9 +78,12 @@ fn ready_frame_announces_default_chat_and_client() {
     assert!(client_id.starts_with("anon-"));
 }
 
-#[test]
-fn attach_valid_chat_id_acknowledges() {
-    let mut session = MuxSession::new(ScriptedRunner::ok(vec![], ""));
+#[tokio::test]
+async fn attach_valid_chat_id_acknowledges() {
+    let mut session = MuxSession::new(
+        ScriptedRunner::ok(vec![], ""),
+        tokio::runtime::Handle::current(),
+    );
     let out = mux::collect_frames(
         &mut session,
         &json!({"type": "attach", "chat_id": "chat-1"}),
@@ -84,9 +91,12 @@ fn attach_valid_chat_id_acknowledges() {
     assert_eq!(out, vec![json!({"event": "attached", "chat_id": "chat-1"})]);
 }
 
-#[test]
-fn attach_invalid_chat_id_errors() {
-    let mut session = MuxSession::new(ScriptedRunner::ok(vec![], ""));
+#[tokio::test]
+async fn attach_invalid_chat_id_errors() {
+    let mut session = MuxSession::new(
+        ScriptedRunner::ok(vec![], ""),
+        tokio::runtime::Handle::current(),
+    );
     for bad in [
         json!({"type": "attach", "chat_id": "has space"}),
         json!({"type": "attach", "chat_id": "x".repeat(65)}),
@@ -102,9 +112,12 @@ fn attach_invalid_chat_id_errors() {
     }
 }
 
-#[test]
-fn new_chat_provisions_fresh_id_and_marks_metadata() {
-    let mut session = MuxSession::new(ScriptedRunner::ok(vec![], ""));
+#[tokio::test]
+async fn new_chat_provisions_fresh_id_and_marks_metadata() {
+    let mut session = MuxSession::new(
+        ScriptedRunner::ok(vec![], ""),
+        tokio::runtime::Handle::current(),
+    );
     let default_id = session.ready_frame()["chat_id"]
         .as_str()
         .unwrap()
@@ -119,8 +132,8 @@ fn new_chat_provisions_fresh_id_and_marks_metadata() {
     assert_eq!(out[1]["scope"], "metadata");
 }
 
-#[test]
-fn new_chat_registers_listable_session_and_echoes_workspace_scope() {
+#[tokio::test]
+async fn new_chat_registers_listable_session_and_echoes_workspace_scope() {
     use lure_core::session::SessionManager;
     use lure_core::webui::list_webui_sessions;
     use lure_core::webui::transcript::TranscripStore;
@@ -129,7 +142,11 @@ fn new_chat_registers_listable_session_and_echoes_workspace_scope() {
     let dir = TempDir::new().unwrap();
     let workspace = dir.path().to_path_buf();
     let transcript = TranscripStore::new(workspace.join("webui")).unwrap();
-    let mut session = MuxSession::new_with_transcript(ScriptedRunner::ok(vec![], ""), transcript);
+    let mut session = MuxSession::new_with_transcript(
+        ScriptedRunner::ok(vec![], ""),
+        transcript,
+        tokio::runtime::Handle::current(),
+    );
 
     let scope = json!({
         "access_mode": "full",
@@ -159,9 +176,12 @@ fn new_chat_registers_listable_session_and_echoes_workspace_scope() {
     );
 }
 
-#[test]
-fn message_requires_valid_chat_id_and_content() {
-    let mut session = MuxSession::new(ScriptedRunner::ok(vec![], ""));
+#[tokio::test]
+async fn message_requires_valid_chat_id_and_content() {
+    let mut session = MuxSession::new(
+        ScriptedRunner::ok(vec![], ""),
+        tokio::runtime::Handle::current(),
+    );
     let out = mux::collect_frames(
         &mut session,
         &json!({"type": "message", "chat_id": "!!", "content": "hi"}),
@@ -187,8 +207,8 @@ fn message_requires_valid_chat_id_and_content() {
     );
 }
 
-#[test]
-fn message_streams_delta_then_message_turn_end_and_session_updated() {
+#[tokio::test]
+async fn message_streams_delta_then_message_turn_end_and_session_updated() {
     let runner = ScriptedRunner::ok(
         vec![
             ProgressEvent::ContentDelta { text: "你".into() },
@@ -196,7 +216,7 @@ fn message_streams_delta_then_message_turn_end_and_session_updated() {
         ],
         "你好",
     );
-    let mut session = MuxSession::new(runner);
+    let mut session = MuxSession::new(runner, tokio::runtime::Handle::current());
     // 不先 attach：首次 message 自动可用（上游 auto-attach 语义）。
     let out = mux::collect_frames(
         &mut session,
@@ -233,8 +253,8 @@ fn message_streams_delta_then_message_turn_end_and_session_updated() {
     assert_eq!(out[5], json!({"event": "session_updated", "chat_id": "c1"}));
 }
 
-#[test]
-fn message_maps_reasoning_delta_events() {
+#[tokio::test]
+async fn message_maps_reasoning_delta_events() {
     let runner = ScriptedRunner::ok(
         vec![
             ProgressEvent::ReasoningDelta {
@@ -244,7 +264,7 @@ fn message_maps_reasoning_delta_events() {
         ],
         "答",
     );
-    let mut session = MuxSession::new(runner);
+    let mut session = MuxSession::new(runner, tokio::runtime::Handle::current());
     let out = mux::collect_frames(
         &mut session,
         &json!({"type": "message", "chat_id": "c1", "content": "q"}),
@@ -263,9 +283,12 @@ fn message_maps_reasoning_delta_events() {
     assert_eq!(out[1]["text"], "思考");
 }
 
-#[test]
-fn message_runner_failure_emits_error_then_turn_end() {
-    let mut session = MuxSession::new(ScriptedRunner::failing("provider down"));
+#[tokio::test]
+async fn message_runner_failure_emits_error_then_turn_end() {
+    let mut session = MuxSession::new(
+        ScriptedRunner::failing("provider down"),
+        tokio::runtime::Handle::current(),
+    );
     let out = mux::collect_frames(
         &mut session,
         &json!({"type": "message", "chat_id": "c1", "content": "hi"}),
@@ -277,19 +300,22 @@ fn message_runner_failure_emits_error_then_turn_end() {
     assert!(!events(&out).contains(&"session_updated"));
 }
 
-#[test]
-fn unknown_frame_type_errors() {
-    let mut session = MuxSession::new(ScriptedRunner::ok(vec![], ""));
+#[tokio::test]
+async fn unknown_frame_type_errors() {
+    let mut session = MuxSession::new(
+        ScriptedRunner::ok(vec![], ""),
+        tokio::runtime::Handle::current(),
+    );
     let out = mux::collect_frames(&mut session, &json!({"type": "teleport", "chat_id": "c1"}));
     assert_eq!(out.len(), 1);
     assert_eq!(out[0]["event"], "error");
     assert!(out[0]["detail"].as_str().unwrap().contains("unknown type"));
 }
 
-#[test]
-fn runner_receives_chat_id_and_content() {
+#[tokio::test]
+async fn runner_receives_chat_id_and_content() {
     let runner = ScriptedRunner::ok(vec![], "ok");
-    let mut session = MuxSession::new(runner);
+    let mut session = MuxSession::new(runner, tokio::runtime::Handle::current());
     mux::collect_frames(
         &mut session,
         &json!({"type": "message", "chat_id": "room-9", "content": "ping"}),

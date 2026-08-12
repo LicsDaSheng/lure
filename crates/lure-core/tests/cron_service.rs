@@ -59,8 +59,8 @@ fn job(id: &str, schedule: CronSchedule, delete_after_run: bool) -> CronJob {
     }
 }
 
-#[test]
-fn tick_runs_due_recurring_job_and_advances_next_run() {
+#[tokio::test]
+async fn tick_runs_due_recurring_job_and_advances_next_run() {
     let dir = tempfile::tempdir().unwrap();
     let mut store = CronStore::load(dir.path()).unwrap();
     // every 500ms，add 在 t=1000 → next_run=1500。
@@ -82,8 +82,8 @@ fn tick_runs_due_recurring_job_and_advances_next_run() {
     assert_eq!(j.state.next_run_at_ms, Some(2500));
 }
 
-#[test]
-fn tick_skips_not_due_job() {
+#[tokio::test]
+async fn tick_skips_not_due_job() {
     let dir = tempfile::tempdir().unwrap();
     let mut store = CronStore::load(dir.path()).unwrap();
     store
@@ -97,8 +97,8 @@ fn tick_skips_not_due_job() {
     assert!(runner.ran_ids().is_empty());
 }
 
-#[test]
-fn tick_deletes_one_shot_job_after_run() {
+#[tokio::test]
+async fn tick_deletes_one_shot_job_after_run() {
     let dir = tempfile::tempdir().unwrap();
     let mut store = CronStore::load(dir.path()).unwrap();
     // at=1500（add 在 1000 → next_run=1500），一次性。
@@ -115,8 +115,8 @@ fn tick_deletes_one_shot_job_after_run() {
     assert_eq!(CronStore::load(dir.path()).unwrap().jobs().len(), 0);
 }
 
-#[test]
-fn tick_records_error_status_but_keeps_recurring() {
+#[tokio::test]
+async fn tick_records_error_status_but_keeps_recurring() {
     let dir = tempfile::tempdir().unwrap();
     let mut store = CronStore::load(dir.path()).unwrap();
     store
@@ -133,8 +133,8 @@ fn tick_records_error_status_but_keeps_recurring() {
     assert_eq!(j.state.next_run_at_ms, Some(2500)); // 仍推进
 }
 
-#[test]
-fn tick_ignores_disabled_jobs() {
+#[tokio::test]
+async fn tick_ignores_disabled_jobs() {
     let dir = tempfile::tempdir().unwrap();
     let mut store = CronStore::load(dir.path()).unwrap();
     let mut j = job("a", CronSchedule::every(500), false);
@@ -147,8 +147,8 @@ fn tick_ignores_disabled_jobs() {
     assert_eq!(service.tick(&mut runner, 2000).unwrap(), 0);
 }
 
-#[test]
-fn next_wake_returns_earliest_enabled_next_run() {
+#[tokio::test]
+async fn next_wake_returns_earliest_enabled_next_run() {
     let dir = tempfile::tempdir().unwrap();
     let mut store = CronStore::load(dir.path()).unwrap();
     store
@@ -162,8 +162,8 @@ fn next_wake_returns_earliest_enabled_next_run() {
     assert_eq!(service.next_wake_ms().unwrap(), Some(1500));
 }
 
-#[test]
-fn scheduler_background_runs_due_job() {
+#[tokio::test]
+async fn scheduler_background_runs_due_job() {
     let dir = tempfile::tempdir().unwrap();
     let mut store = CronStore::load(dir.path()).unwrap();
     // 远久前 next_run，确保任何 now 都到期。
@@ -199,8 +199,8 @@ fn scheduler_background_runs_due_job() {
     );
 }
 
-#[test]
-fn gateway_cron_runner_delivers_due_job_reply_to_channel() {
+#[tokio::test]
+async fn gateway_cron_runner_delivers_due_job_reply_to_channel() {
     // 端到端：到期 cron job → GatewayCronRunner → agent(echo) → 投递回 origin channel。
     let dir = tempfile::tempdir().unwrap();
 
@@ -215,7 +215,7 @@ fn gateway_cron_runner_delivers_due_job_reply_to_channel() {
     let channel = RecordingChannel::new("cli");
     let log = channel.delivery_log();
     gateway.register_channel(Box::new(channel)).unwrap();
-    let mut runner = GatewayCronRunner::new(gateway);
+    let mut runner = GatewayCronRunner::new(gateway, tokio::runtime::Handle::current());
 
     // 到期 cron job：origin cli:local，消息 "do it"。
     let mut store = CronStore::load(dir.path()).unwrap();
@@ -226,7 +226,7 @@ fn gateway_cron_runner_delivers_due_job_reply_to_channel() {
     let service = CronService::new(dir.path());
     assert_eq!(service.tick(&mut runner, 1000).unwrap(), 1);
 
-    let delivered = log.borrow();
+    let delivered = log.lock().unwrap();
     assert_eq!(delivered.len(), 1);
     assert_eq!(delivered[0].channel, "cli");
     assert_eq!(delivered[0].chat_id, "local");

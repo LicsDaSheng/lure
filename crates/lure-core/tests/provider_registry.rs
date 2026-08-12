@@ -4,28 +4,28 @@
 
 use lure_core::provider::{find_by_name, match_provider};
 
-#[test]
-fn find_by_name_normalizes_case_and_separators() {
+#[tokio::test]
+async fn find_by_name_normalizes_case_and_separators() {
     assert_eq!(find_by_name("openai").unwrap().name, "openai");
     assert_eq!(find_by_name("OpenAI").unwrap().name, "openai");
     assert_eq!(find_by_name("anthropic").unwrap().name, "anthropic");
     assert!(find_by_name("unknown-provider").is_none());
 }
 
-#[test]
-fn forced_provider_resolves_by_name_ignoring_model() {
+#[tokio::test]
+async fn forced_provider_resolves_by_name_ignoring_model() {
     let spec = match_provider("some-unmatched-model", "anthropic").unwrap();
     assert_eq!(spec.name, "anthropic");
     assert_eq!(spec.default_api_base, "https://api.anthropic.com/v1");
 }
 
-#[test]
-fn forced_unknown_provider_is_none() {
+#[tokio::test]
+async fn forced_unknown_provider_is_none() {
     assert!(match_provider("gpt-4o", "nonexistent").is_none());
 }
 
-#[test]
-fn auto_matches_explicit_prefix() {
+#[tokio::test]
+async fn auto_matches_explicit_prefix() {
     let cases = [
         ("openai/gpt-4o", "openai"),
         ("anthropic/claude-opus-4-5", "anthropic"),
@@ -40,8 +40,8 @@ fn auto_matches_explicit_prefix() {
     }
 }
 
-#[test]
-fn auto_matches_keyword_in_registry_order() {
+#[tokio::test]
+async fn auto_matches_keyword_in_registry_order() {
     let cases = [
         ("gpt-4o", "openai"),
         ("claude-opus-4-5", "anthropic"),
@@ -58,14 +58,14 @@ fn auto_matches_keyword_in_registry_order() {
     }
 }
 
-#[test]
-fn auto_prefix_wins_over_keyword() {
+#[tokio::test]
+async fn auto_prefix_wins_over_keyword() {
     // 前缀 openrouter 应胜过内部 "claude" 关键字。
     let spec = match_provider("openrouter/anthropic/claude-3", "auto").unwrap();
     assert_eq!(spec.name, "openrouter");
 }
 
-#[test]
-fn auto_unmatched_model_is_none() {
+#[tokio::test]
+async fn auto_unmatched_model_is_none() {
     assert!(match_provider("some-random-model", "auto").is_none());
 }

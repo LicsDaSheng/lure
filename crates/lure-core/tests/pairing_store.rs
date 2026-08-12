@@ -18,8 +18,8 @@ const T0: f64 = 1_000.0;
 
 // —— generate_code —— //
 
-#[test]
-fn generate_code_has_grouped_format() {
+#[tokio::test]
+async fn generate_code_has_grouped_format() {
     let (_d, s) = store();
     let code = s.generate_code("telegram", "123", 600.0, T0).unwrap();
     assert_eq!(code.chars().count(), 9, "4 + 1 分隔符 + 4");
@@ -29,8 +29,8 @@ fn generate_code_has_grouped_format() {
     assert!(raw.chars().all(|c| !c.is_ascii_lowercase()));
 }
 
-#[test]
-fn generate_code_is_unique() {
+#[tokio::test]
+async fn generate_code_is_unique() {
     let (_d, s) = store();
     let mut codes = std::collections::HashSet::new();
     for i in 0..20 {
@@ -42,8 +42,8 @@ fn generate_code_is_unique() {
     assert_eq!(codes.len(), 20);
 }
 
-#[test]
-fn ttl_governs_expiration() {
+#[tokio::test]
+async fn ttl_governs_expiration() {
     let (_d, s) = store();
     // ttl=1，未推进时钟：仍可审批。
     let code = s.generate_code("telegram", "123", 1.0, T0).unwrap();
@@ -58,8 +58,8 @@ fn ttl_governs_expiration() {
 
 // —— format_pairing_reply —— //
 
-#[test]
-fn pairing_reply_points_to_webui_with_command_fallback() {
+#[tokio::test]
+async fn pairing_reply_points_to_webui_with_command_fallback() {
     let reply = format_pairing_reply("ABCD-EFGH");
     assert!(reply.contains("WebUI"));
     assert!(reply.contains("ABCD-EFGH"));
@@ -68,8 +68,8 @@ fn pairing_reply_points_to_webui_with_command_fallback() {
 
 // —— approve / deny —— //
 
-#[test]
-fn approve_moves_pending_to_approved() {
+#[tokio::test]
+async fn approve_moves_pending_to_approved() {
     let (_d, s) = store();
     let code = s.generate_code("telegram", "123", 600.0, T0).unwrap();
     assert!(!s.is_approved("telegram", "123").unwrap());
@@ -82,22 +82,22 @@ fn approve_moves_pending_to_approved() {
     assert_eq!(s.get_approved("telegram").unwrap(), vec!["123".to_string()]);
 }
 
-#[test]
-fn deny_removes_pending() {
+#[tokio::test]
+async fn deny_removes_pending() {
     let (_d, s) = store();
     let code = s.generate_code("telegram", "123", 600.0, T0).unwrap();
     assert!(s.deny_code(&code, T0).unwrap());
     assert_eq!(s.approve_code(&code, T0).unwrap(), None);
 }
 
-#[test]
-fn deny_unknown_returns_false() {
+#[tokio::test]
+async fn deny_unknown_returns_false() {
     let (_d, s) = store();
     assert!(!s.deny_code("UNKNOWN", T0).unwrap());
 }
 
-#[test]
-fn approve_expired_returns_none() {
+#[tokio::test]
+async fn approve_expired_returns_none() {
     let (_d, s) = store();
     let code = s.generate_code("telegram", "123", 0.0, T0).unwrap();
     assert_eq!(s.approve_code(&code, T0 + 0.1).unwrap(), None);
@@ -105,8 +105,8 @@ fn approve_expired_returns_none() {
 
 // —— revoke / clear —— //
 
-#[test]
-fn revoke_removes_approved_sender() {
+#[tokio::test]
+async fn revoke_removes_approved_sender() {
     let (_d, s) = store();
     let code = s.generate_code("telegram", "123", 600.0, T0).unwrap();
     s.approve_code(&code, T0).unwrap();
@@ -117,14 +117,14 @@ fn revoke_removes_approved_sender() {
     assert!(s.get_approved("telegram").unwrap().is_empty());
 }
 
-#[test]
-fn revoke_unknown_returns_false() {
+#[tokio::test]
+async fn revoke_unknown_returns_false() {
     let (_d, s) = store();
     assert!(!s.revoke("telegram", "999").unwrap());
 }
 
-#[test]
-fn clear_channel_removes_approved_and_pending_scoped() {
+#[tokio::test]
+async fn clear_channel_removes_approved_and_pending_scoped() {
     let (_d, s) = store();
     let code = s.generate_code("telegram", "123", 600.0, T0).unwrap();
     s.approve_code(&code, T0).unwrap();
@@ -140,8 +140,8 @@ fn clear_channel_removes_approved_and_pending_scoped() {
     assert_eq!(channels, vec!["discord".to_string()]);
 }
 
-#[test]
-fn clear_channel_unknown_returns_zero_counts() {
+#[tokio::test]
+async fn clear_channel_unknown_returns_zero_counts() {
     let (_d, s) = store();
     let counts = s.clear_channel("telegram").unwrap();
     assert_eq!((counts.approved, counts.pending), (0, 0));
@@ -149,14 +149,14 @@ fn clear_channel_unknown_returns_zero_counts() {
 
 // —— list_pending —— //
 
-#[test]
-fn list_pending_empty() {
+#[tokio::test]
+async fn list_pending_empty() {
     let (_d, s) = store();
     assert!(s.list_pending(T0).unwrap().is_empty());
 }
 
-#[test]
-fn list_pending_shows_all_channels() {
+#[tokio::test]
+async fn list_pending_shows_all_channels() {
     let (_d, s) = store();
     s.generate_code("telegram", "123", 600.0, T0).unwrap();
     s.generate_code("discord", "456", 600.0, T0).unwrap();
@@ -167,8 +167,8 @@ fn list_pending_shows_all_channels() {
     assert_eq!(channels, ["telegram", "discord"].into_iter().collect());
 }
 
-#[test]
-fn list_pending_omits_expired() {
+#[tokio::test]
+async fn list_pending_omits_expired() {
     let (_d, s) = store();
     s.generate_code("telegram", "123", 0.0, T0).unwrap();
     assert!(s.list_pending(T0 + 0.1).unwrap().is_empty());
@@ -176,8 +176,8 @@ fn list_pending_omits_expired() {
 
 // —— handle_pairing_command —— //
 
-#[test]
-fn command_list_empty() {
+#[tokio::test]
+async fn command_list_empty() {
     let (_d, s) = store();
     assert_eq!(
         s.handle_pairing_command("telegram", "list", T0).unwrap(),
@@ -185,8 +185,8 @@ fn command_list_empty() {
     );
 }
 
-#[test]
-fn command_list_shows_pending() {
+#[tokio::test]
+async fn command_list_shows_pending() {
     let (_d, s) = store();
     s.generate_code("telegram", "123", 600.0, T0).unwrap();
     let reply = s.handle_pairing_command("telegram", "list", T0).unwrap();
@@ -195,8 +195,8 @@ fn command_list_shows_pending() {
     assert!(reply.contains("123"));
 }
 
-#[test]
-fn command_approve() {
+#[tokio::test]
+async fn command_approve() {
     let (_d, s) = store();
     let code = s.generate_code("telegram", "123", 600.0, T0).unwrap();
     let reply = s
@@ -207,8 +207,8 @@ fn command_approve() {
     assert!(s.is_approved("telegram", "123").unwrap());
 }
 
-#[test]
-fn command_approve_invalid() {
+#[tokio::test]
+async fn command_approve_invalid() {
     let (_d, s) = store();
     let reply = s
         .handle_pairing_command("telegram", "approve BAD-CODE", T0)
@@ -216,15 +216,15 @@ fn command_approve_invalid() {
     assert!(reply.contains("Invalid or expired"));
 }
 
-#[test]
-fn command_approve_no_arg() {
+#[tokio::test]
+async fn command_approve_no_arg() {
     let (_d, s) = store();
     let reply = s.handle_pairing_command("telegram", "approve", T0).unwrap();
     assert!(reply.contains("Usage:"));
 }
 
-#[test]
-fn command_deny() {
+#[tokio::test]
+async fn command_deny() {
     let (_d, s) = store();
     let code = s.generate_code("telegram", "123", 600.0, T0).unwrap();
     let reply = s
@@ -234,8 +234,8 @@ fn command_deny() {
     assert_eq!(s.approve_code(&code, T0).unwrap(), None);
 }
 
-#[test]
-fn command_deny_unknown() {
+#[tokio::test]
+async fn command_deny_unknown() {
     let (_d, s) = store();
     let reply = s
         .handle_pairing_command("telegram", "deny BAD-CODE", T0)
@@ -243,8 +243,8 @@ fn command_deny_unknown() {
     assert!(reply.contains("not found"));
 }
 
-#[test]
-fn command_revoke_current_channel() {
+#[tokio::test]
+async fn command_revoke_current_channel() {
     let (_d, s) = store();
     let code = s.generate_code("telegram", "123", 600.0, T0).unwrap();
     s.approve_code(&code, T0).unwrap();
@@ -255,8 +255,8 @@ fn command_revoke_current_channel() {
     assert!(!s.is_approved("telegram", "123").unwrap());
 }
 
-#[test]
-fn command_revoke_other_channel() {
+#[tokio::test]
+async fn command_revoke_other_channel() {
     let (_d, s) = store();
     let code = s.generate_code("discord", "456", 600.0, T0).unwrap();
     s.approve_code(&code, T0).unwrap();
@@ -267,8 +267,8 @@ fn command_revoke_other_channel() {
     assert!(!s.is_approved("discord", "456").unwrap());
 }
 
-#[test]
-fn command_revoke_unknown() {
+#[tokio::test]
+async fn command_revoke_unknown() {
     let (_d, s) = store();
     let reply = s
         .handle_pairing_command("telegram", "revoke 999", T0)
@@ -276,22 +276,22 @@ fn command_revoke_unknown() {
     assert!(reply.contains("was not in the approved list"));
 }
 
-#[test]
-fn command_revoke_no_arg() {
+#[tokio::test]
+async fn command_revoke_no_arg() {
     let (_d, s) = store();
     let reply = s.handle_pairing_command("telegram", "revoke", T0).unwrap();
     assert!(reply.contains("Usage:"));
 }
 
-#[test]
-fn command_unknown_subcommand() {
+#[tokio::test]
+async fn command_unknown_subcommand() {
     let (_d, s) = store();
     let reply = s.handle_pairing_command("telegram", "foo", T0).unwrap();
     assert!(reply.contains("Unknown pairing command"));
 }
 
-#[test]
-fn command_defaults_to_list() {
+#[tokio::test]
+async fn command_defaults_to_list() {
     let (_d, s) = store();
     s.generate_code("telegram", "123", 600.0, T0).unwrap();
     let reply = s.handle_pairing_command("telegram", "", T0).unwrap();
@@ -300,8 +300,8 @@ fn command_defaults_to_list() {
 
 // —— 数字 sender_id 与手工编辑存储 —— //
 
-#[test]
-fn hand_edited_numeric_sender_id_coerces_to_string() {
+#[tokio::test]
+async fn hand_edited_numeric_sender_id_coerces_to_string() {
     let (dir, s) = store();
     std::fs::write(
         dir.path().join("pairing.json"),
@@ -320,8 +320,8 @@ fn hand_edited_numeric_sender_id_coerces_to_string() {
     );
 }
 
-#[test]
-fn hand_edited_numeric_approved_list_coerces_to_string() {
+#[tokio::test]
+async fn hand_edited_numeric_approved_list_coerces_to_string() {
     let (dir, s) = store();
     std::fs::write(
         dir.path().join("pairing.json"),
@@ -335,8 +335,8 @@ fn hand_edited_numeric_approved_list_coerces_to_string() {
 
 // —— 损坏恢复 —— //
 
-#[test]
-fn corrupted_store_recovers_as_empty() {
+#[tokio::test]
+async fn corrupted_store_recovers_as_empty() {
     let (dir, s) = store();
     std::fs::write(dir.path().join("pairing.json"), "not json{").unwrap();
     assert!(s.list_pending(T0).unwrap().is_empty());

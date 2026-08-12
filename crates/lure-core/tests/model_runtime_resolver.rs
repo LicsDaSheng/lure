@@ -29,8 +29,8 @@ fn preset(model: &str, provider: &str) -> ModelPresetConfig {
     }
 }
 
-#[test]
-fn admit_default_resolves_runtime_from_agent_defaults() {
+#[tokio::test]
+async fn admit_default_resolves_runtime_from_agent_defaults() {
     let mut resolver = ModelRuntimeResolver::new(Config::default());
     assert!(resolver.active().is_none());
 
@@ -55,8 +55,8 @@ fn admit_default_resolves_runtime_from_agent_defaults() {
     assert_eq!(active.generation, 1);
 }
 
-#[test]
-fn admit_is_idempotent_and_returns_cached_generation() {
+#[tokio::test]
+async fn admit_is_idempotent_and_returns_cached_generation() {
     let mut resolver = ModelRuntimeResolver::new(Config::default());
 
     let first = resolver.admit(None).unwrap();
@@ -66,8 +66,8 @@ fn admit_is_idempotent_and_returns_cached_generation() {
     assert_eq!(second.generation, 1);
 }
 
-#[test]
-fn admit_named_preset_tracks_provider_and_settings() {
+#[tokio::test]
+async fn admit_named_preset_tracks_provider_and_settings() {
     let mut fast = preset("deepseek-chat", "auto");
     fast.label = Some("Fast".to_string());
     fast.max_tokens = 1024;
@@ -90,8 +90,8 @@ fn admit_named_preset_tracks_provider_and_settings() {
     );
 }
 
-#[test]
-fn refresh_rebuilds_and_bumps_generation() {
+#[tokio::test]
+async fn refresh_rebuilds_and_bumps_generation() {
     let mut resolver = ModelRuntimeResolver::new(Config::default());
 
     let first = resolver.admit(None).unwrap();
@@ -103,8 +103,8 @@ fn refresh_rebuilds_and_bumps_generation() {
     assert_eq!(resolver.active().unwrap().generation, 2);
 }
 
-#[test]
-fn invalidate_clears_active_and_forces_rebuild() {
+#[tokio::test]
+async fn invalidate_clears_active_and_forces_rebuild() {
     let mut resolver = ModelRuntimeResolver::new(Config::default());
 
     let first = resolver.admit(None).unwrap();
@@ -117,8 +117,8 @@ fn invalidate_clears_active_and_forces_rebuild() {
     assert_eq!(rebuilt.generation, 2);
 }
 
-#[test]
-fn admit_unknown_preset_errors_and_leaves_active_untouched() {
+#[tokio::test]
+async fn admit_unknown_preset_errors_and_leaves_active_untouched() {
     let mut resolver = ModelRuntimeResolver::new(Config::default());
 
     let err = resolver.admit(Some("missing")).unwrap_err();
@@ -129,8 +129,8 @@ fn admit_unknown_preset_errors_and_leaves_active_untouched() {
     assert!(resolver.active().is_none());
 }
 
-#[test]
-fn admit_errors_when_provider_cannot_be_matched() {
+#[tokio::test]
+async fn admit_errors_when_provider_cannot_be_matched() {
     let mut resolver =
         ModelRuntimeResolver::new(config_with_preset("weird", preset("mystery-model", "auto")));
 
@@ -142,8 +142,8 @@ fn admit_errors_when_provider_cannot_be_matched() {
     );
 }
 
-#[test]
-fn admit_honors_forced_provider_name() {
+#[tokio::test]
+async fn admit_honors_forced_provider_name() {
     let mut resolver = ModelRuntimeResolver::new(config_with_preset(
         "forced",
         preset("some-custom-model", "groq"),
@@ -155,8 +155,8 @@ fn admit_honors_forced_provider_name() {
     assert_eq!(runtime.provider.api_base, "https://api.groq.com/openai/v1");
 }
 
-#[test]
-fn switching_presets_tracks_active_and_caches_each() {
+#[tokio::test]
+async fn switching_presets_tracks_active_and_caches_each() {
     let mut resolver =
         ModelRuntimeResolver::new(config_with_preset("smart", preset("gpt-4o", "auto")));
 
@@ -173,8 +173,8 @@ fn switching_presets_tracks_active_and_caches_each() {
     assert_eq!(resolver.active().unwrap().preset_name, "default");
 }
 
-#[test]
-fn admit_applies_provider_api_base_override_from_config() {
+#[tokio::test]
+async fn admit_applies_provider_api_base_override_from_config() {
     let mut config = config_with_preset("fast", preset("deepseek-chat", "auto"));
     config.providers.insert(
         "deepseek".to_string(),
@@ -191,8 +191,8 @@ fn admit_applies_provider_api_base_override_from_config() {
     assert_eq!(runtime.provider.api_base, "https://proxy.example/v1");
 }
 
-#[test]
-fn admit_errors_when_matched_provider_disabled() {
+#[tokio::test]
+async fn admit_errors_when_matched_provider_disabled() {
     let mut config = config_with_preset("smart", preset("gpt-4o", "auto"));
     config.providers.insert(
         "openai".to_string(),
@@ -210,8 +210,8 @@ fn admit_errors_when_matched_provider_disabled() {
     );
 }
 
-#[test]
-fn admit_none_follows_agent_default_preset_pointer() {
+#[tokio::test]
+async fn admit_none_follows_agent_default_preset_pointer() {
     let mut config = config_with_preset("fast", preset("deepseek-chat", "auto"));
     config.agents.defaults.model_preset = Some("fast".to_string());
 

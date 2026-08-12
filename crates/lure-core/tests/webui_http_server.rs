@@ -121,8 +121,8 @@ fn bootstrap(server: &mut WebuiServer<MapAssets>, addr: SocketAddr) -> Value {
     serde_json::from_str(&body).unwrap()
 }
 
-#[test]
-fn bootstrap_issues_tokens_and_reports_ws_url() {
+#[tokio::test]
+async fn bootstrap_issues_tokens_and_reports_ws_url() {
     let dir = tempfile::tempdir().unwrap();
     let (mut server, addr) = bind_server(&dir, fake_assets());
 
@@ -136,8 +136,8 @@ fn bootstrap_issues_tokens_and_reports_ws_url() {
     assert_eq!(payload["model_name"], "echo");
 }
 
-#[test]
-fn sessions_requires_api_token_and_lists_rows() {
+#[tokio::test]
+async fn sessions_requires_api_token_and_lists_rows() {
     let dir = tempfile::tempdir().unwrap();
     seed_session(&dir, "websocket:c1", "hello preview");
     let (mut server, addr) = bind_server(&dir, fake_assets());
@@ -158,8 +158,8 @@ fn sessions_requires_api_token_and_lists_rows() {
     assert_eq!(rows[0]["title"], "");
 }
 
-#[test]
-fn unknown_api_route_returns_404_json() {
+#[tokio::test]
+async fn unknown_api_route_returns_404_json() {
     let dir = tempfile::tempdir().unwrap();
     let (mut server, addr) = bind_server(&dir, fake_assets());
     let boot = bootstrap(&mut server, addr);
@@ -171,8 +171,8 @@ fn unknown_api_route_returns_404_json() {
     assert_eq!(body["error"], "not found");
 }
 
-#[test]
-fn static_assets_serve_and_spa_fallback() {
+#[tokio::test]
+async fn static_assets_serve_and_spa_fallback() {
     let dir = tempfile::tempdir().unwrap();
     let (mut server, addr) = bind_server(&dir, fake_assets());
 
@@ -192,8 +192,8 @@ fn static_assets_serve_and_spa_fallback() {
     assert_eq!(body, "<html>app</html>");
 }
 
-#[test]
-fn delete_session_removes_row() {
+#[tokio::test]
+async fn delete_session_removes_row() {
     let dir = tempfile::tempdir().unwrap();
     seed_session(&dir, "websocket:gone", "bye");
     let (mut server, addr) = bind_server(&dir, fake_assets());
@@ -225,8 +225,8 @@ fn delete_session_removes_row() {
     assert_eq!(status, 404);
 }
 
-#[test]
-fn delete_session_via_get_delete_path_returns_deleted_shape() {
+#[tokio::test]
+async fn delete_session_via_get_delete_path_returns_deleted_shape() {
     // 前端 deleteSession 走 GET /api/sessions/{key}/delete，并读取 result.deleted。
     let dir = tempfile::tempdir().unwrap();
     seed_session(&dir, "websocket:gone", "bye");
@@ -275,8 +275,8 @@ fn delete_session_via_get_delete_path_returns_deleted_shape() {
     assert_eq!(body["deleted"], true);
 }
 
-#[test]
-fn delete_session_via_get_delete_path_decodes_url_encoded_key() {
+#[tokio::test]
+async fn delete_session_via_get_delete_path_decodes_url_encoded_key() {
     // 前端用 encodeURIComponent(key)，session key 的 ':' 被编码为 '%3A'；
     // 服务端须 URL 解码后再查表，否则真实会话删不掉（404）。
     let dir = tempfile::tempdir().unwrap();
@@ -302,8 +302,8 @@ fn delete_session_via_get_delete_path_decodes_url_encoded_key() {
     assert_eq!(body["sessions"].as_array().unwrap().len(), 0);
 }
 
-#[test]
-fn delete_session_via_get_delete_path_requires_api_token() {
+#[tokio::test]
+async fn delete_session_via_get_delete_path_requires_api_token() {
     let dir = tempfile::tempdir().unwrap();
     seed_session(&dir, "websocket:gone", "bye");
     let (mut server, addr) = bind_server(&dir, fake_assets());
@@ -318,8 +318,8 @@ fn delete_session_via_get_delete_path_requires_api_token() {
     assert_eq!(status, 401);
 }
 
-#[test]
-fn session_automations_stub_returns_empty_jobs() {
+#[tokio::test]
+async fn session_automations_stub_returns_empty_jobs() {
     // 会话级 automations 尚未实现：返回对齐上游形状的空 jobs，面板平稳显示"无"。
     let dir = tempfile::tempdir().unwrap();
     seed_session(&dir, "websocket:a1", "hi");
@@ -349,8 +349,8 @@ fn session_automations_stub_returns_empty_jobs() {
     assert_eq!(status, 401);
 }
 
-#[test]
-fn file_preview_probe_reports_unavailable_and_fetch_404s() {
+#[tokio::test]
+async fn file_preview_probe_reports_unavailable_and_fetch_404s() {
     // 文件预览能力未实现：probe 返回 available:false 让前端隐藏入口；实际取内容 404。
     let dir = tempfile::tempdir().unwrap();
     seed_session(&dir, "websocket:f1", "hi");
@@ -379,8 +379,8 @@ fn file_preview_probe_reports_unavailable_and_fetch_404s() {
     assert_eq!(status, 404);
 }
 
-#[test]
-fn settings_update_persists_agent_defaults_and_returns_payload() {
+#[tokio::test]
+async fn settings_update_persists_agent_defaults_and_returns_payload() {
     // /api/settings/update：改 model/provider/context window → 落盘 config.json，
     // 回派生后的 settings 载荷，且磁盘配置可被 load_config 读回。
     let dir = tempfile::tempdir().unwrap();
@@ -407,8 +407,8 @@ fn settings_update_persists_agent_defaults_and_returns_payload() {
     assert_eq!(saved.agents.defaults.provider, "deepseek");
 }
 
-#[test]
-fn settings_update_rejects_unknown_preset_with_400() {
+#[tokio::test]
+async fn settings_update_rejects_unknown_preset_with_400() {
     let dir = tempfile::tempdir().unwrap();
     let (mut server, addr) = bind_server(&dir, fake_assets());
     let boot = bootstrap(&mut server, addr);
@@ -428,8 +428,8 @@ fn settings_update_rejects_unknown_preset_with_400() {
     assert!(!dir.path().join("config.json").exists());
 }
 
-#[test]
-fn settings_update_requires_api_token() {
+#[tokio::test]
+async fn settings_update_requires_api_token() {
     let dir = tempfile::tempdir().unwrap();
     let (mut server, addr) = bind_server(&dir, fake_assets());
 
@@ -443,8 +443,8 @@ fn settings_update_requires_api_token() {
     assert_eq!(status, 401);
 }
 
-#[test]
-fn provider_update_writes_key_and_reflects_configured_flag() {
+#[tokio::test]
+async fn provider_update_writes_key_and_reflects_configured_flag() {
     // /api/settings/provider/update：写 api_key → 载荷中该 provider configured=true、
     // api_key_hint 脱敏；magic-key 不回明文。
     let dir = tempfile::tempdir().unwrap();
@@ -477,8 +477,8 @@ fn provider_update_writes_key_and_reflects_configured_flag() {
     );
 }
 
-#[test]
-fn model_configuration_create_then_update_roundtrips_preset() {
+#[tokio::test]
+async fn model_configuration_create_then_update_roundtrips_preset() {
     // 命名 preset：create 新增 → 载荷含该行；update 改 model → 落盘生效。
     let dir = tempfile::tempdir().unwrap();
     let (mut server, addr) = bind_server(&dir, fake_assets());
@@ -517,8 +517,8 @@ fn model_configuration_create_then_update_roundtrips_preset() {
     );
 }
 
-#[test]
-fn model_configurations_unknown_subpath_returns_404() {
+#[tokio::test]
+async fn model_configurations_unknown_subpath_returns_404() {
     // 上游 parity（settings_routes.py::dispatch 仅路由 create/update，
     // test_websocket_channel.py:1956 断言 .../model-configurations/missing → 404）：
     // preset 删除在上游前端与后端均不存在，故未知子路径回 404 JSON（非 HTML），
@@ -540,8 +540,8 @@ fn model_configurations_unknown_subpath_returns_404() {
     assert_eq!(body["error"], "not found");
 }
 
-#[test]
-fn model_configuration_create_rejects_reserved_default_name() {
+#[tokio::test]
+async fn model_configuration_create_rejects_reserved_default_name() {
     let dir = tempfile::tempdir().unwrap();
     let (mut server, addr) = bind_server(&dir, fake_assets());
     let boot = bootstrap(&mut server, addr);
@@ -557,8 +557,8 @@ fn model_configuration_create_rejects_reserved_default_name() {
     assert_eq!(status, 400);
 }
 
-#[test]
-fn skill_detail_returns_404_when_no_skills() {
+#[tokio::test]
+async fn skill_detail_returns_404_when_no_skills() {
     // 技能列表为空 → 详情端点对任何名称返回 404（前端 request 抛 ApiError，面板显错）。
     let dir = tempfile::tempdir().unwrap();
     let (mut server, addr) = bind_server(&dir, fake_assets());
@@ -575,8 +575,8 @@ fn skill_detail_returns_404_when_no_skills() {
     assert_eq!(status, 404);
 }
 
-#[test]
-fn webui_thread_returns_404_until_transcript_lands() {
+#[tokio::test]
+async fn webui_thread_returns_404_until_transcript_lands() {
     let dir = tempfile::tempdir().unwrap();
     seed_session(&dir, "websocket:t1", "hi");
     let (mut server, addr) = bind_server(&dir, fake_assets());
@@ -594,8 +594,8 @@ fn webui_thread_returns_404_until_transcript_lands() {
     assert_eq!(status, 404);
 }
 
-#[test]
-fn webui_readonly_stubs_return_shaped_payloads_with_auth() {
+#[tokio::test]
+async fn webui_readonly_stubs_return_shaped_payloads_with_auth() {
     let dir = tempfile::tempdir().unwrap();
     let (mut server, addr) = bind_server(&dir, fake_assets());
     let boot = bootstrap(&mut server, addr);
@@ -644,8 +644,8 @@ fn webui_readonly_stubs_return_shaped_payloads_with_auth() {
     assert!(body["default_scope"]["access_mode"].is_string());
 }
 
-#[test]
-fn settings_payload_reflects_lure_config() {
+#[tokio::test]
+async fn settings_payload_reflects_lure_config() {
     use lure_core::config::{Config, ProviderConfig};
 
     let dir = tempfile::tempdir().unwrap();
@@ -702,8 +702,8 @@ fn settings_payload_reflects_lure_config() {
     }
 }
 
-#[test]
-fn settings_read_stubs_return_shaped_payloads() {
+#[tokio::test]
+async fn settings_read_stubs_return_shaped_payloads() {
     let dir = tempfile::tempdir().unwrap();
     let (mut server, addr) = bind_server(&dir, fake_assets());
     let boot = bootstrap(&mut server, addr);
@@ -737,8 +737,8 @@ fn settings_read_stubs_return_shaped_payloads() {
     assert_eq!(body["update_available"], false);
 }
 
-#[test]
-fn webui_readonly_stubs_require_api_token() {
+#[tokio::test]
+async fn webui_readonly_stubs_require_api_token() {
     let dir = tempfile::tempdir().unwrap();
     let (mut server, addr) = bind_server(&dir, fake_assets());
 
@@ -753,8 +753,8 @@ fn webui_readonly_stubs_require_api_token() {
     }
 }
 
-#[test]
-fn session_manager_delete_stored_removes_file_and_cache() {
+#[tokio::test]
+async fn session_manager_delete_stored_removes_file_and_cache() {
     let dir = tempfile::tempdir().unwrap();
     let mut manager = SessionManager::new(dir.path()).unwrap();
     {

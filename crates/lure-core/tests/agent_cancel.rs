@@ -4,7 +4,7 @@
 //! 返回 `stop_reason="interrupted"`、空内容，且不持久化 assistant / 不保存 session。
 
 use std::cell::Cell;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering};
 use std::sync::Arc;
 
 use lure_core::agent::{AgentLoop, ContextBuilder};
@@ -16,7 +16,7 @@ use lure_core::session::SessionManager;
 struct ProbeProvider {
     calls: Arc<AtomicUsize>,
     cancel_on_call: Option<Arc<AtomicBool>>,
-    reply: Cell<u32>,
+    reply: AtomicU32,
 }
 
 impl ProbeProvider {
@@ -24,23 +24,27 @@ impl ProbeProvider {
         Self {
             calls,
             cancel_on_call,
-            reply: Cell::new(0),
+            reply: AtomicU32::new(0),
         }
     }
 }
 
+#[async_trait::async_trait]
 impl LlmProvider for ProbeProvider {
     fn default_model(&self) -> &str {
         "probe"
     }
 
-    fn complete(&self, _request: &CompletionRequest) -> Result<LlmResponse, ProviderError> {
+    async fn complete(&self, _request: &CompletionRequest) -> Result<LlmResponse, ProviderError> {
         self.calls.fetch_add(1, Ordering::SeqCst);
         if let Some(flag) = &self.cancel_on_call {
             flag.store(true, Ordering::SeqCst);
         }
-        self.reply.set(self.reply.get() + 1);
-        Ok(LlmResponse::text(format!("reply-{}", self.reply.get())))
+        self.reply.fetch_add(1, Ordering::Relaxed);
+        Ok(LlmResponse::text(format!(
+            "reply-{}",
+            self.reply.load(Ordering::Relaxed)
+        )))
     }
 }
 
@@ -51,8 +55,8 @@ fn loop_with(provider: Box<dyn LlmProvider + Send>) -> (tempfile::TempDir, Agent
     (dir, agent_loop)
 }
 
-#[test]
-fn pre_set_cancel_aborts_before_calling_provider() {
+#[tokio::test]
+async fn pre_set_cancel_aborts_before_calling_provider() {
     let calls = Arc::new(AtomicUsize::new(0));
     let cancel = Arc::new(AtomicBool::new(true)); // 进入前即已置位
     let provider = ProbeProvider::new(Arc::clone(&calls), None);
@@ -61,6 +65,7 @@ fn pre_set_cancel_aborts_before_calling_provider() {
 
     let outcome = agent_loop
         .process(&InboundMessage::new("cli", "direct", "hi"))
+        .await
         .unwrap();
 
     assert_eq!(outcome.stop_reason, "interrupted");
@@ -68,8 +73,8 @@ fn pre_set_cancel_aborts_before_calling_provider() {
     assert_eq!(calls.load(Ordering::SeqCst), 0, "已取消时不应调用 provider");
 }
 
-#[test]
-fn cancel_during_stream_discards_turn_without_persisting() {
+#[tokio::test]
+async fn cancel_during_stream_discards_turn_without_persisting() {
     let calls = Arc::new(AtomicUsize::new(0));
     let cancel = Arc::new(AtomicBool::new(false));
     // provider 被调用时置位 cancel：模拟流式响应期间按下 Ctrl-C。
@@ -79,6 +84,7 @@ fn cancel_during_stream_discards_turn_without_persisting() {
 
     let outcome = agent_loop
         .process(&InboundMessage::new("cli", "direct", "hi"))
+        .await
         .unwrap();
 
     // 调了一次 provider，但流后检查点发现取消 → 作废本轮。
@@ -96,14 +102,15 @@ fn cancel_during_stream_discards_turn_without_persisting() {
     );
 }
 
-#[test]
-fn without_cancel_token_completes_normally() {
+#[tokio::test]
+async fn without_cancel_token_completes_normally() {
     let calls = Arc::new(AtomicUsize::new(0));
     let provider = ProbeProvider::new(Arc::clone(&calls), None);
     let (_dir, mut agent_loop) = loop_with(Box::new(provider));
 
     let outcome = agent_loop
         .process(&InboundMessage::new("cli", "direct", "hi"))
+        .await
         .unwrap();
 
     // 未挂 cancel token：正常完成。

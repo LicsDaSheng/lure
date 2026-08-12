@@ -31,6 +31,7 @@ pub mod gateway;
 pub mod memory;
 pub mod pairing;
 pub mod provider;
+pub mod runtime;
 pub mod security;
 pub mod session;
 pub mod tool;

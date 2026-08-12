@@ -9,8 +9,8 @@ fn store(dir: &TempDir) -> TranscripStore {
     TranscripStore::new(dir.path()).unwrap()
 }
 
-#[test]
-fn write_turn_and_read_thread_returns_ui_messages() {
+#[tokio::test]
+async fn write_turn_and_read_thread_returns_ui_messages() {
     let dir = TempDir::new().unwrap();
     let mut store = store(&dir);
 
@@ -30,15 +30,15 @@ fn write_turn_and_read_thread_returns_ui_messages() {
     assert!(msgs[0].get("timestamp").is_none());
 }
 
-#[test]
-fn read_thread_missing_returns_none() {
+#[tokio::test]
+async fn read_thread_missing_returns_none() {
     let dir = TempDir::new().unwrap();
     let store = store(&dir);
     assert!(store.read_thread("websocket:none").unwrap().is_none());
 }
 
-#[test]
-fn multiple_turns_accumulate_in_order() {
+#[tokio::test]
+async fn multiple_turns_accumulate_in_order() {
     let dir = TempDir::new().unwrap();
     let mut store = store(&dir);
 
@@ -53,8 +53,8 @@ fn multiple_turns_accumulate_in_order() {
     assert_eq!(msgs[3]["content"], "A2");
 }
 
-#[test]
-fn multiple_sessions_independent() {
+#[tokio::test]
+async fn multiple_sessions_independent() {
     let dir = TempDir::new().unwrap();
     let mut store = store(&dir);
 
@@ -69,8 +69,8 @@ fn multiple_sessions_independent() {
     assert_eq!(b["messages"][0]["content"], "pb");
 }
 
-#[test]
-fn delete_clears_transcript_and_returns_false_afterwards() {
+#[tokio::test]
+async fn delete_clears_transcript_and_returns_false_afterwards() {
     let dir = TempDir::new().unwrap();
     let mut store = store(&dir);
     store.append_turn("websocket:d", "x", "y").unwrap();

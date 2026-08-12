@@ -19,8 +19,8 @@ fn tool(dir: &TempDir) -> CronTool {
     )
 }
 
-#[test]
-fn add_cron_job_persists_with_origin() {
+#[tokio::test]
+async fn add_cron_job_persists_with_origin() {
     let dir = tempfile::tempdir().unwrap();
     let t = tool(&dir);
     let res = t.execute(&json!({
@@ -44,16 +44,16 @@ fn add_cron_job_persists_with_origin() {
     assert!(job.state.next_run_at_ms.is_some());
 }
 
-#[test]
-fn add_requires_message() {
+#[tokio::test]
+async fn add_requires_message() {
     let dir = tempfile::tempdir().unwrap();
     let res = tool(&dir).execute(&json!({"action": "add", "cron_expr": "0 9 * * *"}));
     assert!(res.is_error);
     assert!(res.content.contains("message"));
 }
 
-#[test]
-fn add_every_seconds_builds_every_schedule() {
+#[tokio::test]
+async fn add_every_seconds_builds_every_schedule() {
     let dir = tempfile::tempdir().unwrap();
     let res = tool(&dir).execute(&json!({
         "action": "add", "message": "心跳", "every_seconds": 300
@@ -65,8 +65,8 @@ fn add_every_seconds_builds_every_schedule() {
     assert_eq!(job.schedule.every_ms, Some(300_000));
 }
 
-#[test]
-fn add_at_iso_builds_one_shot_and_deletes_after() {
+#[tokio::test]
+async fn add_at_iso_builds_one_shot_and_deletes_after() {
     let dir = tempfile::tempdir().unwrap();
     let res = tool(&dir).execute(&json!({
         "action": "add", "message": "一次性提醒", "at": "2030-01-01T00:00:00"
@@ -80,16 +80,16 @@ fn add_at_iso_builds_one_shot_and_deletes_after() {
     assert!(job.delete_after_run);
 }
 
-#[test]
-fn add_invalid_at_errors() {
+#[tokio::test]
+async fn add_invalid_at_errors() {
     let dir = tempfile::tempdir().unwrap();
     let res = tool(&dir).execute(&json!({"action": "add", "message": "x", "at": "not-a-date"}));
     assert!(res.is_error);
     assert!(res.content.contains("ISO"));
 }
 
-#[test]
-fn add_tz_without_cron_expr_errors() {
+#[tokio::test]
+async fn add_tz_without_cron_expr_errors() {
     let dir = tempfile::tempdir().unwrap();
     let res = tool(&dir).execute(&json!({
         "action": "add", "message": "x", "every_seconds": 60, "tz": "UTC"
@@ -98,8 +98,8 @@ fn add_tz_without_cron_expr_errors() {
     assert!(res.content.contains("tz"));
 }
 
-#[test]
-fn add_named_iana_tz_succeeds_and_persists() {
+#[tokio::test]
+async fn add_named_iana_tz_succeeds_and_persists() {
     let dir = tempfile::tempdir().unwrap();
     let res = tool(&dir).execute(&json!({
         "action": "add", "message": "x", "cron_expr": "0 9 * * *", "tz": "America/New_York"
@@ -113,8 +113,8 @@ fn add_named_iana_tz_succeeds_and_persists() {
     assert!(job.state.next_run_at_ms.is_some());
 }
 
-#[test]
-fn add_invalid_tz_name_errors() {
+#[tokio::test]
+async fn add_invalid_tz_name_errors() {
     let dir = tempfile::tempdir().unwrap();
     let res = tool(&dir).execute(&json!({
         "action": "add", "message": "x", "cron_expr": "0 9 * * *", "tz": "Mars/Olympus"
@@ -123,15 +123,15 @@ fn add_invalid_tz_name_errors() {
     assert!(res.content.contains("时区"));
 }
 
-#[test]
-fn add_without_schedule_errors() {
+#[tokio::test]
+async fn add_without_schedule_errors() {
     let dir = tempfile::tempdir().unwrap();
     let res = tool(&dir).execute(&json!({"action": "add", "message": "x"}));
     assert!(res.is_error);
 }
 
-#[test]
-fn list_shows_jobs_and_remove_deletes() {
+#[tokio::test]
+async fn list_shows_jobs_and_remove_deletes() {
     let dir = tempfile::tempdir().unwrap();
     let t = tool(&dir);
     t.execute(&json!({"action": "add", "message": "任务甲", "every_seconds": 60}));
@@ -150,8 +150,8 @@ fn list_shows_jobs_and_remove_deletes() {
     assert_eq!(CronStore::load(dir.path()).unwrap().jobs().len(), 0);
 }
 
-#[test]
-fn remove_requires_job_id_and_unknown_errors() {
+#[tokio::test]
+async fn remove_requires_job_id_and_unknown_errors() {
     let dir = tempfile::tempdir().unwrap();
     let t = tool(&dir);
     assert!(t.execute(&json!({"action": "remove"})).is_error);
@@ -160,16 +160,16 @@ fn remove_requires_job_id_and_unknown_errors() {
     assert!(r.content.contains("未找到"));
 }
 
-#[test]
-fn list_empty_reports_none() {
+#[tokio::test]
+async fn list_empty_reports_none() {
     let dir = tempfile::tempdir().unwrap();
     let res = tool(&dir).execute(&json!({"action": "list"}));
     assert!(!res.is_error);
     assert!(res.content.contains("暂无"));
 }
 
-#[test]
-fn unknown_action_errors() {
+#[tokio::test]
+async fn unknown_action_errors() {
     let dir = tempfile::tempdir().unwrap();
     let res = tool(&dir).execute(&json!({"action": "frobnicate"}));
     assert!(res.is_error);

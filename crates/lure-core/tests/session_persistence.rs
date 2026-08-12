@@ -6,8 +6,8 @@ use lure_core::session::{SessionError, SessionManager};
 use serde_json::{json, Value};
 use tempfile::tempdir;
 
-#[test]
-fn storage_key_is_reversible_and_filename_safe() {
+#[tokio::test]
+async fn storage_key_is_reversible_and_filename_safe() {
     for key in [
         "telegram:12345",
         "unified:default",
@@ -26,8 +26,8 @@ fn storage_key_is_reversible_and_filename_safe() {
     }
 }
 
-#[test]
-fn jsonl_round_trips_with_fsync_and_unicode() {
+#[tokio::test]
+async fn jsonl_round_trips_with_fsync_and_unicode() {
     let dir = tempdir().unwrap();
     let mut manager = SessionManager::new(dir.path()).unwrap();
     {
@@ -49,8 +49,8 @@ fn jsonl_round_trips_with_fsync_and_unicode() {
     assert_eq!(reloaded.messages[0]["content"], "你好");
 }
 
-#[test]
-fn save_requires_cached_session() {
+#[tokio::test]
+async fn save_requires_cached_session() {
     let dir = tempdir().unwrap();
     let mut manager = SessionManager::new(dir.path()).unwrap();
 
@@ -58,8 +58,8 @@ fn save_requires_cached_session() {
     assert!(matches!(err, SessionError::NotCached { .. }));
 }
 
-#[test]
-fn temp_file_is_not_left_behind_after_save() {
+#[tokio::test]
+async fn temp_file_is_not_left_behind_after_save() {
     let dir = tempdir().unwrap();
     let mut manager = SessionManager::new(dir.path()).unwrap();
     manager
@@ -76,8 +76,8 @@ fn temp_file_is_not_left_behind_after_save() {
     assert!(leftovers.is_empty(), "不应遗留 .tmp 文件");
 }
 
-#[test]
-fn list_stored_keys_repairs_legacy_lossy_stem_with_corrupt_line() {
+#[tokio::test]
+async fn list_stored_keys_repairs_legacy_lossy_stem_with_corrupt_line() {
     let dir = tempdir().unwrap();
     let manager = SessionManager::new(dir.path()).unwrap();
     let legacy_path = manager.sessions_dir().join("telegram_12345.jsonl");
@@ -108,8 +108,8 @@ fn list_stored_keys_repairs_legacy_lossy_stem_with_corrupt_line() {
     assert!(manager.session_path("telegram:12345").exists());
 }
 
-#[test]
-fn get_or_create_migrates_legacy_lossy_stem_when_key_matches_metadata() {
+#[tokio::test]
+async fn get_or_create_migrates_legacy_lossy_stem_when_key_matches_metadata() {
     let dir = tempdir().unwrap();
     let mut manager = SessionManager::new(dir.path()).unwrap();
     let legacy_path = manager.sessions_dir().join("cli_direct.jsonl");

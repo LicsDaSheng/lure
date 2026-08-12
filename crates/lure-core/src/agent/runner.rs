@@ -23,29 +23,33 @@ impl<'a> AgentRunner<'a> {
     }
 
     /// 用给定 model 与消息执行一次补全。
-    pub fn run(&self, model: &str, messages: Vec<Value>) -> Result<LlmResponse, ProviderError> {
-        let request = CompletionRequest {
-            model: model.to_string(),
-            messages,
-            settings: self.settings.clone(),
-        };
-        self.provider.complete(&request)
-    }
-
-    /// 用给定 model 与消息执行一次**流式**补全：每个增量回调 `on_delta`。
-    ///
-    /// provider 未覆盖流式时回退为单块回调（见 `LlmProvider::complete_streaming`）。
-    pub fn run_streaming(
+    pub async fn run(
         &self,
         model: &str,
         messages: Vec<Value>,
-        on_delta: &mut dyn FnMut(&StreamChunk),
     ) -> Result<LlmResponse, ProviderError> {
         let request = CompletionRequest {
             model: model.to_string(),
             messages,
             settings: self.settings.clone(),
         };
-        self.provider.complete_streaming(&request, on_delta)
+        self.provider.complete(&request).await
+    }
+
+    /// 用给定 model 与消息执行一次**流式**补全：每个增量回调 `on_delta`。
+    ///
+    /// provider 未覆盖流式时回退为单块回调（见 `LlmProvider::complete_streaming`）。
+    pub async fn run_streaming(
+        &self,
+        model: &str,
+        messages: Vec<Value>,
+        on_delta: &mut (dyn FnMut(StreamChunk) + Send),
+    ) -> Result<LlmResponse, ProviderError> {
+        let request = CompletionRequest {
+            model: model.to_string(),
+            messages,
+            settings: self.settings.clone(),
+        };
+        self.provider.complete_streaming(&request, on_delta).await
     }
 }

@@ -4,8 +4,8 @@
 
 use std::process::Command;
 
-#[test]
-fn version_flag_matches_package_version() {
+#[tokio::test]
+async fn version_flag_matches_package_version() {
     for args in [vec!["--version"], vec!["-V"], vec![]] {
         let output = Command::new(env!("CARGO_BIN_EXE_lure"))
             .args(&args)

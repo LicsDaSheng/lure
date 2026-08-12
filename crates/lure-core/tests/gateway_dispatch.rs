@@ -21,8 +21,8 @@ fn gateway() -> (tempfile::TempDir, Gateway) {
     (dir, Gateway::new(agent))
 }
 
-#[test]
-fn inbound_flows_through_agent_to_channel_as_echo_reply() {
+#[tokio::test]
+async fn inbound_flows_through_agent_to_channel_as_echo_reply() {
     let (_dir, mut gateway) = gateway();
     // 保留共享投递日志，以便 channel 移入 gateway 后仍可断言投递内容。
     let channel = RecordingChannel::new("cli");
@@ -31,18 +31,18 @@ fn inbound_flows_through_agent_to_channel_as_echo_reply() {
     gateway.start();
 
     gateway.submit(InboundMessage::new("cli", "direct", "hello"));
-    assert_eq!(gateway.dispatch_pending().unwrap(), 1);
+    assert_eq!(gateway.dispatch_pending().await.unwrap(), 1);
     assert_eq!(gateway.pending_inbound(), 0);
 
-    let delivered = log.borrow();
+    let delivered = log.lock().unwrap();
     assert_eq!(delivered.len(), 1);
     assert_eq!(delivered[0].channel, "cli");
     assert_eq!(delivered[0].chat_id, "direct");
     assert_eq!(delivered[0].content, "echo: hello");
 }
 
-#[test]
-fn register_channel_rejects_invalid_config() {
+#[tokio::test]
+async fn register_channel_rejects_invalid_config() {
     let (_dir, mut gateway) = gateway();
     let channel = RecordingChannel::new("telegram").with_missing_config(&["token"]);
 
@@ -51,8 +51,8 @@ fn register_channel_rejects_invalid_config() {
     assert!(err.to_string().contains("token"));
 }
 
-#[test]
-fn stopped_gateway_preserves_pending_tasks() {
+#[tokio::test]
+async fn stopped_gateway_preserves_pending_tasks() {
     let (_dir, mut gateway) = gateway();
     gateway
         .register_channel(Box::new(RecordingChannel::new("cli")))
@@ -61,17 +61,17 @@ fn stopped_gateway_preserves_pending_tasks() {
     // 未启动：提交的任务不被处理也不丢弃。
     gateway.submit(InboundMessage::new("cli", "direct", "one"));
     gateway.submit(InboundMessage::new("cli", "direct", "two"));
-    assert_eq!(gateway.dispatch_pending().unwrap(), 0);
+    assert_eq!(gateway.dispatch_pending().await.unwrap(), 0);
     assert_eq!(gateway.pending_inbound(), 2);
 
     // 启动后全部处理。
     gateway.start();
-    assert_eq!(gateway.dispatch_pending().unwrap(), 2);
+    assert_eq!(gateway.dispatch_pending().await.unwrap(), 2);
     assert_eq!(gateway.pending_inbound(), 0);
 }
 
-#[test]
-fn unknown_target_channel_is_reported() {
+#[tokio::test]
+async fn unknown_target_channel_is_reported() {
     let (_dir, mut gateway) = gateway();
     // 注册一个 channel，但 inbound 来自未注册的 channel 名。
     gateway
@@ -80,12 +80,12 @@ fn unknown_target_channel_is_reported() {
     gateway.start();
     gateway.submit(InboundMessage::new("telegram", "direct", "hi"));
 
-    let err = gateway.dispatch_pending().unwrap_err();
+    let err = gateway.dispatch_pending().await.unwrap_err();
     assert!(matches!(err, GatewayError::UnknownChannel(name) if name == "telegram"));
 }
 
-#[test]
-fn health_reflects_state() {
+#[tokio::test]
+async fn health_reflects_state() {
     let (_dir, mut gateway) = gateway();
     gateway
         .register_channel(Box::new(RecordingChannel::new("cli")))

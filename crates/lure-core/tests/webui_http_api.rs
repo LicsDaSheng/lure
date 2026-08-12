@@ -9,8 +9,8 @@ use lure_core::webui::list_webui_sessions;
 use lure_core::webui::tokens::TokenIssuer;
 use serde_json::json;
 
-#[test]
-fn token_issuer_issues_and_checks_ws_and_api_tokens() {
+#[tokio::test]
+async fn token_issuer_issues_and_checks_ws_and_api_tokens() {
     let mut issuer = TokenIssuer::new(3600, 16);
     let issued = issuer.issue();
     assert!(!issued.token.is_empty());
@@ -27,16 +27,16 @@ fn token_issuer_issues_and_checks_ws_and_api_tokens() {
     assert!(!issuer.check_api_token("nope"));
 }
 
-#[test]
-fn token_issuer_enforces_capacity() {
+#[tokio::test]
+async fn token_issuer_enforces_capacity() {
     let mut issuer = TokenIssuer::new(3600, 2);
     issuer.issue();
     issuer.issue();
     assert!(issuer.try_issue().is_none(), "超出容量上限应拒绝签发");
 }
 
-#[test]
-fn token_issuer_expires_tokens() {
+#[tokio::test]
+async fn token_issuer_expires_tokens() {
     let mut issuer = TokenIssuer::new(0, 16);
     let issued = issuer.issue();
     // ttl=0：立即过期。
@@ -44,8 +44,8 @@ fn token_issuer_expires_tokens() {
     assert!(!issuer.check_api_token(&issued.api_token));
 }
 
-#[test]
-fn bootstrap_payload_matches_upstream_shape() {
+#[tokio::test]
+async fn bootstrap_payload_matches_upstream_shape() {
     let mut issuer = TokenIssuer::new(3600, 16);
     let issued = issuer.issue();
     let payload = bootstrap_payload(
@@ -66,8 +66,8 @@ fn bootstrap_payload_matches_upstream_shape() {
     assert_eq!(payload["model_name"], serde_json::Value::Null);
 }
 
-#[test]
-fn sessions_payload_matches_frontend_row_shape_and_order() {
+#[tokio::test]
+async fn sessions_payload_matches_frontend_row_shape_and_order() {
     let dir = tempfile::tempdir().unwrap();
     let mut manager = SessionManager::new(dir.path()).unwrap();
     {

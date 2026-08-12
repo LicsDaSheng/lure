@@ -57,24 +57,27 @@ impl AgentTurnRunner {
         self
     }
 }
+#[async_trait::async_trait]
 impl TurnRunner for AgentTurnRunner {
-    fn run_turn(
+    async fn run_turn(
         &mut self,
         chat_id: &str,
         content: &str,
-        on_progress: &mut dyn FnMut(&crate::agent::ProgressEvent),
+        on_progress: &mut (dyn FnMut(crate::agent::ProgressEvent) + Send),
     ) -> Result<String, String> {
         let input = InboundMessage::new("websocket", chat_id, content);
         let outcome = self
             .agent
             .process_streaming(&input, on_progress)
+            .await
             .map_err(|e| e.to_string())?;
 
         // 阈值触发 dream consolidation。
         if let Some(ref runner) = self.dream_runner {
             let _ = self
                 .agent
-                .maybe_consolidate(runner.as_ref(), self.dream_threshold);
+                .maybe_consolidate(runner.as_ref(), self.dream_threshold)
+                .await;
         }
 
         Ok(outcome.final_content)
@@ -92,6 +95,8 @@ where
     issuer: Arc<Mutex<TokenIssuer>>,
     transcript: Option<TranscripStore>,
     hub: WsHub,
+    /// 连接线程驱动 async turn 的 runtime 句柄。
+    runtime: tokio::runtime::Handle,
     next_conn_id: Arc<AtomicU64>,
     // `fn() -> R` 形态：Send/Sync 只取决于 F，与 R 无关（R 在连接线程内创建使用）。
     _marker: std::marker::PhantomData<fn() -> R>,
@@ -107,6 +112,7 @@ where
         factory: F,
         issuer: Arc<Mutex<TokenIssuer>>,
         transcript: Option<TranscripStore>,
+        runtime: tokio::runtime::Handle,
     ) -> io::Result<Self> {
         let listener = TcpListener::bind(addr)?;
         Ok(Self {
@@ -115,6 +121,7 @@ where
             issuer,
             transcript,
             hub: WsHub::new(),
+            runtime,
             next_conn_id: Arc::new(AtomicU64::new(1)),
             _marker: std::marker::PhantomData,
         })
@@ -135,10 +142,11 @@ where
         let factory = self.factory.clone();
         let transcript = self.transcript.clone();
         let hub = self.hub.clone();
+        let runtime = self.runtime.clone();
         let conn_id = self.next_conn_id.fetch_add(1, Ordering::Relaxed);
         thread::spawn(move || {
             let runner = factory.lock().expect("factory 锁中毒")();
-            serve_connection(stream, runner, issuer, transcript, hub, conn_id);
+            serve_connection(stream, runner, issuer, transcript, hub, conn_id, runtime);
         });
         Ok(true)
     }
@@ -156,6 +164,7 @@ fn serve_connection<R: TurnRunner>(
     transcript: Option<TranscripStore>,
     hub: WsHub,
     conn_id: u64,
+    runtime: tokio::runtime::Handle,
 ) {
     let mut ws = match accept_hdr(
         stream,
@@ -172,8 +181,8 @@ fn serve_connection<R: TurnRunner>(
     let _ = ws.get_ref().set_read_timeout(Some(READ_POLL));
 
     let mut mux = match transcript {
-        Some(t) => MuxSession::new_with_transcript(runner, t),
-        None => MuxSession::new(runner),
+        Some(t) => MuxSession::new_with_transcript(runner, t, runtime.clone()),
+        None => MuxSession::new(runner, runtime.clone()),
     };
 
     // 本连接的服务端推送通道：hub 持 sender，读循环 drain receiver 写回 socket。

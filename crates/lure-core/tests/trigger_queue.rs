@@ -2,8 +2,8 @@
 
 use lure_core::trigger::{never_busy, LocalTriggerQueue};
 
-#[test]
-fn enqueue_claim_complete_happy_path() {
+#[tokio::test]
+async fn enqueue_claim_complete_happy_path() {
     let mut queue = LocalTriggerQueue::new();
     queue.enqueue("t1", "cli:direct", "run me");
     assert_eq!(queue.pending_len(), 1);
@@ -19,8 +19,8 @@ fn enqueue_claim_complete_happy_path() {
     assert_eq!(queue.processing_len(), 0);
 }
 
-#[test]
-fn recover_requeues_uncompleted_for_at_least_once() {
+#[tokio::test]
+async fn recover_requeues_uncompleted_for_at_least_once() {
     let mut queue = LocalTriggerQueue::new();
     let id = queue.enqueue("t1", "cli:direct", "run me");
 
@@ -46,8 +46,8 @@ fn recover_requeues_uncompleted_for_at_least_once() {
     assert_eq!(queue.pending_len(), 0);
 }
 
-#[test]
-fn busy_session_deliveries_wait_in_pending() {
+#[tokio::test]
+async fn busy_session_deliveries_wait_in_pending() {
     let mut queue = LocalTriggerQueue::new();
     queue.enqueue("t1", "busy:session", "later");
     queue.enqueue("t2", "free:session", "now");
@@ -64,8 +64,8 @@ fn busy_session_deliveries_wait_in_pending() {
     assert_eq!(later[0].session_key, "busy:session");
 }
 
-#[test]
-fn claim_respects_limit() {
+#[tokio::test]
+async fn claim_respects_limit() {
     let mut queue = LocalTriggerQueue::new();
     queue.enqueue("t1", "s", "a");
     queue.enqueue("t2", "s", "b");

@@ -30,12 +30,13 @@ impl ScriptedProvider {
     }
 }
 
+#[async_trait::async_trait]
 impl LlmProvider for ScriptedProvider {
     fn default_model(&self) -> &str {
         "test-model"
     }
 
-    fn complete(&self, _request: &CompletionRequest) -> Result<LlmResponse, ProviderError> {
+    async fn complete(&self, _request: &CompletionRequest) -> Result<LlmResponse, ProviderError> {
         let reply = self.replies.lock().unwrap().pop().unwrap_or_default();
         Ok(LlmResponse::text(reply))
     }
@@ -44,12 +45,13 @@ impl LlmProvider for ScriptedProvider {
 /// 总是失败的 provider。
 struct FailingProvider;
 
+#[async_trait::async_trait]
 impl LlmProvider for FailingProvider {
     fn default_model(&self) -> &str {
         "failing"
     }
 
-    fn complete(&self, _request: &CompletionRequest) -> Result<LlmResponse, ProviderError> {
+    async fn complete(&self, _request: &CompletionRequest) -> Result<LlmResponse, ProviderError> {
         Err(ProviderError::Request("模拟网络失败".to_string()))
     }
 }
@@ -57,12 +59,13 @@ impl LlmProvider for FailingProvider {
 /// 返回带 reasoning_content 的推理模型 provider。
 struct ReasoningProvider;
 
+#[async_trait::async_trait]
 impl LlmProvider for ReasoningProvider {
     fn default_model(&self) -> &str {
         "reasoner"
     }
 
-    fn complete(&self, _request: &CompletionRequest) -> Result<LlmResponse, ProviderError> {
+    async fn complete(&self, _request: &CompletionRequest) -> Result<LlmResponse, ProviderError> {
         Ok(LlmResponse {
             content: Some("答案".to_string()),
             reasoning_content: Some("思考过程".to_string()),
@@ -79,19 +82,20 @@ struct CapturingProvider {
     last: Arc<Mutex<Option<CompletionRequest>>>,
 }
 
+#[async_trait::async_trait]
 impl LlmProvider for CapturingProvider {
     fn default_model(&self) -> &str {
         "capturing-default"
     }
 
-    fn complete(&self, request: &CompletionRequest) -> Result<LlmResponse, ProviderError> {
+    async fn complete(&self, request: &CompletionRequest) -> Result<LlmResponse, ProviderError> {
         *self.last.lock().unwrap() = Some(request.clone());
         Ok(LlmResponse::text("ok"))
     }
 }
 
-#[test]
-fn with_runtime_drives_model_and_settings_for_provider_call() {
+#[tokio::test]
+async fn with_runtime_drives_model_and_settings_for_provider_call() {
     // resolver 从 config 解析出的 runtime 应决定 provider 调用的 model 与生成参数。
     let mut config = Config::default();
     config.agents.defaults.model = "deepseek-chat".to_string();
@@ -110,7 +114,7 @@ fn with_runtime_drives_model_and_settings_for_provider_call() {
         .with_runtime(&runtime);
 
     let input = InboundMessage::new("cli", "direct", "hi".to_string());
-    agent_loop.process(&input).unwrap();
+    agent_loop.process(&input).await.unwrap();
 
     let request = captured
         .lock()
@@ -135,11 +139,12 @@ fn loop_with(provider: Box<dyn LlmProvider + Send>) -> (TempDir, AgentLoop) {
     (dir, agent_loop)
 }
 
-#[test]
-fn reasoning_content_is_persisted_and_exposed_in_outcome() {
+#[tokio::test]
+async fn reasoning_content_is_persisted_and_exposed_in_outcome() {
     let (dir, mut agent_loop) = loop_with(Box::new(ReasoningProvider));
     let outcome = agent_loop
         .process(&InboundMessage::new("cli", "direct", "问题"))
+        .await
         .unwrap();
 
     // TurnOutcome 暴露 reasoning，供 CLI --show-reasoning 打印。
@@ -155,12 +160,13 @@ fn reasoning_content_is_persisted_and_exposed_in_outcome() {
     assert_eq!(history[1]["reasoning_content"], "思考过程");
 }
 
-#[test]
-fn process_returns_provider_final_reply() {
+#[tokio::test]
+async fn process_returns_provider_final_reply() {
     let (_dir, mut agent_loop) = loop_with(Box::new(ScriptedProvider::new(vec!["done"])));
 
     let outcome = agent_loop
         .process(&InboundMessage::new("cli", "direct", "hello"))
+        .await
         .unwrap();
 
     assert_eq!(outcome.final_content, "done");
@@ -178,12 +184,13 @@ fn process_returns_provider_final_reply() {
     );
 }
 
-#[test]
-fn process_saves_user_and_assistant_turns() {
+#[tokio::test]
+async fn process_saves_user_and_assistant_turns() {
     let (dir, mut agent_loop) = loop_with(Box::new(ScriptedProvider::new(vec!["reply"])));
 
     agent_loop
         .process(&InboundMessage::new("cli", "direct", "hello"))
+        .await
         .unwrap();
 
     // 冷启动新 manager，从磁盘读回，确认两条 turn 已持久化。
@@ -197,8 +204,8 @@ fn process_saves_user_and_assistant_turns() {
     assert_eq!(history[1]["content"], "reply");
 }
 
-#[test]
-fn second_turn_sees_prior_history() {
+#[tokio::test]
+async fn second_turn_sees_prior_history() {
     let provider = ScriptedProvider::new(vec!["first", "second"]);
     let dir = tempfile::tempdir().unwrap();
     let sessions = SessionManager::new(dir.path()).unwrap();
@@ -206,9 +213,11 @@ fn second_turn_sees_prior_history() {
 
     agent_loop
         .process(&InboundMessage::new("cli", "direct", "hi"))
+        .await
         .unwrap();
     let outcome = agent_loop
         .process(&InboundMessage::new("cli", "direct", "again"))
+        .await
         .unwrap();
 
     assert_eq!(outcome.final_content, "second");
@@ -226,12 +235,13 @@ fn second_turn_sees_prior_history() {
     assert_eq!(roles, vec!["user", "assistant", "user", "assistant"]);
 }
 
-#[test]
-fn provider_failure_surfaces_structured_error() {
+#[tokio::test]
+async fn provider_failure_surfaces_structured_error() {
     let (_dir, mut agent_loop) = loop_with(Box::new(FailingProvider));
 
     let err = agent_loop
         .process(&InboundMessage::new("cli", "direct", "hello"))
+        .await
         .unwrap_err();
 
     assert!(matches!(
@@ -241,8 +251,8 @@ fn provider_failure_surfaces_structured_error() {
     assert!(err.to_string().contains("provider"));
 }
 
-#[test]
-fn context_projection_drops_internal_fields() {
+#[tokio::test]
+async fn context_projection_drops_internal_fields() {
     let builder = ContextBuilder::new(Some("system prompt".to_string()));
     let history = vec![serde_json::json!({
         "role": "assistant",

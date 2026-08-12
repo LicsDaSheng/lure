@@ -2,21 +2,21 @@
 
 use lure_core::bus::{InboundMessage, MessageBus, OutboundMessage};
 
-#[test]
-fn session_key_defaults_to_channel_chat() {
+#[tokio::test]
+async fn session_key_defaults_to_channel_chat() {
     let msg = InboundMessage::new("telegram", "chat-1", "hi");
     assert_eq!(msg.session_key(), "telegram:chat-1");
 }
 
-#[test]
-fn session_key_override_takes_precedence() {
+#[tokio::test]
+async fn session_key_override_takes_precedence() {
     let mut msg = InboundMessage::new("telegram", "chat-1", "hi");
     msg.session_key_override = Some("thread:xyz".to_string());
     assert_eq!(msg.session_key(), "thread:xyz");
 }
 
-#[test]
-fn outbound_reply_targets_source_channel_and_chat() {
+#[tokio::test]
+async fn outbound_reply_targets_source_channel_and_chat() {
     let inbound = InboundMessage::new("slack", "chat-9", "ping");
     let outbound = OutboundMessage::reply(&inbound, "pong");
     assert_eq!(outbound.channel, "slack");
@@ -24,8 +24,8 @@ fn outbound_reply_targets_source_channel_and_chat() {
     assert_eq!(outbound.content, "pong");
 }
 
-#[test]
-fn bus_is_fifo_and_tracks_sizes() {
+#[tokio::test]
+async fn bus_is_fifo_and_tracks_sizes() {
     let mut bus = MessageBus::new();
     assert_eq!(bus.inbound_size(), 0);
 

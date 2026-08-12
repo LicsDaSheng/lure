@@ -15,8 +15,8 @@ use lure_core::agent::subagent::{
 
 // —— SubagentStatus / label —— //
 
-#[test]
-fn status_defaults_to_initializing() {
+#[tokio::test]
+async fn status_defaults_to_initializing() {
     let s = SubagentStatus::new("t1", "label", "desc", 0.0);
     assert_eq!(s.phase, SubagentPhase::Initializing);
     assert_eq!(s.iteration, 0);
@@ -25,8 +25,8 @@ fn status_defaults_to_initializing() {
     assert!(s.error.is_none());
 }
 
-#[test]
-fn label_defaults_to_truncated_task() {
+#[tokio::test]
+async fn label_defaults_to_truncated_task() {
     // 短任务：原样。
     assert_eq!(derive_label("do a thing", None), "do a thing");
     // 长任务（>30 字符）：前 30 + "..."。
@@ -34,8 +34,8 @@ fn label_defaults_to_truncated_task() {
     assert_eq!(derive_label(long, None), format!("{}...", &long[..30]));
 }
 
-#[test]
-fn label_custom_overrides() {
+#[tokio::test]
+async fn label_custom_overrides() {
     assert_eq!(
         derive_label("some long task text here", Some("My Label")),
         "My Label"
@@ -52,8 +52,8 @@ fn ev(name: &str, status: &str, detail: &str) -> ToolEvent {
     }
 }
 
-#[test]
-fn partial_progress_completed_only() {
+#[tokio::test]
+async fn partial_progress_completed_only() {
     let r = SubagentRunResult {
         tool_events: vec![
             ev("read_file", "ok", "file content"),
@@ -67,8 +67,8 @@ fn partial_progress_completed_only() {
     assert!(text.contains("exec"));
 }
 
-#[test]
-fn partial_progress_failure_only() {
+#[tokio::test]
+async fn partial_progress_failure_only() {
     let r = SubagentRunResult {
         tool_events: vec![ev("read_file", "error", "not found")],
         error: None,
@@ -78,8 +78,8 @@ fn partial_progress_failure_only() {
     assert!(text.contains("not found"));
 }
 
-#[test]
-fn partial_progress_completed_and_failure() {
+#[tokio::test]
+async fn partial_progress_completed_and_failure() {
     let r = SubagentRunResult {
         tool_events: vec![
             ev("read_file", "ok", "content"),
@@ -92,8 +92,8 @@ fn partial_progress_completed_and_failure() {
     assert!(text.contains("Failure:"));
 }
 
-#[test]
-fn partial_progress_limited_to_last_three() {
+#[tokio::test]
+async fn partial_progress_limited_to_last_three() {
     let r = SubagentRunResult {
         tool_events: (0..5)
             .map(|i| ev(&format!("tool_{i}"), "ok", &format!("result_{i}")))
@@ -108,8 +108,8 @@ fn partial_progress_limited_to_last_three() {
     assert!(!text.contains("tool_1"));
 }
 
-#[test]
-fn partial_progress_error_without_failure_event() {
+#[tokio::test]
+async fn partial_progress_error_without_failure_event() {
     let r = SubagentRunResult {
         tool_events: vec![ev("read_file", "ok", "ok")],
         error: Some("Something went wrong".to_string()),
@@ -117,8 +117,8 @@ fn partial_progress_error_without_failure_event() {
     assert!(format_partial_progress(&r).contains("Something went wrong"));
 }
 
-#[test]
-fn partial_progress_empty_events_with_error() {
+#[tokio::test]
+async fn partial_progress_empty_events_with_error() {
     let r = SubagentRunResult {
         tool_events: vec![],
         error: Some("Total failure".to_string()),
@@ -126,8 +126,8 @@ fn partial_progress_empty_events_with_error() {
     assert!(format_partial_progress(&r).contains("Total failure"));
 }
 
-#[test]
-fn partial_progress_empty_no_error_returns_fallback() {
+#[tokio::test]
+async fn partial_progress_empty_no_error_returns_fallback() {
     let r = SubagentRunResult {
         tool_events: vec![],
         error: None,
@@ -141,14 +141,14 @@ fn status(id: &str) -> SubagentStatus {
     SubagentStatus::new(id, id, id, 0.0)
 }
 
-#[test]
-fn running_count_zero_initially() {
+#[tokio::test]
+async fn running_count_zero_initially() {
     let r = SubagentRegistry::new();
     assert_eq!(r.get_running_count(), 0);
 }
 
-#[test]
-fn register_tracks_count_and_session() {
+#[tokio::test]
+async fn register_tracks_count_and_session() {
     let mut r = SubagentRegistry::new();
     r.register("t1", Some("s1"), status("t1"));
     r.register("t2", Some("s1"), status("t2"));
@@ -156,8 +156,8 @@ fn register_tracks_count_and_session() {
     assert_eq!(r.get_running_count_by_session("s1"), 2);
 }
 
-#[test]
-fn finish_removes_task() {
+#[tokio::test]
+async fn finish_removes_task() {
     let mut r = SubagentRegistry::new();
     r.register("t1", Some("s1"), status("t1"));
     r.finish("t1");
@@ -165,14 +165,14 @@ fn finish_removes_task() {
     assert_eq!(r.get_running_count_by_session("s1"), 0);
 }
 
-#[test]
-fn by_session_nonexistent_is_zero() {
+#[tokio::test]
+async fn by_session_nonexistent_is_zero() {
     let r = SubagentRegistry::new();
     assert_eq!(r.get_running_count_by_session("nonexistent"), 0);
 }
 
-#[test]
-fn no_session_key_not_registered_in_session_index() {
+#[tokio::test]
+async fn no_session_key_not_registered_in_session_index() {
     let mut r = SubagentRegistry::new();
     r.register("t1", None, status("t1"));
     // 计入总数，但不计入任何 session。
@@ -180,8 +180,8 @@ fn no_session_key_not_registered_in_session_index() {
     assert_eq!(r.get_running_count_by_session("s1"), 0);
 }
 
-#[test]
-fn mark_done_excludes_from_session_count() {
+#[tokio::test]
+async fn mark_done_excludes_from_session_count() {
     let mut r = SubagentRegistry::new();
     r.register("t1", Some("s1"), status("t1"));
     r.mark_done("t1");
@@ -190,8 +190,8 @@ fn mark_done_excludes_from_session_count() {
     assert_eq!(r.get_running_count_by_session("s1"), 0);
 }
 
-#[test]
-fn cancel_by_session_cancels_running() {
+#[tokio::test]
+async fn cancel_by_session_cancels_running() {
     let mut r = SubagentRegistry::new();
     r.register("t1", Some("s1"), status("t1"));
     r.register("t2", Some("s1"), status("t2"));
@@ -201,22 +201,22 @@ fn cancel_by_session_cancels_running() {
     assert_eq!(r.get_running_count_by_session("s1"), 0);
 }
 
-#[test]
-fn cancel_by_session_no_tasks_returns_zero() {
+#[tokio::test]
+async fn cancel_by_session_no_tasks_returns_zero() {
     let mut r = SubagentRegistry::new();
     assert_eq!(r.cancel_by_session("nonexistent"), 0);
 }
 
-#[test]
-fn cancel_by_session_already_finished_returns_zero() {
+#[tokio::test]
+async fn cancel_by_session_already_finished_returns_zero() {
     let mut r = SubagentRegistry::new();
     r.register("t1", Some("s1"), status("t1"));
     r.finish("t1"); // 模拟 drain 后 cleanup 回调
     assert_eq!(r.cancel_by_session("s1"), 0);
 }
 
-#[test]
-fn cancel_by_session_skips_done_tasks() {
+#[tokio::test]
+async fn cancel_by_session_skips_done_tasks() {
     let mut r = SubagentRegistry::new();
     r.register("t1", Some("s1"), status("t1"));
     r.register("t2", Some("s1"), status("t2"));
@@ -225,8 +225,8 @@ fn cancel_by_session_skips_done_tasks() {
     assert_eq!(r.cancel_by_session("s1"), 1);
 }
 
-#[test]
-fn cancel_isolated_by_session() {
+#[tokio::test]
+async fn cancel_isolated_by_session() {
     let mut r = SubagentRegistry::new();
     r.register("t1", Some("s1"), status("t1"));
     r.register("t2", Some("s2"), status("t2"));

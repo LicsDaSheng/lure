@@ -32,12 +32,13 @@ impl ScriptedToolProvider {
     }
 }
 
+#[async_trait::async_trait]
 impl LlmProvider for ScriptedToolProvider {
     fn default_model(&self) -> &str {
         "tool-model"
     }
 
-    fn complete(&self, request: &CompletionRequest) -> Result<LlmResponse, ProviderError> {
+    async fn complete(&self, request: &CompletionRequest) -> Result<LlmResponse, ProviderError> {
         self.seen.lock().unwrap().push(request.messages.clone());
         Ok(self
             .responses
@@ -53,12 +54,13 @@ struct AlwaysToolProvider {
     calls: Arc<Mutex<usize>>,
 }
 
+#[async_trait::async_trait]
 impl LlmProvider for AlwaysToolProvider {
     fn default_model(&self) -> &str {
         "always-tool"
     }
 
-    fn complete(&self, _request: &CompletionRequest) -> Result<LlmResponse, ProviderError> {
+    async fn complete(&self, _request: &CompletionRequest) -> Result<LlmResponse, ProviderError> {
         *self.calls.lock().unwrap() += 1;
         Ok(tool_call_response("call_x", "echo", r#"{"text":"loop"}"#))
     }
@@ -149,8 +151,8 @@ fn setup(responses: Vec<LlmResponse>) -> ToolLoopFixture {
     (dir, agent_loop, calls, seen)
 }
 
-#[test]
-fn single_tool_round_executes_and_returns_final_reply() {
+#[tokio::test]
+async fn single_tool_round_executes_and_returns_final_reply() {
     let (dir, mut agent_loop, calls, seen) = setup(vec![
         tool_call_response("call_1", "echo", r#"{"text":"hi"}"#),
         LlmResponse::text("done"),
@@ -158,6 +160,7 @@ fn single_tool_round_executes_and_returns_final_reply() {
 
     let outcome = agent_loop
         .process(&InboundMessage::new("cli", "direct", "go"))
+        .await
         .unwrap();
 
     // 最终回复来自第二次（无 tool_calls）响应。
@@ -193,8 +196,8 @@ fn single_tool_round_executes_and_returns_final_reply() {
     assert_eq!(history[3]["content"], "done");
 }
 
-#[test]
-fn tool_round_emits_tool_invoked_progress() {
+#[tokio::test]
+async fn tool_round_emits_tool_invoked_progress() {
     let (_dir, mut agent_loop, _calls, _seen) = setup(vec![
         tool_call_response("call_1", "echo", r#"{"text":"hi"}"#),
         LlmResponse::text("done"),
@@ -202,6 +205,7 @@ fn tool_round_emits_tool_invoked_progress() {
 
     let outcome = agent_loop
         .process(&InboundMessage::new("cli", "direct", "go"))
+        .await
         .unwrap();
 
     assert!(
@@ -214,8 +218,8 @@ fn tool_round_emits_tool_invoked_progress() {
     );
 }
 
-#[test]
-fn process_streaming_emits_progress_events_live() {
+#[tokio::test]
+async fn process_streaming_emits_progress_events_live() {
     // 回调应实时收到 ToolInvoked / ContentDelta / FinalResponse，且序列与最终 progress 一致。
     let (_dir, mut agent_loop, _calls, _seen) = setup(vec![
         tool_call_response("call_1", "echo", r#"{"text":"hi"}"#),
@@ -227,6 +231,7 @@ fn process_streaming_emits_progress_events_live() {
         .process_streaming(&InboundMessage::new("cli", "direct", "go"), &mut |ev| {
             events.push(ev.clone())
         })
+        .await
         .unwrap();
 
     assert_eq!(outcome.final_content, "done");
@@ -243,8 +248,8 @@ fn process_streaming_emits_progress_events_live() {
     assert_eq!(events, outcome.progress);
 }
 
-#[test]
-fn tool_loop_stops_at_max_iterations() {
+#[tokio::test]
+async fn tool_loop_stops_at_max_iterations() {
     let dir = tempfile::tempdir().unwrap();
     let sessions = SessionManager::new(dir.path()).unwrap();
     let call_count = Arc::new(Mutex::new(0usize));
@@ -262,6 +267,7 @@ fn tool_loop_stops_at_max_iterations() {
     // 不应挂起：达到上限即停止。
     let outcome = agent_loop
         .process(&InboundMessage::new("cli", "direct", "go"))
+        .await
         .unwrap();
 
     // provider 调用次数 = 上限；tool 执行次数 = 上限。
@@ -271,8 +277,8 @@ fn tool_loop_stops_at_max_iterations() {
     assert!(!outcome.progress.is_empty());
 }
 
-#[test]
-fn unknown_tool_yields_error_result_and_loop_recovers() {
+#[tokio::test]
+async fn unknown_tool_yields_error_result_and_loop_recovers() {
     let (_dir, mut agent_loop, calls, _seen) = setup(vec![
         tool_call_response("call_1", "does_not_exist", "{}"),
         LlmResponse::text("recovered"),
@@ -280,6 +286,7 @@ fn unknown_tool_yields_error_result_and_loop_recovers() {
 
     let outcome = agent_loop
         .process(&InboundMessage::new("cli", "direct", "go"))
+        .await
         .unwrap();
 
     assert_eq!(outcome.final_content, "recovered");
@@ -306,8 +313,8 @@ impl Tool for BlankTool {
     }
 }
 
-#[test]
-fn empty_tool_result_is_replaced_with_marker() {
+#[tokio::test]
+async fn empty_tool_result_is_replaced_with_marker() {
     // 对齐上游 `ensure_nonempty_tool_result`：工具产出空/纯空白时，回灌历史前替换为
     // `(<tool> completed with no output)`，避免模型看到空白 tool turn。
     let dir = tempfile::tempdir().unwrap();
@@ -327,6 +334,7 @@ fn empty_tool_result_is_replaced_with_marker() {
 
     let outcome = agent_loop
         .process(&InboundMessage::new("cli", "direct", "go"))
+        .await
         .unwrap();
     assert_eq!(outcome.final_content, "done");
 
@@ -351,8 +359,8 @@ fn empty_tool_result_is_replaced_with_marker() {
     assert_eq!(history[2]["content"], "(blank completed with no output)");
 }
 
-#[test]
-fn usage_accumulates_across_tool_rounds() {
+#[tokio::test]
+async fn usage_accumulates_across_tool_rounds() {
     // 对齐上游 `test_runner_core::test_runner_accumulates_usage_and_preserves_cached_tokens`：
     // 跨轮次 provider 调用的 usage 按字段累加（含 cached_tokens）。
     let mut r1 = tool_call_response("call_1", "echo", r#"{"text":"hi"}"#);
@@ -364,6 +372,7 @@ fn usage_accumulates_across_tool_rounds() {
     let (_dir, mut agent_loop, _calls, _seen) = setup(vec![r1, r2]);
     let outcome = agent_loop
         .process(&InboundMessage::new("cli", "direct", "go"))
+        .await
         .unwrap();
 
     assert_eq!(outcome.final_content, "done");
@@ -384,18 +393,19 @@ fn usage_accumulates_across_tool_rounds() {
     );
 }
 
-#[test]
-fn normal_final_response_has_completed_stop_reason() {
+#[tokio::test]
+async fn normal_final_response_has_completed_stop_reason() {
     let (_dir, mut agent_loop, _calls, _seen) = setup(vec![LlmResponse::text("hi there")]);
     let outcome = agent_loop
         .process(&InboundMessage::new("cli", "direct", "go"))
+        .await
         .unwrap();
     assert_eq!(outcome.final_content, "hi there");
     assert_eq!(outcome.stop_reason, "completed");
 }
 
-#[test]
-fn empty_final_response_retries_then_finalizes_to_content() {
+#[tokio::test]
+async fn empty_final_response_retries_then_finalizes_to_content() {
     // 对齐上游 `test_runner_retries_empty_final_response_with_summary_prompt`：
     // 空终响应先静默重试（<MAX_EMPTY_RETRIES），再触发 finalization（追加提示后请求一次）。
     let (dir, mut agent_loop, _calls, seen) = setup(vec![
@@ -406,6 +416,7 @@ fn empty_final_response_retries_then_finalizes_to_content() {
 
     let outcome = agent_loop
         .process(&InboundMessage::new("cli", "direct", "go"))
+        .await
         .unwrap();
 
     assert_eq!(outcome.final_content, "final answer");
@@ -435,8 +446,8 @@ fn empty_final_response_retries_then_finalizes_to_content() {
     assert_eq!(history[1]["content"], "final answer");
 }
 
-#[test]
-fn finalization_emits_finalizing_progress_event() {
+#[tokio::test]
+async fn finalization_emits_finalizing_progress_event() {
     // 空终响应触发 finalization 时应发出 ProgressEvent::Finalizing（供等待指示器切文案）。
     let (_dir, mut agent_loop, _calls, _seen) = setup(vec![
         blank_response(),
@@ -446,6 +457,7 @@ fn finalization_emits_finalizing_progress_event() {
 
     let outcome = agent_loop
         .process(&InboundMessage::new("cli", "direct", "go"))
+        .await
         .unwrap();
 
     assert_eq!(outcome.final_content, "final answer");
@@ -459,8 +471,8 @@ fn finalization_emits_finalizing_progress_event() {
     );
 }
 
-#[test]
-fn all_empty_yields_empty_final_response_message() {
+#[tokio::test]
+async fn all_empty_yields_empty_final_response_message() {
     // 对齐上游 `test_runner_uses_specific_message_after_empty_finalization_retry`：
     // 静默重试 + finalization 全部为空 → 固定兜底文案 + stop_reason=empty_final_response。
     let (_dir, mut agent_loop, _calls, seen) =
@@ -468,6 +480,7 @@ fn all_empty_yields_empty_final_response_message() {
 
     let outcome = agent_loop
         .process(&InboundMessage::new("cli", "direct", "go"))
+        .await
         .unwrap();
 
     assert_eq!(outcome.final_content, EMPTY_FINAL_RESPONSE_MESSAGE);
@@ -475,8 +488,8 @@ fn all_empty_yields_empty_final_response_message() {
     assert_eq!(seen.lock().unwrap().len(), 3);
 }
 
-#[test]
-fn without_registry_tool_calls_are_treated_as_final() {
+#[tokio::test]
+async fn without_registry_tool_calls_are_treated_as_final() {
     // 未注册 tool registry 时，即便 provider 返回 tool_calls 也直接作为终态。
     let dir = tempfile::tempdir().unwrap();
     let sessions = SessionManager::new(dir.path()).unwrap();
@@ -488,6 +501,7 @@ fn without_registry_tool_calls_are_treated_as_final() {
 
     let outcome = agent_loop
         .process(&InboundMessage::new("cli", "direct", "go"))
+        .await
         .unwrap();
 
     assert_eq!(outcome.final_content, "partial");

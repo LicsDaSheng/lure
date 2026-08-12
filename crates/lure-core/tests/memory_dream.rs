@@ -10,8 +10,9 @@ use tempfile::tempdir;
 /// 把当前记忆与新历史内容拼接为新记忆的 fake runner。
 struct AppendRunner;
 
+#[async_trait::async_trait]
 impl DreamRunner for AppendRunner {
-    fn consolidate(&self, current_memory: &str, entries: &[HistoryEntry]) -> String {
+    async fn consolidate(&self, current_memory: &str, entries: &[HistoryEntry]) -> String {
         let mut lines: Vec<String> = if current_memory.is_empty() {
             Vec::new()
         } else {
@@ -28,13 +29,13 @@ fn store() -> (tempfile::TempDir, MemoryStore) {
     (dir, store)
 }
 
-#[test]
-fn consolidate_writes_memory_and_advances_cursor() {
+#[tokio::test]
+async fn consolidate_writes_memory_and_advances_cursor() {
     let (_dir, store) = store();
     store.append_history("learned fact A", None).unwrap();
     store.append_history("learned fact B", None).unwrap();
 
-    let outcome = store.consolidate(&AppendRunner).unwrap();
+    let outcome = store.consolidate(&AppendRunner).await.unwrap();
     assert_eq!(outcome.processed, 2);
     assert_eq!(outcome.new_cursor, 2);
     assert_eq!(store.get_last_dream_cursor(), 2);
@@ -44,29 +45,29 @@ fn consolidate_writes_memory_and_advances_cursor() {
     assert!(memory.contains("learned fact B"));
 }
 
-#[test]
-fn consolidate_is_noop_without_new_history() {
+#[tokio::test]
+async fn consolidate_is_noop_without_new_history() {
     let (_dir, store) = store();
     store.append_history("fact", None).unwrap();
-    store.consolidate(&AppendRunner).unwrap();
+    store.consolidate(&AppendRunner).await.unwrap();
     let memory_after_first = store.read_memory();
 
     // 无新历史 → None，且记忆不变。
-    assert!(store.consolidate(&AppendRunner).is_none());
+    assert!(store.consolidate(&AppendRunner).await.is_none());
     assert_eq!(store.read_memory(), memory_after_first);
 }
 
-#[test]
-fn consolidate_only_processes_entries_after_dream_cursor() {
+#[tokio::test]
+async fn consolidate_only_processes_entries_after_dream_cursor() {
     let (_dir, store) = store();
     store.append_history("first", None).unwrap();
-    let first = store.consolidate(&AppendRunner).unwrap();
+    let first = store.consolidate(&AppendRunner).await.unwrap();
     assert_eq!(first.new_cursor, 1);
 
     store.append_history("second", None).unwrap();
     store.append_history("third", None).unwrap();
 
-    let second = store.consolidate(&AppendRunner).unwrap();
+    let second = store.consolidate(&AppendRunner).await.unwrap();
     assert_eq!(second.processed, 2, "只处理 dream cursor 之后的两条");
     assert_eq!(second.new_cursor, 3);
 
@@ -77,14 +78,14 @@ fn consolidate_only_processes_entries_after_dream_cursor() {
     assert_eq!(memory.matches("first").count(), 1);
 }
 
-#[test]
-fn consolidate_empty_history_returns_none() {
+#[tokio::test]
+async fn consolidate_empty_history_returns_none() {
     let (_dir, store) = store();
-    assert!(store.consolidate(&AppendRunner).is_none());
+    assert!(store.consolidate(&AppendRunner).await.is_none());
 }
 
-#[test]
-fn should_consolidate_returns_true_when_unprocessed_exceeds_threshold() {
+#[tokio::test]
+async fn should_consolidate_returns_true_when_unprocessed_exceeds_threshold() {
     let (_dir, store) = store();
     assert!(!store.should_consolidate(3));
     store.append_history("a", None).unwrap();
@@ -92,18 +93,18 @@ fn should_consolidate_returns_true_when_unprocessed_exceeds_threshold() {
     store.append_history("c", None).unwrap();
     assert!(store.should_consolidate(3));
     // consolidate 后清空未处理计数。
-    store.consolidate(&AppendRunner).unwrap();
+    store.consolidate(&AppendRunner).await.unwrap();
     assert!(!store.should_consolidate(1));
 }
 
-#[test]
-fn provider_dream_runner_uses_real_llm() {
+#[tokio::test]
+async fn provider_dream_runner_uses_real_llm() {
     let (_dir, store) = store();
     store.append_history("用户喜欢吃面", None).unwrap();
     store.append_history("用户住在北京", None).unwrap();
 
     let runner = ProviderDreamRunner::new(Box::new(EchoProvider::new()));
-    let outcome = store.consolidate(&runner).unwrap();
+    let outcome = store.consolidate(&runner).await.unwrap();
     assert_eq!(outcome.processed, 2);
 
     let memory = store.read_memory();

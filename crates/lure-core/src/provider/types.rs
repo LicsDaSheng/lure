@@ -155,30 +155,31 @@ impl fmt::Display for ProviderError {
 
 impl std::error::Error for ProviderError {}
 
-/// LLM provider 契约。
+/// LLM provider 契约（异步，Stage 2）。
 ///
-/// Phase 3 仅需 `default_model` 与同步 `complete`；registry、fallback、真实
-/// OpenAI-compatible 调用属 Phase 4。
-pub trait LlmProvider {
+/// `complete`/`complete_streaming` 均为 async：真实 provider（reqwest 传输）不再
+/// 阻塞调用线程；同步实现（如测试内的 echo/scripted provider）直接返回即可。
+#[async_trait::async_trait]
+pub trait LlmProvider: Send + Sync {
     /// 默认模型标识。
     fn default_model(&self) -> &str;
 
     /// 执行一次补全。
-    fn complete(&self, request: &CompletionRequest) -> Result<LlmResponse, ProviderError>;
+    async fn complete(&self, request: &CompletionRequest) -> Result<LlmResponse, ProviderError>;
 
     /// 执行一次**流式**补全：每产生一个增量调用 `on_delta`，返回组装后的完整响应。
     ///
     /// 默认实现回退到非流式 [`complete`](Self::complete)，并把整段内容作为**单个**增量
     /// 回调一次——让所有 provider 都可被 streaming 调用路径统一驱动；支持真实 SSE 的
     /// provider（如 OpenAI-compatible）覆盖此方法以逐 token 回调。
-    fn complete_streaming(
+    async fn complete_streaming(
         &self,
         request: &CompletionRequest,
-        on_delta: &mut dyn FnMut(&StreamChunk),
+        on_delta: &mut (dyn FnMut(StreamChunk) + Send),
     ) -> Result<LlmResponse, ProviderError> {
-        let response = self.complete(request)?;
+        let response = self.complete(request).await?;
         if let Some(content) = response.content.as_ref().filter(|c| !c.is_empty()) {
-            on_delta(&StreamChunk {
+            on_delta(StreamChunk {
                 content_delta: Some(content.clone()),
                 finish_reason: Some(response.finish_reason.clone()),
                 ..StreamChunk::default()

@@ -14,8 +14,8 @@ fn obj(value: &Value) -> &Map<String, Value> {
     value.as_object().unwrap()
 }
 
-#[test]
-fn runtime_lines_empty_when_no_metadata() {
+#[tokio::test]
+async fn runtime_lines_empty_when_no_metadata() {
     assert_eq!(goal_state_runtime_lines(None), Vec::<String>::new());
     let empty = json!({});
     assert_eq!(
@@ -24,8 +24,8 @@ fn runtime_lines_empty_when_no_metadata() {
     );
 }
 
-#[test]
-fn runtime_lines_empty_when_completed() {
+#[tokio::test]
+async fn runtime_lines_empty_when_completed() {
     let meta = json!({ "goal_state": {"status": "completed", "objective": "was doing X"} });
     assert_eq!(
         goal_state_runtime_lines(Some(obj(&meta))),
@@ -33,8 +33,8 @@ fn runtime_lines_empty_when_completed() {
     );
 }
 
-#[test]
-fn runtime_lines_include_objective_when_active() {
+#[tokio::test]
+async fn runtime_lines_include_objective_when_active() {
     let meta = json!({
         "goal_state": {"status": "active", "objective": "Ship the fix.", "ui_summary": "fix"}
     });
@@ -44,16 +44,16 @@ fn runtime_lines_include_objective_when_active() {
     assert!(lines.iter().any(|l| l == "Summary: fix"));
 }
 
-#[test]
-fn runtime_lines_preserve_maximum_accepted_objective() {
+#[tokio::test]
+async fn runtime_lines_preserve_maximum_accepted_objective() {
     let objective = "x".repeat(MAX_GOAL_OBJECTIVE_CHARS);
     let meta = json!({ "goal_state": {"status": "active", "objective": objective} });
     let lines = goal_state_runtime_lines(Some(obj(&meta)));
     assert_eq!(lines, vec!["Goal (active):".to_string(), objective]);
 }
 
-#[test]
-fn runtime_lines_read_legacy_thread_goal_key() {
+#[tokio::test]
+async fn runtime_lines_read_legacy_thread_goal_key() {
     let meta = json!({
         "thread_goal": {"status": "active", "objective": "Legacy key.", "ui_summary": "L"}
     });
@@ -61,8 +61,8 @@ fn runtime_lines_read_legacy_thread_goal_key() {
     assert!(lines.iter().any(|l| l == "Legacy key."));
 }
 
-#[test]
-fn goal_state_key_takes_precedence_over_legacy() {
+#[tokio::test]
+async fn goal_state_key_takes_precedence_over_legacy() {
     let meta = json!({
         "goal_state": {"status": "active", "objective": "New key wins.", "ui_summary": "n"},
         "thread_goal": {"status": "active", "objective": "Ignored.", "ui_summary": "o"}
@@ -72,8 +72,8 @@ fn goal_state_key_takes_precedence_over_legacy() {
     assert!(!lines.join("").contains("Ignored."));
 }
 
-#[test]
-fn discard_legacy_key_removes_only_legacy() {
+#[tokio::test]
+async fn discard_legacy_key_removes_only_legacy() {
     let source = json!({ "thread_goal": {"x": 1}, "goal_state": {"status": "active"} });
     let mut meta = obj(&source).clone();
     discard_legacy_goal_state_key(&mut meta);
@@ -81,16 +81,16 @@ fn discard_legacy_key_removes_only_legacy() {
     assert!(meta.contains_key(GOAL_STATE_KEY));
 }
 
-#[test]
-fn parse_goal_state_accepts_json_string() {
+#[tokio::test]
+async fn parse_goal_state_accepts_json_string() {
     let blob = json!("{\"status\":\"active\",\"objective\":\"x\"}");
     let parsed = parse_goal_state(Some(&blob)).unwrap();
     assert_eq!(parsed.get("status").unwrap(), "active");
     assert_eq!(parsed.get("objective").unwrap(), "x");
 }
 
-#[test]
-fn ws_blob_inactive_when_missing_or_completed() {
+#[tokio::test]
+async fn ws_blob_inactive_when_missing_or_completed() {
     assert_eq!(goal_state_ws_blob(None), json!({"active": false}));
     let empty = json!({});
     assert_eq!(
@@ -104,8 +104,8 @@ fn ws_blob_inactive_when_missing_or_completed() {
     );
 }
 
-#[test]
-fn ws_blob_active_shape() {
+#[tokio::test]
+async fn ws_blob_active_shape() {
     let meta = json!({
         "goal_state": {"status": "active", "objective": "Build feature.", "ui_summary": "feat"}
     });
@@ -115,8 +115,8 @@ fn ws_blob_active_shape() {
     );
 }
 
-#[test]
-fn sustained_goal_active_reflects_status_and_legacy_key() {
+#[tokio::test]
+async fn sustained_goal_active_reflects_status_and_legacy_key() {
     assert!(!sustained_goal_active(None));
     let empty = json!({});
     assert!(!sustained_goal_active(Some(obj(&empty))));
@@ -128,8 +128,8 @@ fn sustained_goal_active_reflects_status_and_legacy_key() {
     assert!(sustained_goal_active(Some(obj(&legacy))));
 }
 
-#[test]
-fn explicit_goal_requested_reads_command_metadata() {
+#[tokio::test]
+async fn explicit_goal_requested_reads_command_metadata() {
     let empty = json!({});
     assert!(!explicit_goal_requested(Some(obj(&empty))));
     let requested = json!({ "original_command": "/goal", "goal_requested": true });

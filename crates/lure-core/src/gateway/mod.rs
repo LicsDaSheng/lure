@@ -100,13 +100,17 @@ impl Gateway {
     /// 处理所有待处理 inbound：agent → outbound → 路由到目标 channel。
     ///
     /// 非运行态时不处理，待处理任务保留在总线中。返回本次处理条数。
-    pub fn dispatch_pending(&mut self) -> Result<usize, GatewayError> {
+    pub async fn dispatch_pending(&mut self) -> Result<usize, GatewayError> {
         if !self.running {
             return Ok(0);
         }
         let mut processed = 0;
         while let Some(inbound) = self.bus.consume_inbound() {
-            let outcome = self.agent.process(&inbound).map_err(GatewayError::Agent)?;
+            let outcome = self
+                .agent
+                .process(&inbound)
+                .await
+                .map_err(GatewayError::Agent)?;
             // 先把 progress 事件流转发给目标 channel（outbound 运行时事件）。
             for event in &outcome.progress {
                 let update = progress_update(&inbound, event);
@@ -179,13 +183,15 @@ fn progress_update(inbound: &InboundMessage, event: &ProgressEvent) -> ProgressU
 /// 失败记为 `Error`。持有 gateway 所有权，供专用 cron 宿主线程独占驱动。
 pub struct GatewayCronRunner {
     gateway: Gateway,
+    /// 驱动 async dispatch 的 runtime 句柄（cron 线程内 block_on）。
+    runtime: tokio::runtime::Handle,
 }
 
 impl GatewayCronRunner {
     /// 绑定 gateway（自动置为运行态，确保 dispatch 生效）。
-    pub fn new(mut gateway: Gateway) -> Self {
+    pub fn new(mut gateway: Gateway, runtime: tokio::runtime::Handle) -> Self {
         gateway.start();
-        Self { gateway }
+        Self { gateway, runtime }
     }
 
     /// 只读访问内部 gateway（诊断/健康）。
@@ -205,7 +211,7 @@ impl crate::cron::CronJobRunner for GatewayCronRunner {
             chat_id,
             job.payload.message.clone(),
         ));
-        match self.gateway.dispatch_pending() {
+        match crate::runtime::block_on(&self.runtime, self.gateway.dispatch_pending()) {
             Ok(_) => crate::cron::RunStatus::Ok,
             Err(_) => crate::cron::RunStatus::Error,
         }

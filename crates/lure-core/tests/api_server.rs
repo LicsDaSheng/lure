@@ -6,8 +6,8 @@
 //! 测试拓扑：server 持有的 `AgentLoop` 不要求 `Send`，故 server 留在主线程，
 //! HTTP 客户端跑在子线程；主线程按请求数调用 `handle_next` 逐条应答。
 
-use std::cell::RefCell;
 use std::net::SocketAddr;
+use std::sync::{Arc, Mutex};
 use std::thread;
 
 use lure_core::agent::{AgentLoop, ContextBuilder};
@@ -36,7 +36,13 @@ fn bind_server(dir: &TempDir, api_key: Option<&str>) -> (ChatServer<AgentLoop>, 
         model: "echo".to_string(),
         api_key: api_key.map(str::to_string),
     };
-    let server = ChatServer::bind("127.0.0.1:0", build_loop(dir), config).unwrap();
+    let server = ChatServer::bind(
+        "127.0.0.1:0",
+        build_loop(dir),
+        config,
+        tokio::runtime::Handle::current(),
+    )
+    .unwrap();
     let addr = server.local_addr().unwrap();
     (server, addr)
 }
@@ -55,8 +61,8 @@ fn post_chat(addr: SocketAddr, body: Value, auth: Option<&str>) -> (u16, String)
     }
 }
 
-#[test]
-fn non_streaming_chat_completion_shape_and_content() {
+#[tokio::test]
+async fn non_streaming_chat_completion_shape_and_content() {
     let dir = tempfile::tempdir().unwrap();
     let (mut server, addr) = bind_server(&dir, None);
 
@@ -83,12 +89,13 @@ fn non_streaming_chat_completion_shape_and_content() {
 /// 单轮返回带 usage 的响应（验证非流式响应回填 usage）。
 struct UsageProvider;
 
+#[async_trait::async_trait]
 impl LlmProvider for UsageProvider {
     fn default_model(&self) -> &str {
         "echo"
     }
 
-    fn complete(&self, _request: &CompletionRequest) -> Result<LlmResponse, ProviderError> {
+    async fn complete(&self, _request: &CompletionRequest) -> Result<LlmResponse, ProviderError> {
         let mut resp = LlmResponse::text("hi");
         resp.usage.insert("prompt_tokens".to_string(), 11.into());
         resp.usage.insert("completion_tokens".to_string(), 7.into());
@@ -96,8 +103,8 @@ impl LlmProvider for UsageProvider {
     }
 }
 
-#[test]
-fn non_streaming_response_reports_accumulated_usage() {
+#[tokio::test]
+async fn non_streaming_response_reports_accumulated_usage() {
     let dir = tempfile::tempdir().unwrap();
     let sessions = SessionManager::new(dir.path()).unwrap();
     let agent_loop = AgentLoop::new(Box::new(UsageProvider), sessions, ContextBuilder::new(None));
@@ -105,7 +112,13 @@ fn non_streaming_response_reports_accumulated_usage() {
         model: "echo".to_string(),
         api_key: None,
     };
-    let mut server = ChatServer::bind("127.0.0.1:0", agent_loop, config).unwrap();
+    let mut server = ChatServer::bind(
+        "127.0.0.1:0",
+        agent_loop,
+        config,
+        tokio::runtime::Handle::current(),
+    )
+    .unwrap();
     let addr = server.local_addr().unwrap();
 
     let client = thread::spawn(move || {
@@ -125,8 +138,8 @@ fn non_streaming_response_reports_accumulated_usage() {
     assert_eq!(v["usage"]["total_tokens"], 18);
 }
 
-#[test]
-fn streaming_emits_sse_chunk_then_finish_then_done() {
+#[tokio::test]
+async fn streaming_emits_sse_chunk_then_finish_then_done() {
     let dir = tempfile::tempdir().unwrap();
     let (mut server, addr) = bind_server(&dir, None);
 
@@ -178,22 +191,23 @@ struct MultiDeltaProvider {
     deltas: Vec<String>,
 }
 
+#[async_trait::async_trait]
 impl LlmProvider for MultiDeltaProvider {
     fn default_model(&self) -> &str {
         "echo"
     }
 
-    fn complete(&self, _request: &CompletionRequest) -> Result<LlmResponse, ProviderError> {
+    async fn complete(&self, _request: &CompletionRequest) -> Result<LlmResponse, ProviderError> {
         Ok(LlmResponse::text(self.deltas.concat()))
     }
 
-    fn complete_streaming(
+    async fn complete_streaming(
         &self,
         _request: &CompletionRequest,
-        on_delta: &mut dyn FnMut(&StreamChunk),
+        on_delta: &mut (dyn FnMut(StreamChunk) + Send),
     ) -> Result<LlmResponse, ProviderError> {
         for delta in &self.deltas {
-            on_delta(&StreamChunk {
+            on_delta(StreamChunk {
                 content_delta: Some(delta.clone()),
                 ..StreamChunk::default()
             });
@@ -225,8 +239,8 @@ fn frame_json(frame: &str) -> Value {
     serde_json::from_str(frame.strip_prefix("data: ").unwrap()).unwrap()
 }
 
-#[test]
-fn streaming_emits_one_chunk_per_content_delta_in_order() {
+#[tokio::test]
+async fn streaming_emits_one_chunk_per_content_delta_in_order() {
     let dir = tempfile::tempdir().unwrap();
     let sessions = SessionManager::new(dir.path()).unwrap();
     let provider = MultiDeltaProvider {
@@ -237,7 +251,13 @@ fn streaming_emits_one_chunk_per_content_delta_in_order() {
         model: "echo".to_string(),
         api_key: None,
     };
-    let mut server = ChatServer::bind("127.0.0.1:0", agent_loop, config).unwrap();
+    let mut server = ChatServer::bind(
+        "127.0.0.1:0",
+        agent_loop,
+        config,
+        tokio::runtime::Handle::current(),
+    )
+    .unwrap();
     let addr = server.local_addr().unwrap();
 
     let client = thread::spawn(move || {
@@ -273,8 +293,8 @@ fn streaming_emits_one_chunk_per_content_delta_in_order() {
     assert_eq!(frames[4], "data: [DONE]");
 }
 
-#[test]
-fn streaming_chunks_share_one_chatcmpl_id() {
+#[tokio::test]
+async fn streaming_chunks_share_one_chatcmpl_id() {
     let dir = tempfile::tempdir().unwrap();
     let sessions = SessionManager::new(dir.path()).unwrap();
     let provider = MultiDeltaProvider {
@@ -285,7 +305,13 @@ fn streaming_chunks_share_one_chatcmpl_id() {
         model: "echo".to_string(),
         api_key: None,
     };
-    let mut server = ChatServer::bind("127.0.0.1:0", agent_loop, config).unwrap();
+    let mut server = ChatServer::bind(
+        "127.0.0.1:0",
+        agent_loop,
+        config,
+        tokio::runtime::Handle::current(),
+    )
+    .unwrap();
     let addr = server.local_addr().unwrap();
 
     let client = thread::spawn(move || {
@@ -332,16 +358,17 @@ impl Tool for EchoTool {
 
 /// 第一轮返回「内容 + tool_call」，第二轮返回最终内容的 fake provider。
 struct ToolThenFinalProvider {
-    step: RefCell<usize>,
+    step: Mutex<usize>,
 }
 
+#[async_trait::async_trait]
 impl LlmProvider for ToolThenFinalProvider {
     fn default_model(&self) -> &str {
         "echo"
     }
 
-    fn complete(&self, _request: &CompletionRequest) -> Result<LlmResponse, ProviderError> {
-        let mut step = self.step.borrow_mut();
+    async fn complete(&self, _request: &CompletionRequest) -> Result<LlmResponse, ProviderError> {
+        let mut step = self.step.lock().unwrap();
         let resp = if *step == 0 {
             LlmResponse {
                 content: Some("part-a".to_string()),
@@ -362,14 +389,14 @@ impl LlmProvider for ToolThenFinalProvider {
     }
 }
 
-#[test]
-fn streaming_across_tool_rounds_keeps_stream_open_until_final_finish() {
+#[tokio::test]
+async fn streaming_across_tool_rounds_keeps_stream_open_until_final_finish() {
     let dir = tempfile::tempdir().unwrap();
     let sessions = SessionManager::new(dir.path()).unwrap();
     let mut registry = ToolRegistry::new();
     registry.register(Box::new(EchoTool));
     let provider = ToolThenFinalProvider {
-        step: RefCell::new(0),
+        step: Mutex::new(0),
     };
     let agent_loop = AgentLoop::new(Box::new(provider), sessions, ContextBuilder::new(None))
         .with_tools(registry);
@@ -377,7 +404,13 @@ fn streaming_across_tool_rounds_keeps_stream_open_until_final_finish() {
         model: "echo".to_string(),
         api_key: None,
     };
-    let mut server = ChatServer::bind("127.0.0.1:0", agent_loop, config).unwrap();
+    let mut server = ChatServer::bind(
+        "127.0.0.1:0",
+        agent_loop,
+        config,
+        tokio::runtime::Handle::current(),
+    )
+    .unwrap();
     let addr = server.local_addr().unwrap();
 
     let client = thread::spawn(move || {
@@ -422,8 +455,9 @@ fn streaming_across_tool_rounds_keeps_stream_open_until_final_finish() {
 /// 只实现 `run` 的 fake runner（验证 `run_streaming` 默认回退）。
 struct SingleShotRunner(String);
 
+#[async_trait::async_trait]
 impl ChatRunner for SingleShotRunner {
-    fn run(&mut self, _session_key: &str, _text: &str) -> Result<ChatOutcome, ChatRunError> {
+    async fn run(&mut self, _session_key: &str, _text: &str) -> Result<ChatOutcome, ChatRunError> {
         Ok(ChatOutcome {
             content: self.0.clone(),
             usage: Default::default(),
@@ -431,8 +465,8 @@ impl ChatRunner for SingleShotRunner {
     }
 }
 
-#[test]
-fn default_run_streaming_fallback_emits_single_content_chunk() {
+#[tokio::test]
+async fn default_run_streaming_fallback_emits_single_content_chunk() {
     let config = ServerConfig {
         model: "echo".to_string(),
         api_key: None,
@@ -441,6 +475,7 @@ fn default_run_streaming_fallback_emits_single_content_chunk() {
         "127.0.0.1:0",
         SingleShotRunner("only-once".to_string()),
         config,
+        tokio::runtime::Handle::current(),
     )
     .unwrap();
     let addr = server.local_addr().unwrap();
@@ -468,8 +503,8 @@ fn default_run_streaming_fallback_emits_single_content_chunk() {
     assert_eq!(frames[2], "data: [DONE]");
 }
 
-#[test]
-fn missing_user_message_returns_400() {
+#[tokio::test]
+async fn missing_user_message_returns_400() {
     let dir = tempfile::tempdir().unwrap();
     let (mut server, addr) = bind_server(&dir, None);
 
@@ -483,8 +518,8 @@ fn missing_user_message_returns_400() {
     assert_eq!(v["error"]["type"], "invalid_request_error");
 }
 
-#[test]
-fn model_mismatch_returns_400() {
+#[tokio::test]
+async fn model_mismatch_returns_400() {
     let dir = tempfile::tempdir().unwrap();
     let (mut server, addr) = bind_server(&dir, None);
 
@@ -507,8 +542,8 @@ fn model_mismatch_returns_400() {
     assert!(v["error"]["message"].as_str().unwrap().contains("gpt-4"));
 }
 
-#[test]
-fn missing_or_wrong_bearer_key_returns_401_then_valid_passes() {
+#[tokio::test]
+async fn missing_or_wrong_bearer_key_returns_401_then_valid_passes() {
     let dir = tempfile::tempdir().unwrap();
     let (mut server, addr) = bind_server(&dir, Some("secret"));
 
@@ -551,8 +586,8 @@ fn get(addr: SocketAddr, path: &str, auth: Option<&str>) -> (u16, String) {
     }
 }
 
-#[test]
-fn models_returns_configured_model_shape() {
+#[tokio::test]
+async fn models_returns_configured_model_shape() {
     let dir = tempfile::tempdir().unwrap();
     let (mut server, addr) = bind_server(&dir, None);
 
@@ -569,8 +604,8 @@ fn models_returns_configured_model_shape() {
     assert_eq!(v["data"][0]["owned_by"], "nanobot");
 }
 
-#[test]
-fn models_requires_auth_when_api_key_configured() {
+#[tokio::test]
+async fn models_requires_auth_when_api_key_configured() {
     let dir = tempfile::tempdir().unwrap();
     let (mut server, addr) = bind_server(&dir, Some("secret"));
 
@@ -603,8 +638,8 @@ fn models_requires_auth_when_api_key_configured() {
     assert_eq!(ok_status, 200);
 }
 
-#[test]
-fn health_returns_ok_without_auth() {
+#[tokio::test]
+async fn health_returns_ok_without_auth() {
     let dir = tempfile::tempdir().unwrap();
     // 即便配置了 api_key，/health 也应放行。
     let (mut server, addr) = bind_server(&dir, Some("secret"));

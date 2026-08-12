@@ -176,7 +176,7 @@ impl AgentLoop {
     /// 追加注册单个工具（构造后动态挂载，如按会话绑定的 cron 工具）。
     ///
     /// 未挂载 registry 时自动创建；同名覆盖，保持首次注册顺序（见 [`ToolRegistry::register`]）。
-    pub fn register_tool(&mut self, tool: Box<dyn crate::tool::Tool + Send>) {
+    pub fn register_tool(&mut self, tool: Box<dyn crate::tool::Tool + Send + Sync>) {
         self.tools
             .get_or_insert_with(ToolRegistry::new)
             .register(tool);
@@ -205,12 +205,15 @@ impl AgentLoop {
     }
 
     /// 用可替换 [`DreamRunner`] 整合未处理历史；未挂 memory 或无未处理历史返回 `None`。
-    pub fn consolidate<R: DreamRunner + ?Sized>(&self, runner: &R) -> Option<ConsolidationOutcome> {
-        self.memory.as_ref()?.consolidate(runner)
+    pub async fn consolidate<R: DreamRunner + ?Sized>(
+        &self,
+        runner: &R,
+    ) -> Option<ConsolidationOutcome> {
+        self.memory.as_ref()?.consolidate(runner).await
     }
 
     /// 阈值触发：未整合 history >= `min_entries` 时执行 `consolidate`。
-    pub fn maybe_consolidate<R: DreamRunner + ?Sized>(
+    pub async fn maybe_consolidate<R: DreamRunner + ?Sized>(
         &self,
         runner: &R,
         min_entries: usize,
@@ -219,7 +222,7 @@ impl AgentLoop {
         if !memory.should_consolidate(min_entries) {
             return None;
         }
-        self.consolidate(runner)
+        self.consolidate(runner).await
     }
 
     /// 用 `ModelRuntimeResolver` 产出的 [`LlmRuntime`] 覆盖 model 与生成参数。
@@ -257,18 +260,19 @@ impl AgentLoop {
     /// 每轮：构建 context → 调 provider。无 `tool_calls`（或未挂载 registry）即为终态：
     /// 追加最终 assistant turn 返回。否则追加带 `tool_calls` 的 assistant turn，执行每个
     /// 工具并把结果作为 `tool` turn 回灌历史，进入下一轮；至多 [`MAX_TOOL_ITERATIONS`] 轮。
-    pub fn process(&mut self, input: &InboundMessage) -> Result<TurnOutcome, AgentError> {
-        self.process_streaming(input, &mut |_: &ProgressEvent| {})
+    pub async fn process(&mut self, input: &InboundMessage) -> Result<TurnOutcome, AgentError> {
+        self.process_streaming(input, &mut |_: ProgressEvent| {})
+            .await
     }
 
     /// [`process`](Self::process) 的流式变体：每产生一个 [`ProgressEvent`]（TurnStarted /
     /// ContentDelta / ToolInvoked / FinalResponse）即**实时**回调 `on_progress`，让调用方
     /// （SSE HTTP 层、CLI 交互渲染）逐事件推送。返回的 [`TurnOutcome`] 与 `process` 一致，
     /// 其 `progress` 收录同一事件序列（回调是并行的实时通道，二者顺序完全一致）。
-    pub fn process_streaming(
+    pub async fn process_streaming(
         &mut self,
         input: &InboundMessage,
-        on_progress: &mut dyn FnMut(&ProgressEvent),
+        on_progress: &mut (dyn FnMut(ProgressEvent) + Send),
     ) -> Result<TurnOutcome, AgentError> {
         let key = input.session_key();
         let mut progress = Vec::new();
@@ -310,22 +314,25 @@ impl AgentLoop {
             let response = {
                 let runner = AgentRunner::new(self.provider.as_ref(), self.settings.clone());
                 // 流式驱动：每个内容增量转成细粒度 ContentDelta progress。
-                runner.run_streaming(&self.model, messages, &mut |chunk| {
-                    if let Some(text) = chunk.reasoning_delta.as_ref().filter(|t| !t.is_empty()) {
-                        emit(
-                            &mut progress,
-                            on_progress,
-                            ProgressEvent::ReasoningDelta { text: text.clone() },
-                        );
-                    }
-                    if let Some(text) = chunk.content_delta.as_ref().filter(|t| !t.is_empty()) {
-                        emit(
-                            &mut progress,
-                            on_progress,
-                            ProgressEvent::ContentDelta { text: text.clone() },
-                        );
-                    }
-                })?
+                runner
+                    .run_streaming(&self.model, messages, &mut |chunk| {
+                        if let Some(text) = chunk.reasoning_delta.as_ref().filter(|t| !t.is_empty())
+                        {
+                            emit(
+                                &mut progress,
+                                on_progress,
+                                ProgressEvent::ReasoningDelta { text: text.clone() },
+                            );
+                        }
+                        if let Some(text) = chunk.content_delta.as_ref().filter(|t| !t.is_empty()) {
+                            emit(
+                                &mut progress,
+                                on_progress,
+                                ProgressEvent::ContentDelta { text: text.clone() },
+                            );
+                        }
+                    })
+                    .await?
             };
             accumulate_usage(&mut usage, &response.usage);
 
@@ -347,13 +354,15 @@ impl AgentLoop {
                     if empty_retries < MAX_EMPTY_RETRIES {
                         continue;
                     }
-                    let (fin_content, fin_reasoning) = self.finalize_empty_response(
-                        &context,
-                        &key,
-                        &mut progress,
-                        &mut usage,
-                        on_progress,
-                    )?;
+                    let (fin_content, fin_reasoning) = self
+                        .finalize_empty_response(
+                            &context,
+                            &key,
+                            &mut progress,
+                            &mut usage,
+                            on_progress,
+                        )
+                        .await?;
                     let (final_text, stop_reason) = if fin_content.trim().is_empty() {
                         (
                             EMPTY_FINAL_RESPONSE_MESSAGE.to_string(),
@@ -455,13 +464,13 @@ impl AgentLoop {
     /// finalization 提示（不写入 session 历史，对齐上游 `messages_for_model` 副本语义），
     /// 请求一次并返回 `(内容, reasoning)`；本次 usage 累加进 `usage`。内容增量仍以
     /// `ProgressEvent::ContentDelta` 经 `on_progress` 实时推送。
-    fn finalize_empty_response(
+    async fn finalize_empty_response(
         &mut self,
         context: &ContextBuilder,
         key: &str,
         progress: &mut Vec<ProgressEvent>,
         usage: &mut Map<String, Value>,
-        on_progress: &mut dyn FnMut(&ProgressEvent),
+        on_progress: &mut (dyn FnMut(ProgressEvent) + Send),
     ) -> Result<(String, Option<String>), AgentError> {
         // 阶段信号：进入 finalization（供等待指示器切到 “Finalizing”）。
         emit(progress, on_progress, ProgressEvent::Finalizing);
@@ -471,22 +480,24 @@ impl AgentLoop {
         messages.push(json!({"role": "user", "content": FINALIZATION_RETRY_PROMPT}));
 
         let runner = AgentRunner::new(self.provider.as_ref(), self.settings.clone());
-        let response = runner.run_streaming(&self.model, messages, &mut |chunk| {
-            if let Some(text) = chunk.reasoning_delta.as_ref().filter(|t| !t.is_empty()) {
-                emit(
-                    progress,
-                    on_progress,
-                    ProgressEvent::ReasoningDelta { text: text.clone() },
-                );
-            }
-            if let Some(text) = chunk.content_delta.as_ref().filter(|t| !t.is_empty()) {
-                emit(
-                    progress,
-                    on_progress,
-                    ProgressEvent::ContentDelta { text: text.clone() },
-                );
-            }
-        })?;
+        let response = runner
+            .run_streaming(&self.model, messages, &mut |chunk| {
+                if let Some(text) = chunk.reasoning_delta.as_ref().filter(|t| !t.is_empty()) {
+                    emit(
+                        progress,
+                        on_progress,
+                        ProgressEvent::ReasoningDelta { text: text.clone() },
+                    );
+                }
+                if let Some(text) = chunk.content_delta.as_ref().filter(|t| !t.is_empty()) {
+                    emit(
+                        progress,
+                        on_progress,
+                        ProgressEvent::ContentDelta { text: text.clone() },
+                    );
+                }
+            })
+            .await?;
         accumulate_usage(usage, &response.usage);
         let content = response.content.clone().unwrap_or_default();
         let reasoning = response.reasoning_content.clone().filter(|r| !r.is_empty());
@@ -583,10 +594,10 @@ fn execute_tool(registry: &ToolRegistry, call: &ToolCall) -> String {
 /// 保证回调顺序与最终 [`TurnOutcome::progress`] 完全一致。
 fn emit(
     progress: &mut Vec<ProgressEvent>,
-    on_progress: &mut dyn FnMut(&ProgressEvent),
+    on_progress: &mut (dyn FnMut(ProgressEvent) + Send),
     event: ProgressEvent,
 ) {
-    on_progress(&event);
+    on_progress(event.clone());
     progress.push(event);
 }
 

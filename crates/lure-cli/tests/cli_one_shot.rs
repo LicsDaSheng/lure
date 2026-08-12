@@ -13,8 +13,8 @@ fn lure() -> Command {
     Command::new(env!("CARGO_BIN_EXE_lure"))
 }
 
-#[test]
-fn agent_one_shot_prints_reply_and_persists_session() {
+#[tokio::test]
+async fn agent_one_shot_prints_reply_and_persists_session() {
     let dir = tempdir().unwrap();
     let output = lure()
         .args([
@@ -40,8 +40,8 @@ fn agent_one_shot_prints_reply_and_persists_session() {
     assert_eq!(session_files, 1, "应持久化一个会话文件");
 }
 
-#[test]
-fn agent_one_shot_records_history_to_memory() {
+#[tokio::test]
+async fn agent_one_shot_records_history_to_memory() {
     // CLI 挂载了 MemoryStore：一次对话后 user/assistant 内容应记入 history.jsonl。
     let dir = tempdir().unwrap();
     let output = lure()
@@ -74,8 +74,8 @@ fn agent_one_shot_records_history_to_memory() {
     );
 }
 
-#[test]
-fn no_subcommand_prints_version() {
+#[tokio::test]
+async fn no_subcommand_prints_version() {
     let output = lure().output().unwrap();
     assert!(output.status.success());
     assert!(String::from_utf8(output.stdout)
@@ -83,8 +83,8 @@ fn no_subcommand_prints_version() {
         .starts_with("lure "));
 }
 
-#[test]
-fn onboard_creates_lure_home_structure_and_default_config() {
+#[tokio::test]
+async fn onboard_creates_lure_home_structure_and_default_config() {
     let dir = tempdir().unwrap();
     let root = dir.path().join(".lure");
 
@@ -129,8 +129,8 @@ fn onboard_creates_lure_home_structure_and_default_config() {
     );
 }
 
-#[test]
-fn onboard_is_idempotent_and_preserves_existing_files() {
+#[tokio::test]
+async fn onboard_is_idempotent_and_preserves_existing_files() {
     let dir = tempdir().unwrap();
     let root = dir.path().join(".lure");
     std::fs::create_dir_all(root.join("workspace")).unwrap();
@@ -154,8 +154,8 @@ fn onboard_is_idempotent_and_preserves_existing_files() {
     assert!(root.join("workspace").join("SOUL.md").is_file());
 }
 
-#[test]
-fn agent_without_model_uses_default_config_provider_and_reports_missing_key() {
+#[tokio::test]
+async fn agent_without_model_uses_default_config_provider_and_reports_missing_key() {
     let dir = tempdir().unwrap();
     let config_path = dir.path().join("config.json");
     std::fs::write(&config_path, "{}").unwrap();
@@ -173,8 +173,8 @@ fn agent_without_model_uses_default_config_provider_and_reports_missing_key() {
     );
 }
 
-#[test]
-fn explicit_echo_agent_without_message_enters_interactive_and_exits_on_eof() {
+#[tokio::test]
+async fn explicit_echo_agent_without_message_enters_interactive_and_exits_on_eof() {
     let output = lure().args(["agent", "--model", "echo"]).output().unwrap();
     assert!(output.status.success());
     let stdout = String::from_utf8(output.stdout).unwrap();
@@ -182,8 +182,8 @@ fn explicit_echo_agent_without_message_enters_interactive_and_exits_on_eof() {
     assert!(stdout.contains("Goodbye!"));
 }
 
-#[test]
-fn show_reasoning_flag_is_accepted_and_stdout_stays_answer() {
+#[tokio::test]
+async fn show_reasoning_flag_is_accepted_and_stdout_stays_answer() {
     let dir = tempdir().unwrap();
     let output = lure()
         .args([
@@ -207,8 +207,8 @@ fn show_reasoning_flag_is_accepted_and_stdout_stays_answer() {
     );
 }
 
-#[test]
-fn model_flag_routes_through_resolver_and_reports_missing_key() {
+#[tokio::test]
+async fn model_flag_routes_through_resolver_and_reports_missing_key() {
     // `--model deepseek-chat` 经 resolver 匹配到 deepseek，缺 key 时报出对应 env 变量。
     let dir = tempdir().unwrap();
     let config_path = dir.path().join("config.json");
@@ -237,8 +237,8 @@ fn model_flag_routes_through_resolver_and_reports_missing_key() {
     );
 }
 
-#[test]
-fn model_flag_unmatchable_provider_fails_via_resolver() {
+#[tokio::test]
+async fn model_flag_unmatchable_provider_fails_via_resolver() {
     let dir = tempdir().unwrap();
     let output = lure()
         .args([
@@ -261,8 +261,8 @@ fn model_flag_unmatchable_provider_fails_via_resolver() {
     );
 }
 
-#[test]
-fn preset_flag_admits_named_preset_from_config_file() {
+#[tokio::test]
+async fn preset_flag_admits_named_preset_from_config_file() {
     // config 文件里的命名 preset 应被 resolver 选中：fast → deepseek，缺 key 报对应 env 变量。
     let dir = tempdir().unwrap();
     let config_path = dir.path().join("config.json");
@@ -296,8 +296,8 @@ fn preset_flag_admits_named_preset_from_config_file() {
     );
 }
 
-#[test]
-fn preset_flag_unknown_preset_reports_not_found() {
+#[tokio::test]
+async fn preset_flag_unknown_preset_reports_not_found() {
     let dir = tempdir().unwrap();
     let config_path = dir.path().join("config.json");
     std::fs::write(
@@ -329,8 +329,8 @@ fn preset_flag_unknown_preset_reports_not_found() {
     );
 }
 
-#[test]
-fn preset_uses_config_api_key_and_api_base_override() {
+#[tokio::test]
+async fn preset_uses_config_api_key_and_api_base_override() {
     // config 提供 apiKey 与 apiBase：resolver 应用 base 覆盖、CLI 用 config key（不再要 env）。
     // apiBase 指向本地未监听端口，出网即刻失败——证明已越过缺 key 检查、走到真实传输。
     let dir = tempdir().unwrap();
@@ -369,8 +369,8 @@ fn preset_uses_config_api_key_and_api_base_override() {
     );
 }
 
-#[test]
-fn exec_tool_invalid_pattern_surfaces_error_before_provider() {
+#[tokio::test]
+async fn exec_tool_invalid_pattern_surfaces_error_before_provider() {
     // config 启用 exec 但 allow 含非法正则：工具注册应在 provider 出网前就失败。
     let dir = tempdir().unwrap();
     let config_path = dir.path().join("config.json");
@@ -404,8 +404,8 @@ fn exec_tool_invalid_pattern_surfaces_error_before_provider() {
     );
 }
 
-#[test]
-fn preset_and_model_flags_are_mutually_exclusive() {
+#[tokio::test]
+async fn preset_and_model_flags_are_mutually_exclusive() {
     let dir = tempdir().unwrap();
     let output = lure()
         .args([
@@ -430,8 +430,8 @@ fn preset_and_model_flags_are_mutually_exclusive() {
     );
 }
 
-#[test]
-fn interactive_mode_processes_multiple_turns_until_exit() {
+#[tokio::test]
+async fn interactive_mode_processes_multiple_turns_until_exit() {
     let dir = tempdir().unwrap();
     let mut child = lure()
         .args([
@@ -474,8 +474,8 @@ fn interactive_mode_processes_multiple_turns_until_exit() {
     assert!(session_text.contains("\"content\":\"echo: second\""));
 }
 
-#[test]
-fn interactive_mode_processes_multibyte_utf8_turns() {
+#[tokio::test]
+async fn interactive_mode_processes_multibyte_utf8_turns() {
     let dir = tempdir().unwrap();
     let mut child = lure()
         .args([
@@ -504,8 +504,8 @@ fn interactive_mode_processes_multibyte_utf8_turns() {
     assert!(stdout.contains("Assistant: echo: 你用的是什么大模型"));
 }
 
-#[test]
-fn interactive_slash_commands_are_intercepted_not_sent_to_agent() {
+#[tokio::test]
+async fn interactive_slash_commands_are_intercepted_not_sent_to_agent() {
     // /help、/model 打印信息并回到提示符，不应产生 "echo: /help" 之类的回显。
     let dir = tempdir().unwrap();
     let mut child = lure()
@@ -551,8 +551,8 @@ fn interactive_slash_commands_are_intercepted_not_sent_to_agent() {
     );
 }
 
-#[test]
-fn interactive_mode_tolerates_non_utf8_input_bytes() {
+#[tokio::test]
+async fn interactive_mode_tolerates_non_utf8_input_bytes() {
     let dir = tempdir().unwrap();
     let mut child = lure()
         .args([
@@ -584,8 +584,8 @@ fn interactive_mode_tolerates_non_utf8_input_bytes() {
     assert!(stdout.contains("Goodbye!"));
 }
 
-#[test]
-fn interactive_mode_ignores_blank_lines_and_accepts_session_alias() {
+#[tokio::test]
+async fn interactive_mode_ignores_blank_lines_and_accepts_session_alias() {
     let dir = tempdir().unwrap();
     let mut child = lure()
         .args([
@@ -620,8 +620,8 @@ fn interactive_mode_ignores_blank_lines_and_accepts_session_alias() {
     );
 }
 
-#[test]
-fn one_shot_accepts_explicit_session_id() {
+#[tokio::test]
+async fn one_shot_accepts_explicit_session_id() {
     let dir = tempdir().unwrap();
     let output = lure()
         .args([
@@ -651,8 +651,8 @@ fn one_shot_accepts_explicit_session_id() {
     assert!(session_text.contains("\"key\":\"cli:custom\""));
 }
 
-#[test]
-fn interactive_mode_survives_provider_error_and_continues() {
+#[tokio::test]
+async fn interactive_mode_survives_provider_error_and_continues() {
     // 单轮 provider 错误（apiBase 指向未监听端口，出网即失败）不应终止交互会话：
     // 打印错误后回到提示符，仍能读到 exit → Goodbye，进程正常退出。
     let dir = tempdir().unwrap();

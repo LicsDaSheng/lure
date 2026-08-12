@@ -10,7 +10,7 @@ use lure_core::config::{default_config_path, load_config, Config};
 use lure_core::memory::MemoryStore;
 use lure_core::provider::{
     EchoProvider, LlmProvider, LlmRuntime, ModelRuntimeResolver, OpenAiCompatProvider,
-    UreqTransport,
+    ReqwestTransport,
 };
 use lure_core::session::SessionManager;
 use lure_core::tool::registry_from_config;
@@ -128,6 +128,6 @@ pub fn build_provider_from_runtime(
         &runtime.provider.api_base,
         Some(api_key),
         &runtime.provider.model,
-        UreqTransport::new(),
+        ReqwestTransport::new(),
     )))
 }

@@ -11,8 +11,8 @@ use std::time::Duration;
 
 use lure_core::session::SessionLocks;
 
-#[test]
-fn try_lock_is_exclusive_per_key_and_releases_on_drop() {
+#[tokio::test]
+async fn try_lock_is_exclusive_per_key_and_releases_on_drop() {
     let locks = SessionLocks::new();
 
     // 空闲 key：try_lock 成功。
@@ -33,8 +33,8 @@ fn try_lock_is_exclusive_per_key_and_releases_on_drop() {
     );
 }
 
-#[test]
-fn distinct_keys_do_not_contend() {
+#[tokio::test]
+async fn distinct_keys_do_not_contend() {
     let locks = SessionLocks::new();
 
     let _a = locks.try_lock("api:alice").expect("alice 可获取");
@@ -45,8 +45,8 @@ fn distinct_keys_do_not_contend() {
     assert!(locks.try_lock("api:alice").is_none(), "同 key 仍互斥");
 }
 
-#[test]
-fn blocking_lock_serializes_same_key_across_threads() {
+#[tokio::test]
+async fn blocking_lock_serializes_same_key_across_threads() {
     let locks = Arc::new(SessionLocks::new());
     let inside = Arc::new(AtomicUsize::new(0));
     let max_overlap = Arc::new(AtomicUsize::new(0));
@@ -79,8 +79,8 @@ fn blocking_lock_serializes_same_key_across_threads() {
     );
 }
 
-#[test]
-fn blocking_lock_on_distinct_keys_runs_concurrently() {
+#[tokio::test]
+async fn blocking_lock_on_distinct_keys_runs_concurrently() {
     let locks = Arc::new(SessionLocks::new());
     // 两线程各锁不同 key，用 Barrier(2) 要求二者同时进入临界区；
     // 若不同 key 被错误串行化，barrier 将永远等不齐（超时/挂起）。

@@ -62,25 +62,27 @@ impl<T: HttpTransport> OpenAiCompatProvider<T> {
     }
 }
 
+#[async_trait::async_trait]
 impl<T: HttpTransport> LlmProvider for OpenAiCompatProvider<T> {
     fn default_model(&self) -> &str {
         &self.model
     }
 
-    fn complete(&self, request: &CompletionRequest) -> Result<LlmResponse, ProviderError> {
+    async fn complete(&self, request: &CompletionRequest) -> Result<LlmResponse, ProviderError> {
         let http_request = self.http_request(request, false);
         let response = self
             .transport
             .post_json(&http_request)
+            .await
             .map_err(ProviderError::Transport)?;
 
         parse_chat_response(&response)
     }
 
-    fn complete_streaming(
+    async fn complete_streaming(
         &self,
         request: &CompletionRequest,
-        on_delta: &mut dyn FnMut(&StreamChunk),
+        on_delta: &mut (dyn FnMut(StreamChunk) + Send),
     ) -> Result<LlmResponse, ProviderError> {
         let http_request = self.http_request(request, true);
 
@@ -90,13 +92,14 @@ impl<T: HttpTransport> LlmProvider for OpenAiCompatProvider<T> {
         let status = self
             .transport
             .post_json_streaming(&http_request, &mut |line| {
-                raw.push_str(line);
+                raw.push_str(&line);
                 raw.push('\n');
-                if let Ok(Some(chunk)) = parse_sse_line(line) {
+                if let Ok(Some(chunk)) = parse_sse_line(&line) {
                     assembler.push(&chunk);
-                    on_delta(&chunk);
+                    on_delta(chunk);
                 }
             })
+            .await
             .map_err(ProviderError::Transport)?;
 
         if let Some(error) = status_error(status, &raw) {

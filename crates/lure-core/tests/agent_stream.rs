@@ -15,22 +15,23 @@ struct StreamingProvider {
     deltas: Vec<String>,
 }
 
+#[async_trait::async_trait]
 impl LlmProvider for StreamingProvider {
     fn default_model(&self) -> &str {
         "stream-model"
     }
 
-    fn complete(&self, _request: &CompletionRequest) -> Result<LlmResponse, ProviderError> {
+    async fn complete(&self, _request: &CompletionRequest) -> Result<LlmResponse, ProviderError> {
         Ok(LlmResponse::text(self.deltas.concat()))
     }
 
-    fn complete_streaming(
+    async fn complete_streaming(
         &self,
         _request: &CompletionRequest,
-        on_delta: &mut dyn FnMut(&StreamChunk),
+        on_delta: &mut (dyn FnMut(StreamChunk) + Send),
     ) -> Result<LlmResponse, ProviderError> {
         for delta in &self.deltas {
-            on_delta(&StreamChunk {
+            on_delta(StreamChunk {
                 content_delta: Some(delta.clone()),
                 ..StreamChunk::default()
             });
@@ -45,28 +46,29 @@ struct ReasoningStreamProvider {
     content: Vec<String>,
 }
 
+#[async_trait::async_trait]
 impl LlmProvider for ReasoningStreamProvider {
     fn default_model(&self) -> &str {
         "reason-model"
     }
 
-    fn complete(&self, _request: &CompletionRequest) -> Result<LlmResponse, ProviderError> {
+    async fn complete(&self, _request: &CompletionRequest) -> Result<LlmResponse, ProviderError> {
         Ok(LlmResponse::text(self.content.concat()))
     }
 
-    fn complete_streaming(
+    async fn complete_streaming(
         &self,
         _request: &CompletionRequest,
-        on_delta: &mut dyn FnMut(&StreamChunk),
+        on_delta: &mut (dyn FnMut(StreamChunk) + Send),
     ) -> Result<LlmResponse, ProviderError> {
         for r in &self.reasoning {
-            on_delta(&StreamChunk {
+            on_delta(StreamChunk {
                 reasoning_delta: Some(r.clone()),
                 ..StreamChunk::default()
             });
         }
         for c in &self.content {
-            on_delta(&StreamChunk {
+            on_delta(StreamChunk {
                 content_delta: Some(c.clone()),
                 ..StreamChunk::default()
             });
@@ -77,8 +79,8 @@ impl LlmProvider for ReasoningStreamProvider {
     }
 }
 
-#[test]
-fn streaming_provider_emits_reasoning_delta_progress_before_content() {
+#[tokio::test]
+async fn streaming_provider_emits_reasoning_delta_progress_before_content() {
     let dir = tempfile::tempdir().unwrap();
     let sessions = SessionManager::new(dir.path()).unwrap();
     let provider = ReasoningStreamProvider {
@@ -92,6 +94,7 @@ fn streaming_provider_emits_reasoning_delta_progress_before_content() {
         .process_streaming(&InboundMessage::new("cli", "direct", "hi"), &mut |e| {
             events.push(e.clone())
         })
+        .await
         .unwrap();
 
     assert_eq!(outcome.final_content, "答案");
@@ -116,8 +119,8 @@ fn streaming_provider_emits_reasoning_delta_progress_before_content() {
     assert_eq!(events, outcome.progress);
 }
 
-#[test]
-fn streaming_provider_emits_content_delta_progress_in_order() {
+#[tokio::test]
+async fn streaming_provider_emits_content_delta_progress_in_order() {
     let dir = tempfile::tempdir().unwrap();
     let sessions = SessionManager::new(dir.path()).unwrap();
     let provider = StreamingProvider {
@@ -127,6 +130,7 @@ fn streaming_provider_emits_content_delta_progress_in_order() {
 
     let outcome = agent_loop
         .process(&InboundMessage::new("cli", "direct", "hi"))
+        .await
         .unwrap();
 
     assert_eq!(outcome.final_content, "你好，世界");

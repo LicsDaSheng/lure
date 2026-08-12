@@ -17,8 +17,8 @@ fn seed_session(manager: &mut SessionManager, key: &str, user: &str, assistant: 
     manager.save(key, false).unwrap();
 }
 
-#[test]
-fn session_list_reports_preview_and_counts() {
+#[tokio::test]
+async fn session_list_reports_preview_and_counts() {
     let dir = tempdir().unwrap();
     let mut manager = SessionManager::new(dir.path()).unwrap();
     seed_session(
@@ -49,15 +49,15 @@ fn session_list_reports_preview_and_counts() {
     assert!(!first.updated_at.is_empty());
 }
 
-#[test]
-fn session_list_empty_workspace() {
+#[tokio::test]
+async fn session_list_empty_workspace() {
     let dir = tempdir().unwrap();
     let mut manager = SessionManager::new(dir.path()).unwrap();
     assert!(list_webui_sessions(&mut manager).is_empty());
 }
 
-#[test]
-fn thread_messages_projects_role_and_content() {
+#[tokio::test]
+async fn thread_messages_projects_role_and_content() {
     let dir = tempdir().unwrap();
     let mut manager = SessionManager::new(dir.path()).unwrap();
     seed_session(&mut manager, "websocket:t", "hello", "hi there");
@@ -78,8 +78,8 @@ fn thread_messages_projects_role_and_content() {
     assert!(payload["messages"][0].get("timestamp").is_none());
 }
 
-#[test]
-fn thread_messages_surface_reasoning_content() {
+#[tokio::test]
+async fn thread_messages_surface_reasoning_content() {
     let dir = tempdir().unwrap();
     let mut manager = SessionManager::new(dir.path()).unwrap();
     {
@@ -101,8 +101,8 @@ fn thread_messages_surface_reasoning_content() {
     assert!(payload["messages"][0].get("reasoning_content").is_none());
 }
 
-#[test]
-fn status_reports_session_count_and_version() {
+#[tokio::test]
+async fn status_reports_session_count_and_version() {
     let dir = tempdir().unwrap();
     let mut manager = SessionManager::new(dir.path()).unwrap();
     seed_session(&mut manager, "websocket:s", "hi", "yo");
@@ -114,8 +114,8 @@ fn status_reports_session_count_and_version() {
     assert!(!status["version"].as_str().unwrap().is_empty());
 }
 
-#[test]
-fn ws_outbound_event_shapes() {
+#[tokio::test]
+async fn ws_outbound_event_shapes() {
     assert_eq!(
         message_event("chat-1", "full reply"),
         json!({"event": "message", "chat_id": "chat-1", "text": "full reply"})
@@ -134,8 +134,8 @@ fn ws_outbound_event_shapes() {
     );
 }
 
-#[test]
-fn ws_inbound_parses_and_validates() {
+#[tokio::test]
+async fn ws_inbound_parses_and_validates() {
     let frame = json!({"type": "chat", "chat_id": "c1", "content": "hello"});
     let inbound = parse_ws_inbound(&frame, "websocket").unwrap();
     assert_eq!(inbound.channel, "websocket");

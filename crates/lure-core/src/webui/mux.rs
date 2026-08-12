@@ -17,38 +17,48 @@ use crate::agent::ProgressEvent;
 use crate::webui::transcript::TranscripStore;
 
 /// 一次 turn 的运行入口（接线层注入；真实实现适配 `AgentLoop::process_streaming`）。
+/// 异步版本（Stage 2）：turn 执行为 async，连接线程内经 `Handle::block_on` 驱动。
+#[async_trait::async_trait]
 pub trait TurnRunner {
-    fn run_turn(
+    async fn run_turn(
         &mut self,
         chat_id: &str,
         content: &str,
-        on_progress: &mut dyn FnMut(&ProgressEvent),
+        on_progress: &mut (dyn FnMut(ProgressEvent) + Send),
     ) -> Result<String, String>;
 }
 
 /// 单条 WebUI 复用连接的生命周期状态。
 pub struct MuxSession<R: TurnRunner> {
     runner: R,
+    /// 连接线程内驱动 async turn 的 runtime 句柄（非 runtime 线程可 `block_on`）。
+    runtime: tokio::runtime::Handle,
     client_id: String,
     default_chat_id: String,
     transcript: Option<TranscripStore>,
 }
 
 impl<R: TurnRunner> MuxSession<R> {
-    pub fn new(runner: R) -> Self {
+    pub fn new(runner: R, runtime: tokio::runtime::Handle) -> Self {
         let client_id = format!("anon-{}", &uuid::Uuid::new_v4().simple().to_string()[..12]);
         Self {
             runner,
+            runtime,
             client_id,
             default_chat_id: uuid::Uuid::new_v4().to_string(),
             transcript: None,
         }
     }
 
-    pub fn new_with_transcript(runner: R, transcript: TranscripStore) -> Self {
+    pub fn new_with_transcript(
+        runner: R,
+        transcript: TranscripStore,
+        runtime: tokio::runtime::Handle,
+    ) -> Self {
         let client_id = format!("anon-{}", &uuid::Uuid::new_v4().simple().to_string()[..12]);
         Self {
             runner,
+            runtime,
             client_id,
             default_chat_id: uuid::Uuid::new_v4().to_string(),
             transcript: Some(transcript),
@@ -64,7 +74,7 @@ impl<R: TurnRunner> MuxSession<R> {
     }
 
     /// 处理一帧入站 JSON；每帧出站事件即时经 `on_outbound` 发出。
-    pub fn handle_frame(&mut self, frame: &Value, on_outbound: &mut dyn FnMut(&Value)) {
+    pub fn handle_frame(&mut self, frame: &Value, on_outbound: &mut (dyn FnMut(&Value) + Send)) {
         let Some(frame_type) = frame.get("type").and_then(Value::as_str) else {
             on_outbound(&error_event("invalid frame"));
             return;
@@ -77,14 +87,14 @@ impl<R: TurnRunner> MuxSession<R> {
         }
     }
 
-    fn handle_attach(&mut self, frame: &Value, on_outbound: &mut dyn FnMut(&Value)) {
+    fn handle_attach(&mut self, frame: &Value, on_outbound: &mut (dyn FnMut(&Value) + Send)) {
         match valid_chat_id(frame) {
             Some(chat_id) => on_outbound(&json!({"event": "attached", "chat_id": chat_id})),
             None => on_outbound(&error_event("invalid chat_id")),
         }
     }
 
-    fn handle_new_chat(&mut self, frame: &Value, on_outbound: &mut dyn FnMut(&Value)) {
+    fn handle_new_chat(&mut self, frame: &Value, on_outbound: &mut (dyn FnMut(&Value) + Send)) {
         let chat_id = uuid::Uuid::new_v4().to_string();
         let session_key = format!("websocket:{chat_id}");
 
@@ -124,7 +134,7 @@ impl<R: TurnRunner> MuxSession<R> {
         }
     }
 
-    fn handle_message(&mut self, frame: &Value, on_outbound: &mut dyn FnMut(&Value)) {
+    fn handle_message(&mut self, frame: &Value, on_outbound: &mut (dyn FnMut(&Value) + Send)) {
         let Some(chat_id_val) = valid_chat_id(frame) else {
             on_outbound(&error_event("invalid chat_id"));
             return;
@@ -145,20 +155,26 @@ impl<R: TurnRunner> MuxSession<R> {
         }));
 
         // 流式 delta 经 progress 回调即时发出（不缓冲到 turn 结束）。
-        let result = self.runner.run_turn(&chat_id, content, &mut |event| {
-            let mapped = match event {
-                ProgressEvent::ContentDelta { text } => {
-                    Some(json!({"event": "delta", "chat_id": chat_id, "text": text}))
+        // 连接线程非 runtime worker，经 Handle::block_on 驱动 async turn。
+        let result = crate::runtime::block_on(
+            &self.runtime,
+            self.runner.run_turn(&chat_id, content, &mut |event| {
+                let mapped = match event {
+                    ProgressEvent::ContentDelta { text } => {
+                        Some(json!({"event": "delta", "chat_id": chat_id, "text": text}))
+                    }
+                    ProgressEvent::ReasoningDelta { text } => Some(json!({
+                        "event": "reasoning_delta",
+                        "chat_id": chat_id,
+                        "text": text
+                    })),
+                    _ => None,
+                };
+                if let Some(frame) = mapped {
+                    on_outbound(&frame);
                 }
-                ProgressEvent::ReasoningDelta { text } => {
-                    Some(json!({"event": "reasoning_delta", "chat_id": chat_id, "text": text}))
-                }
-                _ => None,
-            };
-            if let Some(frame) = mapped {
-                on_outbound(&frame);
-            }
-        });
+            }),
+        );
 
         match result {
             Ok(text) => {

@@ -19,12 +19,13 @@ struct CapturingProvider {
     reply: String,
 }
 
+#[async_trait::async_trait]
 impl LlmProvider for CapturingProvider {
     fn default_model(&self) -> &str {
         "mem-model"
     }
 
-    fn complete(&self, request: &CompletionRequest) -> Result<LlmResponse, ProviderError> {
+    async fn complete(&self, request: &CompletionRequest) -> Result<LlmResponse, ProviderError> {
         *self.last.lock().unwrap() = Some(request.clone());
         Ok(LlmResponse::text(&self.reply))
     }
@@ -33,8 +34,9 @@ impl LlmProvider for CapturingProvider {
 /// 把历史条数写进 MEMORY.md 的 fake dream runner。
 struct CountingDream;
 
+#[async_trait::async_trait]
 impl DreamRunner for CountingDream {
-    fn consolidate(&self, _current: &str, entries: &[HistoryEntry]) -> String {
+    async fn consolidate(&self, _current: &str, entries: &[HistoryEntry]) -> String {
         format!("整合了 {} 条历史", entries.len())
     }
 }
@@ -61,8 +63,8 @@ fn loop_with_memory(dir: &TempDir, provider: CapturingProvider) -> AgentLoop {
     .with_memory(store)
 }
 
-#[test]
-fn memory_context_is_injected_into_provider_messages() {
+#[tokio::test]
+async fn memory_context_is_injected_into_provider_messages() {
     let dir = tempfile::tempdir().unwrap();
     // 先写入长期记忆。
     MemoryStore::new(dir.path())
@@ -74,6 +76,7 @@ fn memory_context_is_injected_into_provider_messages() {
 
     agent_loop
         .process(&InboundMessage::new("cli", "direct", "hi"))
+        .await
         .unwrap();
 
     let request = captured.lock().unwrap().clone().unwrap();
@@ -90,14 +93,15 @@ fn memory_context_is_injected_into_provider_messages() {
     );
 }
 
-#[test]
-fn process_appends_user_and_assistant_to_history_jsonl() {
+#[tokio::test]
+async fn process_appends_user_and_assistant_to_history_jsonl() {
     let dir = tempfile::tempdir().unwrap();
     let (provider, _captured) = capturing("回答内容");
     let mut agent_loop = loop_with_memory(&dir, provider);
 
     agent_loop
         .process(&InboundMessage::new("cli", "direct", "问题内容"))
+        .await
         .unwrap();
 
     // 冷启动读回 history.jsonl（按 session 过滤）。
@@ -114,17 +118,18 @@ fn process_appends_user_and_assistant_to_history_jsonl() {
     );
 }
 
-#[test]
-fn consolidate_uses_runner_and_updates_memory() {
+#[tokio::test]
+async fn consolidate_uses_runner_and_updates_memory() {
     let dir = tempfile::tempdir().unwrap();
     let (provider, _captured) = capturing("回答");
     let mut agent_loop = loop_with_memory(&dir, provider);
 
     agent_loop
         .process(&InboundMessage::new("cli", "direct", "问题"))
+        .await
         .unwrap();
 
-    let outcome = agent_loop.consolidate(&CountingDream).unwrap();
+    let outcome = agent_loop.consolidate(&CountingDream).await.unwrap();
     assert!(outcome.processed >= 2, "应整合 user+assistant 至少 2 条");
 
     // MEMORY.md 被 runner 结果覆盖。
@@ -132,8 +137,8 @@ fn consolidate_uses_runner_and_updates_memory() {
     assert!(store.read_memory().contains("整合了"));
 }
 
-#[test]
-fn without_memory_no_history_and_consolidate_is_none() {
+#[tokio::test]
+async fn without_memory_no_history_and_consolidate_is_none() {
     let dir = tempfile::tempdir().unwrap();
     let (provider, _captured) = capturing("答");
     let sessions = SessionManager::new(dir.path()).unwrap();
@@ -141,10 +146,11 @@ fn without_memory_no_history_and_consolidate_is_none() {
 
     agent_loop
         .process(&InboundMessage::new("cli", "direct", "hi"))
+        .await
         .unwrap();
 
     // 未挂 memory：consolidate 返回 None。
-    assert!(agent_loop.consolidate(&CountingDream).is_none());
+    assert!(agent_loop.consolidate(&CountingDream).await.is_none());
     // history.jsonl 无内容。
     let store = MemoryStore::new(dir.path()).unwrap();
     assert!(store.read_recent_history_for_prompt(0, None).is_empty());

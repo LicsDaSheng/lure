@@ -39,12 +39,13 @@ impl SleepEchoProvider {
     }
 }
 
+#[async_trait::async_trait]
 impl LlmProvider for SleepEchoProvider {
     fn default_model(&self) -> &str {
         "sleep-echo"
     }
 
-    fn complete(&self, request: &CompletionRequest) -> Result<LlmResponse, ProviderError> {
+    async fn complete(&self, request: &CompletionRequest) -> Result<LlmResponse, ProviderError> {
         std::thread::sleep(self.delay);
         let last_user = request
             .messages
@@ -57,14 +58,14 @@ impl LlmProvider for SleepEchoProvider {
         Ok(LlmResponse::text(format!("echo: {last_user}")))
     }
 
-    fn complete_streaming(
+    async fn complete_streaming(
         &self,
         request: &CompletionRequest,
-        on_delta: &mut dyn FnMut(&StreamChunk),
+        on_delta: &mut (dyn FnMut(StreamChunk) + Send),
     ) -> Result<LlmResponse, ProviderError> {
-        let response = self.complete(request)?;
+        let response = self.complete(request).await?;
         if let Some(content) = response.content.clone() {
-            on_delta(&StreamChunk {
+            on_delta(StreamChunk {
                 content_delta: Some(content),
                 ..StreamChunk::default()
             });
@@ -125,8 +126,8 @@ fn turn_count(records: &Arc<Mutex<Vec<TurnRecord>>>) -> Vec<String> {
 
 fn assert_send<T: Send>() {}
 
-#[test]
-fn agent_loop_and_scheduler_are_send() {
+#[tokio::test]
+async fn agent_loop_and_scheduler_are_send() {
     assert_send::<AgentLoop>();
     assert_send::<AgentLoopScheduler>();
 }

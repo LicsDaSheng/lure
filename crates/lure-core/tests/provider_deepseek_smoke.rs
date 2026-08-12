@@ -5,14 +5,14 @@
 
 use lure_core::provider::{
     match_provider, CompletionRequest, GenerationSettings, LlmProvider, OpenAiCompatProvider,
-    ProviderError, UreqTransport,
+    ProviderError, ReqwestTransport,
 };
 use serde_json::json;
 
 const DEFAULT_MODEL: &str = "deepseek-v4-pro";
 
-#[test]
-fn deepseek_chat_completion_round_trip() {
+#[tokio::test]
+async fn deepseek_chat_completion_round_trip() {
     let Ok(api_key) = std::env::var("DEEPSEEK_API_KEY") else {
         eprintln!("跳过：未设置 DEEPSEEK_API_KEY");
         return;
@@ -30,7 +30,7 @@ fn deepseek_chat_completion_round_trip() {
         spec.default_api_base,
         Some(api_key),
         &model,
-        UreqTransport::new(),
+        ReqwestTransport::new(),
     );
 
     let request = CompletionRequest {
@@ -43,7 +43,7 @@ fn deepseek_chat_completion_round_trip() {
         },
     };
 
-    match provider.complete(&request) {
+    match provider.complete(&request).await {
         Ok(response) => {
             eprintln!(
                 "成功 finish={} content={:?} reasoning_len={:?}",

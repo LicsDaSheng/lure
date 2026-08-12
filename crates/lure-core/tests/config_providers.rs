@@ -15,8 +15,8 @@ fn config_with_provider(name: &str, provider: ProviderConfig) -> Config {
     config
 }
 
-#[test]
-fn resolve_provider_applies_api_base_override() {
+#[tokio::test]
+async fn resolve_provider_applies_api_base_override() {
     let config = config_with_provider(
         "deepseek",
         ProviderConfig {
@@ -30,8 +30,8 @@ fn resolve_provider_applies_api_base_override() {
     assert_eq!(resolved.api_base, "https://proxy.example/v1");
 }
 
-#[test]
-fn resolve_provider_falls_back_to_registry_default_api_base() {
+#[tokio::test]
+async fn resolve_provider_falls_back_to_registry_default_api_base() {
     let resolved = Config::default()
         .resolve_provider("deepseek-chat", "auto")
         .unwrap();
@@ -39,8 +39,8 @@ fn resolve_provider_falls_back_to_registry_default_api_base() {
     assert_eq!(resolved.api_base, "https://api.deepseek.com");
 }
 
-#[test]
-fn resolve_provider_skips_disabled_in_auto() {
+#[tokio::test]
+async fn resolve_provider_skips_disabled_in_auto() {
     let config = config_with_provider(
         "openai",
         ProviderConfig {
@@ -52,8 +52,8 @@ fn resolve_provider_skips_disabled_in_auto() {
     assert!(config.resolve_provider("gpt-4o", "auto").is_none());
 }
 
-#[test]
-fn resolve_provider_honors_forced_even_if_disabled() {
+#[tokio::test]
+async fn resolve_provider_honors_forced_even_if_disabled() {
     let config = config_with_provider(
         "anthropic",
         ProviderConfig {
@@ -68,15 +68,15 @@ fn resolve_provider_honors_forced_even_if_disabled() {
     assert_eq!(resolved.name, "anthropic");
 }
 
-#[test]
-fn resolve_provider_unknown_forced_is_none() {
+#[tokio::test]
+async fn resolve_provider_unknown_forced_is_none() {
     assert!(Config::default()
         .resolve_provider("gpt-4o", "nonexistent")
         .is_none());
 }
 
-#[test]
-fn provider_api_key_reads_config_entry() {
+#[tokio::test]
+async fn provider_api_key_reads_config_entry() {
     let config = config_with_provider(
         "deepseek",
         ProviderConfig {
@@ -91,8 +91,8 @@ fn provider_api_key_reads_config_entry() {
     assert_eq!(config.provider_api_key("openai"), None);
 }
 
-#[test]
-fn providers_config_deserializes_camel_and_defaults_enabled() {
+#[tokio::test]
+async fn providers_config_deserializes_camel_and_defaults_enabled() {
     let json = r#"{"providers":{"deepseek":{"apiKey":"k","apiBase":"https://b/v1"}}}"#;
     let config: Config = serde_json::from_str(json).unwrap();
     let entry = config.providers.get("deepseek").unwrap();

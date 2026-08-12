@@ -20,8 +20,8 @@ fn job(id: &str, name: &str, schedule: CronSchedule) -> CronJob {
     }
 }
 
-#[test]
-fn compute_next_run_for_at_and_every() {
+#[tokio::test]
+async fn compute_next_run_for_at_and_every() {
     // at：未来才触发，过期返回 None。
     assert_eq!(compute_next_run(&CronSchedule::at(2000), 1000), Some(2000));
     assert_eq!(compute_next_run(&CronSchedule::at(500), 1000), None);
@@ -38,8 +38,8 @@ fn compute_next_run_for_at_and_every() {
     assert_eq!(compute_next_run(&bad, 1000), None);
 }
 
-#[test]
-fn add_computes_next_run_and_persists() {
+#[tokio::test]
+async fn add_computes_next_run_and_persists() {
     let dir = tempdir().unwrap();
     let mut store = CronStore::load(dir.path()).unwrap();
     store
@@ -56,8 +56,8 @@ fn add_computes_next_run_and_persists() {
     assert_eq!(reloaded.get("j1").unwrap().state.next_run_at_ms, Some(6000));
 }
 
-#[test]
-fn store_serializes_camel_case() {
+#[tokio::test]
+async fn store_serializes_camel_case() {
     let dir = tempdir().unwrap();
     let mut store = CronStore::load(dir.path()).unwrap();
     store
@@ -70,8 +70,8 @@ fn store_serializes_camel_case() {
     assert!(!text.contains("every_ms"));
 }
 
-#[test]
-fn due_jobs_respects_next_run_and_enabled() {
+#[tokio::test]
+async fn due_jobs_respects_next_run_and_enabled() {
     let dir = tempdir().unwrap();
     let mut store = CronStore::load(dir.path()).unwrap();
     store
@@ -83,8 +83,8 @@ fn due_jobs_respects_next_run_and_enabled() {
     assert_eq!(store.due_jobs(9999).len(), 1);
 }
 
-#[test]
-fn record_run_advances_next_run() {
+#[tokio::test]
+async fn record_run_advances_next_run() {
     let dir = tempdir().unwrap();
     let mut store = CronStore::load(dir.path()).unwrap();
     store
@@ -98,8 +98,8 @@ fn record_run_advances_next_run() {
     assert_eq!(updated.state.next_run_at_ms, Some(7000));
 }
 
-#[test]
-fn delete_after_run_removes_one_shot_job() {
+#[tokio::test]
+async fn delete_after_run_removes_one_shot_job() {
     let dir = tempdir().unwrap();
     let mut store = CronStore::load(dir.path()).unwrap();
     let mut one_shot = job("once", "reminder", CronSchedule::at(9000));
@@ -110,8 +110,8 @@ fn delete_after_run_removes_one_shot_job() {
     assert!(store.get("once").is_none());
 }
 
-#[test]
-fn heartbeat_is_protected_from_deletion() {
+#[tokio::test]
+async fn heartbeat_is_protected_from_deletion() {
     let dir = tempdir().unwrap();
     let mut store = CronStore::load(dir.path()).unwrap();
     store

@@ -28,8 +28,8 @@ fn populate(root: &std::path::Path) {
     fs::create_dir_all(root.join("node_modules/pkg")).unwrap();
 }
 
-#[test]
-fn list_dir_basic_ignores_noise_dirs() {
+#[tokio::test]
+async fn list_dir_basic_ignores_noise_dirs() {
     let dir = tempdir().unwrap();
     populate(dir.path());
     let tool = ListDirTool::new(dir.path());
@@ -42,8 +42,8 @@ fn list_dir_basic_ignores_noise_dirs() {
     assert!(!result.content.contains("node_modules"));
 }
 
-#[test]
-fn list_dir_recursive_shows_nested_and_skips_ignored() {
+#[tokio::test]
+async fn list_dir_recursive_shows_nested_and_skips_ignored() {
     let dir = tempdir().unwrap();
     populate(dir.path());
     let tool = ListDirTool::new(dir.path());
@@ -56,8 +56,8 @@ fn list_dir_recursive_shows_nested_and_skips_ignored() {
     assert!(!normalized.contains("node_modules"));
 }
 
-#[test]
-fn list_dir_truncates_at_max_entries() {
+#[tokio::test]
+async fn list_dir_truncates_at_max_entries() {
     let dir = tempdir().unwrap();
     for i in 0..10 {
         fs::write(dir.path().join(format!("file_{i}.txt")), "x").unwrap();
@@ -69,8 +69,8 @@ fn list_dir_truncates_at_max_entries() {
     assert!(result.content.contains("3 of 10"), "{}", result.content);
 }
 
-#[test]
-fn list_dir_empty_dir_reports_empty() {
+#[tokio::test]
+async fn list_dir_empty_dir_reports_empty() {
     let dir = tempdir().unwrap();
     fs::create_dir(dir.path().join("empty")).unwrap();
     let tool = ListDirTool::new(dir.path());
@@ -83,8 +83,8 @@ fn list_dir_empty_dir_reports_empty() {
     );
 }
 
-#[test]
-fn list_dir_not_found_returns_error() {
+#[tokio::test]
+async fn list_dir_not_found_returns_error() {
     let dir = tempdir().unwrap();
     let tool = ListDirTool::new(dir.path());
     let result = tool.execute(&json!({"path": "nope"}));
@@ -93,8 +93,8 @@ fn list_dir_not_found_returns_error() {
     assert!(result.content.contains("not found"));
 }
 
-#[test]
-fn list_dir_missing_path_clear_error() {
+#[tokio::test]
+async fn list_dir_missing_path_clear_error() {
     let dir = tempdir().unwrap();
     let tool = ListDirTool::new(dir.path());
     let result = tool.execute(&json!({}));
@@ -103,8 +103,8 @@ fn list_dir_missing_path_clear_error() {
 
 // --- grep ---
 
-#[test]
-fn grep_defaults_to_files_with_matches() {
+#[tokio::test]
+async fn grep_defaults_to_files_with_matches() {
     let dir = tempdir().unwrap();
     fs::create_dir(dir.path().join("src")).unwrap();
     fs::write(dir.path().join("src/main.py"), "match_here\n").unwrap();
@@ -118,8 +118,8 @@ fn grep_defaults_to_files_with_matches() {
     assert!(!result.content.contains("1|"));
 }
 
-#[test]
-fn grep_files_with_matches_sorted_by_mtime_desc() {
+#[tokio::test]
+async fn grep_files_with_matches_sorted_by_mtime_desc() {
     let dir = tempdir().unwrap();
     fs::create_dir(dir.path().join("src")).unwrap();
     let a = dir.path().join("src/a.py");
@@ -138,8 +138,8 @@ fn grep_files_with_matches_sorted_by_mtime_desc() {
     );
 }
 
-#[test]
-fn grep_content_mode_with_context() {
+#[tokio::test]
+async fn grep_content_mode_with_context() {
     let dir = tempdir().unwrap();
     fs::create_dir(dir.path().join("src")).unwrap();
     fs::write(
@@ -162,8 +162,8 @@ fn grep_content_mode_with_context() {
     assert!(!c.contains("README.md"), "{c}");
 }
 
-#[test]
-fn grep_case_insensitive() {
+#[tokio::test]
+async fn grep_case_insensitive() {
     let dir = tempdir().unwrap();
     fs::create_dir(dir.path().join("memory")).unwrap();
     fs::write(
@@ -185,8 +185,8 @@ fn grep_case_insensitive() {
     assert!(result.content.contains("OAuth token rotated"));
 }
 
-#[test]
-fn grep_fixed_strings_treats_regex_chars_literally() {
+#[tokio::test]
+async fn grep_fixed_strings_treats_regex_chars_literally() {
     let dir = tempdir().unwrap();
     fs::create_dir(dir.path().join("memory")).unwrap();
     fs::write(
@@ -210,8 +210,8 @@ fn grep_fixed_strings_treats_regex_chars_literally() {
         .contains("[2026-04-02 10:00] OAuth token rotated"));
 }
 
-#[test]
-fn grep_type_filter_limits_files() {
+#[tokio::test]
+async fn grep_type_filter_limits_files() {
     let dir = tempdir().unwrap();
     fs::create_dir(dir.path().join("src")).unwrap();
     fs::write(dir.path().join("src/a.py"), "needle\n").unwrap();
@@ -222,8 +222,8 @@ fn grep_type_filter_limits_files() {
     assert_eq!(result.content.lines().collect::<Vec<_>>(), vec!["src/a.py"]);
 }
 
-#[test]
-fn grep_files_with_matches_pagination() {
+#[tokio::test]
+async fn grep_files_with_matches_pagination() {
     let dir = tempdir().unwrap();
     fs::create_dir(dir.path().join("src")).unwrap();
     for name in ["a.py", "b.py", "c.py"] {
@@ -247,8 +247,8 @@ fn grep_files_with_matches_pagination() {
     assert_eq!(file_lines.len(), 1);
 }
 
-#[test]
-fn grep_no_matches_message() {
+#[tokio::test]
+async fn grep_no_matches_message() {
     let dir = tempdir().unwrap();
     fs::write(dir.path().join("a.py"), "nothing\n").unwrap();
     let tool = GrepTool::new(dir.path());

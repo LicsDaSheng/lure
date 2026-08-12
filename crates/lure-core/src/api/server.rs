@@ -39,9 +39,12 @@ pub struct ChatOutcome {
 
 /// 传输无关的 chat runner 抽象：HTTP 层依赖它而非具体 [`AgentLoop`]，便于用
 /// fake/echo provider 驱动的 loop 做端到端测试，也便于后续替换编排实现。
-pub trait ChatRunner {
+/// 异步版本（Stage 2）：turn 执行为 async，server 线程内经 `Handle::block_on` 驱动；
+/// `?Send`——block_on 不要求 future Send，且 `AgentLoop` 因 `dyn Tool` 非 Sync。
+#[async_trait::async_trait]
+pub trait ChatRunner: Send + Sync {
     /// 处理一次 chat：给定 session key 与用户文本，返回最终文本与累加 usage。
-    fn run(&mut self, session_key: &str, text: &str) -> Result<ChatOutcome, ChatRunError>;
+    async fn run(&mut self, session_key: &str, text: &str) -> Result<ChatOutcome, ChatRunError>;
 
     /// 处理一次 chat 并**逐段**回调内容增量：每产生一段文本即调用 `on_delta`，
     /// 供 SSE 层逐 token 推送。跨 tool 轮次的多段内容全部经此回调，流保持打开。
@@ -49,15 +52,15 @@ pub trait ChatRunner {
     /// 默认实现回退到非流式 [`run`](Self::run)，把整段最终文本作为**单个**增量回调一次——
     /// 让未覆盖流式的 runner 仍可被 SSE 路径统一驱动。真正逐 token 的 runner（如
     /// [`AgentLoop`]）覆盖此方法。
-    fn run_streaming(
+    async fn run_streaming(
         &mut self,
         session_key: &str,
         text: &str,
-        on_delta: &mut dyn FnMut(&str),
+        on_delta: &mut (dyn FnMut(String) + Send),
     ) -> Result<(), ChatRunError> {
-        let outcome = self.run(session_key, text)?;
+        let outcome = self.run(session_key, text).await?;
         if !outcome.content.is_empty() {
-            on_delta(&outcome.content);
+            on_delta(outcome.content);
         }
         Ok(())
     }
@@ -75,11 +78,13 @@ impl std::fmt::Display for ChatRunError {
 
 impl std::error::Error for ChatRunError {}
 
+#[async_trait::async_trait]
 impl ChatRunner for AgentLoop {
-    fn run(&mut self, session_key: &str, text: &str) -> Result<ChatOutcome, ChatRunError> {
+    async fn run(&mut self, session_key: &str, text: &str) -> Result<ChatOutcome, ChatRunError> {
         let mut inbound = InboundMessage::new("api", API_CHAT_ID, text);
         inbound.session_key_override = Some(session_key.to_string());
         self.process(&inbound)
+            .await
             .map(|outcome| ChatOutcome {
                 content: outcome.final_content,
                 usage: outcome.usage,
@@ -87,11 +92,11 @@ impl ChatRunner for AgentLoop {
             .map_err(|e| ChatRunError(e.to_string()))
     }
 
-    fn run_streaming(
+    async fn run_streaming(
         &mut self,
         session_key: &str,
         text: &str,
-        on_delta: &mut dyn FnMut(&str),
+        on_delta: &mut (dyn FnMut(String) + Send),
     ) -> Result<(), ChatRunError> {
         let mut inbound = InboundMessage::new("api", API_CHAT_ID, text);
         inbound.session_key_override = Some(session_key.to_string());
@@ -101,6 +106,7 @@ impl ChatRunner for AgentLoop {
                 on_delta(text);
             }
         })
+        .await
         .map(|_| ())
         .map_err(|e| ChatRunError(e.to_string()))
     }
@@ -120,11 +126,18 @@ pub struct ChatServer<R: ChatRunner> {
     server: Server,
     runner: R,
     config: ServerConfig,
+    /// 请求处理线程内驱动 async runner 的 runtime 句柄。
+    runtime: tokio::runtime::Handle,
 }
 
 impl<R: ChatRunner> ChatServer<R> {
     /// 在 `addr`（如 `127.0.0.1:0` 表示随机端口）上绑定 server。
-    pub fn bind(addr: &str, runner: R, config: ServerConfig) -> std::io::Result<Self> {
+    pub fn bind(
+        addr: &str,
+        runner: R,
+        config: ServerConfig,
+        runtime: tokio::runtime::Handle,
+    ) -> std::io::Result<Self> {
         let server = Server::http(addr).map_err(|e| {
             std::io::Error::new(std::io::ErrorKind::AddrNotAvailable, e.to_string())
         })?;
@@ -132,6 +145,7 @@ impl<R: ChatRunner> ChatServer<R> {
             server,
             runner,
             config,
+            runtime,
         })
     }
 
@@ -220,7 +234,7 @@ impl<R: ChatRunner> ChatServer<R> {
         let session_id = body.get("session_id").and_then(Value::as_str);
         let session_key = api_session_key(session_id);
 
-        // 调用注入的 runner。流式与非流式走不同回调路径。
+        // 调用注入的 runner（async，经 Handle::block_on 驱动）。流式与非流式走不同回调路径。
         if parsed.stream {
             respond_sse(
                 request,
@@ -228,9 +242,13 @@ impl<R: ChatRunner> ChatServer<R> {
                 &session_key,
                 &parsed.text,
                 &self.config.model,
+                &self.runtime,
             )
         } else {
-            match self.runner.run(&session_key, &parsed.text) {
+            match crate::runtime::block_on(
+                &self.runtime,
+                self.runner.run(&session_key, &parsed.text),
+            ) {
                 Ok(outcome) => respond_json(
                     request,
                     200,
@@ -276,14 +294,18 @@ fn respond_sse<R: ChatRunner>(
     session_key: &str,
     text: &str,
     model: &str,
+    runtime: &tokio::runtime::Handle,
 ) -> std::io::Result<()> {
     let chunk_id = generate_completion_id();
     let mut body = String::new();
-    let stream_result = runner.run_streaming(session_key, text, &mut |delta| {
-        if !delta.is_empty() {
-            body.push_str(&sse_content_chunk(delta, model, &chunk_id));
-        }
-    });
+    let stream_result = crate::runtime::block_on(
+        runtime,
+        runner.run_streaming(session_key, text, &mut |delta| {
+            if !delta.is_empty() {
+                body.push_str(&sse_content_chunk(&delta, model, &chunk_id));
+            }
+        }),
+    );
 
     if stream_result.is_err() {
         // 尚未写出任何帧（响应体只在末尾发送），可安全回退结构化 500。

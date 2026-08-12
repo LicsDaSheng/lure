@@ -37,8 +37,8 @@ fn ctx(channel: &str, chat_id: &str, raw: &str) -> CommandContext {
 
 // —— normalize_command_text —— //
 
-#[test]
-fn normalize_strips_bot_suffix() {
+#[tokio::test]
+async fn normalize_strips_bot_suffix() {
     assert_eq!(
         normalize_command_text("/trigger@nanobot_bot PR"),
         "/trigger PR"
@@ -57,8 +57,8 @@ fn normalize_strips_bot_suffix() {
 
 // —— is_dispatchable_command —— //
 
-#[test]
-fn exact_commands_match() {
+#[tokio::test]
+async fn exact_commands_match() {
     let (_d, _p, r) = router();
     for c in [
         "/new",
@@ -75,8 +75,8 @@ fn exact_commands_match() {
     }
 }
 
-#[test]
-fn prefix_commands_match() {
+#[tokio::test]
+async fn prefix_commands_match() {
     let (_d, _p, r) = router();
     for c in [
         "/dream-log abc123",
@@ -91,8 +91,8 @@ fn prefix_commands_match() {
     }
 }
 
-#[test]
-fn priority_commands_not_dispatchable() {
+#[tokio::test]
+async fn priority_commands_not_dispatchable() {
     let (_d, _p, r) = router();
     // priority 层单独由 is_priority 处理，不计入 dispatchable。
     assert!(!r.is_dispatchable_command("/stop"));
@@ -101,31 +101,31 @@ fn priority_commands_not_dispatchable() {
     assert!(r.is_priority("/restart"));
 }
 
-#[test]
-fn regular_text_not_dispatchable() {
+#[tokio::test]
+async fn regular_text_not_dispatchable() {
     let (_d, _p, r) = router();
     assert!(!r.is_dispatchable_command("hello"));
     assert!(!r.is_dispatchable_command("what is 2+2?"));
     assert!(!r.is_dispatchable_command(""));
 }
 
-#[test]
-fn dispatchable_is_case_insensitive() {
+#[tokio::test]
+async fn dispatchable_is_case_insensitive() {
     let (_d, _p, r) = router();
     assert!(r.is_dispatchable_command("/NEW"));
     assert!(r.is_dispatchable_command("/Help"));
     assert!(r.is_dispatchable_command("/PAIRING"));
 }
 
-#[test]
-fn dispatchable_strips_whitespace() {
+#[tokio::test]
+async fn dispatchable_strips_whitespace() {
     let (_d, _p, r) = router();
     assert!(r.is_dispatchable_command("  /new  "));
     assert!(r.is_dispatchable_command("  /pairing list  "));
 }
 
-#[test]
-fn unknown_slash_not_dispatchable() {
+#[tokio::test]
+async fn unknown_slash_not_dispatchable() {
     let (_d, _p, r) = router();
     assert!(!r.is_dispatchable_command("/unknown"));
     assert!(!r.is_dispatchable_command("/foo bar"));
@@ -133,8 +133,8 @@ fn unknown_slash_not_dispatchable() {
 
 // —— dispatch: /help —— //
 
-#[test]
-fn help_dispatched() {
+#[tokio::test]
+async fn help_dispatched() {
     let (_d, _p, r) = router();
     let mut c = ctx("test", "chat1", "/help");
     let out = r.dispatch(&mut c).expect("/help 应有输出");
@@ -152,8 +152,8 @@ fn help_dispatched() {
 
 // —— dispatch: /pairing —— //
 
-#[test]
-fn pairing_list_dispatched() {
+#[tokio::test]
+async fn pairing_list_dispatched() {
     let (_d, pairing, r) = router();
     let code = pairing.generate_code("telegram", "123", 600.0, T0).unwrap();
 
@@ -168,8 +168,8 @@ fn pairing_list_dispatched() {
     );
 }
 
-#[test]
-fn pairing_approve_dispatched() {
+#[tokio::test]
+async fn pairing_approve_dispatched() {
     let (_d, pairing, r) = router();
     let code = pairing.generate_code("telegram", "123", 600.0, T0).unwrap();
 
@@ -188,8 +188,8 @@ fn pairing_approve_dispatched() {
     assert!(pairing.is_approved("telegram", "123").unwrap());
 }
 
-#[test]
-fn pairing_bare_defaults_to_list() {
+#[tokio::test]
+async fn pairing_bare_defaults_to_list() {
     let (_d, pairing, r) = router();
     pairing.generate_code("telegram", "123", 600.0, T0).unwrap();
 
@@ -201,15 +201,15 @@ fn pairing_bare_defaults_to_list() {
 
 // —— dispatch: 非命令 / 前缀 args —— //
 
-#[test]
-fn non_command_returns_none() {
+#[tokio::test]
+async fn non_command_returns_none() {
     let (_d, _p, r) = router();
     let mut c = ctx("test", "chat1", "hello world");
     assert!(r.dispatch(&mut c).is_none());
 }
 
-#[test]
-fn prefix_args_populated() {
+#[tokio::test]
+async fn prefix_args_populated() {
     let mut r = CommandRouter::new();
     let captured = Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
     let sink = captured.clone();
@@ -228,8 +228,8 @@ fn prefix_args_populated() {
 
 // —— dispatch: /skill（接入 SkillsLoader）—— //
 
-#[test]
-fn skill_lists_available_skills() {
+#[tokio::test]
+async fn skill_lists_available_skills() {
     use lure_core::agent::skills::SkillsLoader;
     use std::collections::BTreeSet;
 
@@ -265,8 +265,8 @@ fn skill_lists_available_skills() {
 
 // —— dispatch_priority —— //
 
-#[test]
-fn priority_bot_suffix_normalized() {
+#[tokio::test]
+async fn priority_bot_suffix_normalized() {
     let (_d, _p, r) = router();
     // 传输后缀经归一后仍命中 priority。
     assert!(r.is_priority("/stop@nanobot_bot"));

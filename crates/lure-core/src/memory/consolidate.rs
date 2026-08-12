@@ -8,15 +8,17 @@ use crate::memory::store::{HistoryEntry, MemoryStore};
 use crate::provider::{CompletionRequest, LlmProvider};
 
 /// 把当前记忆与未整合历史整合为新的长期记忆。
-pub trait DreamRunner {
+#[async_trait::async_trait]
+pub trait DreamRunner: Send + Sync {
     /// 返回整合后的 MEMORY.md 全文。
-    fn consolidate(&self, current_memory: &str, entries: &[HistoryEntry]) -> String;
+    async fn consolidate(&self, current_memory: &str, entries: &[HistoryEntry]) -> String;
 }
 
 /// `&dyn DreamRunner` 仍满足 `DreamRunner`（委托到 vtable）。
+#[async_trait::async_trait]
 impl DreamRunner for &dyn DreamRunner {
-    fn consolidate(&self, current_memory: &str, entries: &[HistoryEntry]) -> String {
-        (**self).consolidate(current_memory, entries)
+    async fn consolidate(&self, current_memory: &str, entries: &[HistoryEntry]) -> String {
+        (**self).consolidate(current_memory, entries).await
     }
 }
 
@@ -31,14 +33,17 @@ pub struct ConsolidationOutcome {
 
 impl MemoryStore {
     /// 用 runner 整合 dream cursor 之后的历史；无未整合历史返回 `None`。
-    pub fn consolidate<R: DreamRunner + ?Sized>(&self, runner: &R) -> Option<ConsolidationOutcome> {
+    pub async fn consolidate<R: DreamRunner + ?Sized>(
+        &self,
+        runner: &R,
+    ) -> Option<ConsolidationOutcome> {
         let since = self.get_last_dream_cursor();
         let entries = self.read_unprocessed_history(since);
         if entries.is_empty() {
             return None;
         }
 
-        let new_memory = runner.consolidate(&self.read_memory(), &entries);
+        let new_memory = runner.consolidate(&self.read_memory(), &entries).await;
         self.write_memory(&new_memory);
 
         let new_cursor = entries.iter().map(|e| e.cursor).max().unwrap_or(since);
@@ -72,8 +77,9 @@ impl ProviderDreamRunner {
     }
 }
 
+#[async_trait::async_trait]
 impl DreamRunner for ProviderDreamRunner {
-    fn consolidate(&self, current_memory: &str, entries: &[HistoryEntry]) -> String {
+    async fn consolidate(&self, current_memory: &str, entries: &[HistoryEntry]) -> String {
         let user_text = entries
             .iter()
             .map(|e| e.content.as_str())
@@ -93,7 +99,7 @@ impl DreamRunner for ProviderDreamRunner {
             settings: Default::default(),
         };
 
-        match self.provider.complete(&request) {
+        match self.provider.complete(&request).await {
             Ok(resp) => {
                 let text = resp.content.unwrap_or_default();
                 if text.trim().is_empty() {

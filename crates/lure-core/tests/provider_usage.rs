@@ -15,13 +15,13 @@ fn map(value: Value) -> Map<String, Value> {
     value.as_object().cloned().unwrap()
 }
 
-#[test]
-fn empty_usage_normalizes_to_empty() {
+#[tokio::test]
+async fn empty_usage_normalizes_to_empty() {
     assert!(normalize_usage(&Map::new()).is_empty());
 }
 
-#[test]
-fn base_fields_are_preserved_with_defaults() {
+#[tokio::test]
+async fn base_fields_are_preserved_with_defaults() {
     let out = normalize_usage(&map(json!({"prompt_tokens": 10, "completion_tokens": 3})));
     assert_eq!(out.get("prompt_tokens").and_then(Value::as_i64), Some(10));
     assert_eq!(
@@ -34,8 +34,8 @@ fn base_fields_are_preserved_with_defaults() {
     assert!(!out.contains_key("cached_tokens"));
 }
 
-#[test]
-fn cached_tokens_from_nested_prompt_tokens_details() {
+#[tokio::test]
+async fn cached_tokens_from_nested_prompt_tokens_details() {
     let out = normalize_usage(&map(json!({
         "prompt_tokens": 100,
         "completion_tokens": 10,
@@ -45,8 +45,8 @@ fn cached_tokens_from_nested_prompt_tokens_details() {
     assert_eq!(out.get("cached_tokens").and_then(Value::as_i64), Some(80));
 }
 
-#[test]
-fn cached_tokens_from_top_level_key() {
+#[tokio::test]
+async fn cached_tokens_from_top_level_key() {
     let out = normalize_usage(&map(json!({
         "prompt_tokens": 100, "completion_tokens": 10, "total_tokens": 110,
         "cached_tokens": 42
@@ -54,8 +54,8 @@ fn cached_tokens_from_top_level_key() {
     assert_eq!(out.get("cached_tokens").and_then(Value::as_i64), Some(42));
 }
 
-#[test]
-fn cached_tokens_from_prompt_cache_hit_tokens() {
+#[tokio::test]
+async fn cached_tokens_from_prompt_cache_hit_tokens() {
     // DeepSeek/SiliconFlow 风格。
     let out = normalize_usage(&map(json!({
         "prompt_tokens": 100, "completion_tokens": 10, "total_tokens": 110,
@@ -64,8 +64,8 @@ fn cached_tokens_from_prompt_cache_hit_tokens() {
     assert_eq!(out.get("cached_tokens").and_then(Value::as_i64), Some(64));
 }
 
-#[test]
-fn nested_path_wins_over_alternates_by_priority() {
+#[tokio::test]
+async fn nested_path_wins_over_alternates_by_priority() {
     // 三路同时存在：嵌套 details 优先。
     let out = normalize_usage(&map(json!({
         "prompt_tokens": 100, "completion_tokens": 10, "total_tokens": 110,
@@ -76,8 +76,8 @@ fn nested_path_wins_over_alternates_by_priority() {
     assert_eq!(out.get("cached_tokens").and_then(Value::as_i64), Some(80));
 }
 
-#[test]
-fn zero_cached_is_skipped_and_falls_through() {
+#[tokio::test]
+async fn zero_cached_is_skipped_and_falls_through() {
     // 优先路径为 0 时跳过，回退到下一非零路径。
     let out = normalize_usage(&map(json!({
         "prompt_tokens": 100, "completion_tokens": 10, "total_tokens": 110,

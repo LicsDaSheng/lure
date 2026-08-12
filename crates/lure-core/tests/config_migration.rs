@@ -5,8 +5,8 @@
 use lure_core::config::{load_config, migrate_config, DEFAULT_MODEL};
 use serde_json::json;
 
-#[test]
-fn drops_legacy_max_messages() {
+#[tokio::test]
+async fn drops_legacy_max_messages() {
     let mut data = json!({"agents": {"defaults": {"maxMessages": 25, "model": "x/y"}}});
     migrate_config(&mut data);
     let defaults = &data["agents"]["defaults"];
@@ -18,8 +18,8 @@ fn drops_legacy_max_messages() {
     assert!(snake["agents"]["defaults"].get("max_messages").is_none());
 }
 
-#[test]
-fn moves_exec_restrict_to_workspace() {
+#[tokio::test]
+async fn moves_exec_restrict_to_workspace() {
     let mut data = json!({"tools": {"exec": {"restrictToWorkspace": true, "timeout": 5}}});
     migrate_config(&mut data);
     assert_eq!(data["tools"]["restrictToWorkspace"], true);
@@ -28,8 +28,8 @@ fn moves_exec_restrict_to_workspace() {
     assert_eq!(data["tools"]["exec"]["timeout"], 5);
 }
 
-#[test]
-fn does_not_override_existing_restrict_to_workspace() {
+#[tokio::test]
+async fn does_not_override_existing_restrict_to_workspace() {
     let mut data = json!({
         "tools": {"restrictToWorkspace": false, "exec": {"restrictToWorkspace": true}}
     });
@@ -38,8 +38,8 @@ fn does_not_override_existing_restrict_to_workspace() {
     assert_eq!(data["tools"]["restrictToWorkspace"], false);
 }
 
-#[test]
-fn migrates_legacy_my_tool_keys() {
+#[tokio::test]
+async fn migrates_legacy_my_tool_keys() {
     let mut data = json!({"tools": {"myEnabled": false, "mySet": true}});
     migrate_config(&mut data);
     let tools = &data["tools"];
@@ -48,8 +48,8 @@ fn migrates_legacy_my_tool_keys() {
     assert_eq!(tools["my"], json!({"enable": false, "allowSet": true}));
 }
 
-#[test]
-fn new_my_tool_keys_take_precedence_over_legacy() {
+#[tokio::test]
+async fn new_my_tool_keys_take_precedence_over_legacy() {
     let mut data = json!({
         "tools": {"myEnabled": false, "mySet": false, "my": {"enable": true, "allowSet": true}}
     });
@@ -60,8 +60,8 @@ fn new_my_tool_keys_take_precedence_over_legacy() {
     );
 }
 
-#[test]
-fn load_config_applies_migration_and_ignores_legacy() {
+#[tokio::test]
+async fn load_config_applies_migration_and_ignores_legacy() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("config.json");
     // legacy maxMessages 应被迁移丢弃，typed config 正常加载。

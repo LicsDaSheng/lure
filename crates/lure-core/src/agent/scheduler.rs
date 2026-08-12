@@ -141,7 +141,7 @@ impl AgentLoopScheduler {
             while let Some(msg) = current.take() {
                 let outcome = {
                     let mut agent = agent.lock().await;
-                    agent.process(&msg)
+                    agent.process(&msg).await
                 };
                 if outcome.is_ok() {
                     if let Some(hook) = &on_turn {

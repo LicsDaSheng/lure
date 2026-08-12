@@ -58,8 +58,8 @@ fn kill(mut child: Child) {
     let _ = child.wait();
 }
 
-#[test]
-fn headless_prints_http_url_and_serves_bootstrap() {
+#[tokio::test]
+async fn headless_prints_http_url_and_serves_bootstrap() {
     let (child, url, _dir) = spawn_headless(&[]);
 
     // 真实 HTTP 打 bootstrap：无需 window，验证进程内 server 已服务。
@@ -91,8 +91,8 @@ fn headless_prints_http_url_and_serves_bootstrap() {
     }
 }
 
-#[test]
-fn headless_binds_requested_http_port() {
+#[tokio::test]
+async fn headless_binds_requested_http_port() {
     // Playwright 用固定端口做 webServer 轮询，故 --http-port 须反映在 URL 上。
     let port = free_port();
     let port_str = port.to_string();
@@ -110,8 +110,8 @@ fn headless_binds_requested_http_port() {
     }
 }
 
-#[test]
-fn headless_cron_scheduler_runs_due_job_into_transcript() {
+#[tokio::test]
+async fn headless_cron_scheduler_runs_due_job_into_transcript() {
     use lure_core::cron::{CronJob, CronJobState, CronPayload, CronSchedule, CronStore};
     use lure_core::webui::transcript::TranscripStore;
 
@@ -173,8 +173,8 @@ fn headless_cron_scheduler_runs_due_job_into_transcript() {
     assert!(hit, "cron 调度应把到期 job 的产出写入 transcript");
 }
 
-#[test]
-fn headless_cron_pushes_live_to_online_connection() {
+#[tokio::test]
+async fn headless_cron_pushes_live_to_online_connection() {
     use lure_core::cron::{CronJob, CronJobState, CronPayload, CronSchedule, CronStore};
     use serde_json::{json, Value};
     use tungstenite::{connect, Message};

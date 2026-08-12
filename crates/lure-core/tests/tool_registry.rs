@@ -36,8 +36,8 @@ fn obj_schema() -> Value {
     json!({"type": "object", "properties": {"path": {"type": "string"}}, "required": ["path"]})
 }
 
-#[test]
-fn get_definitions_emits_openai_function_shape_in_registration_order() {
+#[tokio::test]
+async fn get_definitions_emits_openai_function_shape_in_registration_order() {
     let mut registry = ToolRegistry::new();
     registry.register(Box::new(FakeTool::new("read_file", obj_schema())));
     registry.register(Box::new(FakeTool::new("write_file", obj_schema())));
@@ -50,8 +50,8 @@ fn get_definitions_emits_openai_function_shape_in_registration_order() {
     assert_eq!(defs[0]["function"]["parameters"]["type"], "object");
 }
 
-#[test]
-fn execute_dispatches_and_returns_result() {
+#[tokio::test]
+async fn execute_dispatches_and_returns_result() {
     let mut registry = ToolRegistry::new();
     registry.register(Box::new(FakeTool::new("read_file", obj_schema())));
 
@@ -62,8 +62,8 @@ fn execute_dispatches_and_returns_result() {
     assert!(result.content.contains("foo.txt"));
 }
 
-#[test]
-fn unknown_tool_suggests_near_miss() {
+#[tokio::test]
+async fn unknown_tool_suggests_near_miss() {
     let mut registry = ToolRegistry::new();
     registry.register(Box::new(FakeTool::new("read_file", obj_schema())));
 
@@ -79,8 +79,8 @@ fn unknown_tool_suggests_near_miss() {
     );
 }
 
-#[test]
-fn invalid_args_are_rejected_with_structured_error() {
+#[tokio::test]
+async fn invalid_args_are_rejected_with_structured_error() {
     let mut registry = ToolRegistry::new();
     registry.register(Box::new(FakeTool::new("read_file", obj_schema())));
 
@@ -95,8 +95,8 @@ fn invalid_args_are_rejected_with_structured_error() {
     assert!(matches!(err, ToolError::InvalidArgs { .. }));
 }
 
-#[test]
-fn schema_validation_enforces_enum_and_numeric_bounds() {
+#[tokio::test]
+async fn schema_validation_enforces_enum_and_numeric_bounds() {
     let schema = json!({
         "type": "object",
         "properties": {
@@ -125,8 +125,8 @@ fn schema_validation_enforces_enum_and_numeric_bounds() {
     ));
 }
 
-#[test]
-fn truncate_result_appends_marker_only_when_over_limit() {
+#[tokio::test]
+async fn truncate_result_appends_marker_only_when_over_limit() {
     assert_eq!(truncate_result("short", 100), "short");
     assert_eq!(truncate_result("", 0), "");
     let truncated = truncate_result("0123456789", 5);

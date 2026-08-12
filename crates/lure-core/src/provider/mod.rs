@@ -23,7 +23,7 @@ pub use openai::{build_chat_request, parse_chat_response, OpenAiCompatProvider};
 pub use registry::{find_by_name, match_provider, ProviderSpec, PROVIDERS};
 pub use runtime::{LlmRuntime, ModelRuntimeResolver, ProviderSnapshot, RuntimeError};
 pub use stream::{parse_sse_line, StreamAssembler};
-pub use transport::UreqTransport;
+pub use transport::ReqwestTransport;
 pub use types::{
     CompletionRequest, GenerationSettings, LlmProvider, LlmResponse, ProviderError, StreamChunk,
     ToolCall, ToolCallDelta,

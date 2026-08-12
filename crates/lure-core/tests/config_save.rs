@@ -7,8 +7,8 @@
 use lure_core::config::{load_config, save_config, Config};
 use tempfile::tempdir;
 
-#[test]
-fn save_round_trips() {
+#[tokio::test]
+async fn save_round_trips() {
     let dir = tempdir().unwrap();
     let path = dir.path().join("config.json");
 
@@ -19,8 +19,8 @@ fn save_round_trips() {
     assert!(!loaded.agents.defaults.model.is_empty());
 }
 
-#[test]
-fn save_emits_camel_case_indented_json() {
+#[tokio::test]
+async fn save_emits_camel_case_indented_json() {
     let dir = tempdir().unwrap();
     let path = dir.path().join("config.json");
 
@@ -32,8 +32,8 @@ fn save_emits_camel_case_indented_json() {
     assert!(text.contains("\n  \""), "应使用 2 空格缩进");
 }
 
-#[test]
-fn save_creates_missing_parent_dirs() {
+#[tokio::test]
+async fn save_creates_missing_parent_dirs() {
     let dir = tempdir().unwrap();
     let path = dir
         .path()
@@ -47,8 +47,8 @@ fn save_creates_missing_parent_dirs() {
 }
 
 #[cfg(unix)]
-#[test]
-fn save_preserves_existing_file_mode() {
+#[tokio::test]
+async fn save_preserves_existing_file_mode() {
     use std::os::unix::fs::PermissionsExt;
 
     let dir = tempdir().unwrap();

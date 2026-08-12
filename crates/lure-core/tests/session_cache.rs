@@ -8,8 +8,8 @@
 use lure_core::session::{SessionManager, SESSION_CACHE_MAX_SIZE};
 use tempfile::tempdir;
 
-#[test]
-fn default_session_cache_is_bounded() {
+#[tokio::test]
+async fn default_session_cache_is_bounded() {
     let dir = tempdir().unwrap();
     let mut manager = SessionManager::new(dir.path()).unwrap();
 
@@ -20,8 +20,8 @@ fn default_session_cache_is_bounded() {
     assert_eq!(manager.cache_len(), SESSION_CACHE_MAX_SIZE);
 }
 
-#[test]
-fn session_cache_refreshes_lru_order_on_access() {
+#[tokio::test]
+async fn session_cache_refreshes_lru_order_on_access() {
     let dir = tempdir().unwrap();
     let mut manager = SessionManager::new(dir.path()).unwrap();
     manager.set_max_cached(2);
@@ -41,8 +41,8 @@ fn session_cache_refreshes_lru_order_on_access() {
     );
 }
 
-#[test]
-fn evicted_session_reloads_from_disk() {
+#[tokio::test]
+async fn evicted_session_reloads_from_disk() {
     let dir = tempdir().unwrap();
     let mut manager = SessionManager::new(dir.path()).unwrap();
     manager.set_max_cached(1);
@@ -61,8 +61,8 @@ fn evicted_session_reloads_from_disk() {
     assert_eq!(reloaded.messages[0]["content"], "persist me");
 }
 
-#[test]
-fn flush_all_data_survives_reload() {
+#[tokio::test]
+async fn flush_all_data_survives_reload() {
     let dir = tempdir().unwrap();
     {
         let mut manager = SessionManager::new(dir.path()).unwrap();

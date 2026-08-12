@@ -28,23 +28,25 @@ pub struct HttpResponse {
 /// HTTP 传输契约。
 ///
 /// `Err` 表示传输/网络层失败（连接、超时等），非 2xx 的 HTTP 响应仍走 `Ok`，
-/// 由上层按状态码分类。
-pub trait HttpTransport {
+/// 由上层按状态码分类。异步版本（Stage 2）：reqwest 驱动，不再阻塞调用线程。
+#[async_trait::async_trait]
+pub trait HttpTransport: Send + Sync {
     /// 发送一次 POST JSON 请求。
-    fn post_json(&self, request: &HttpRequest) -> Result<HttpResponse, String>;
+    async fn post_json(&self, request: &HttpRequest) -> Result<HttpResponse, String>;
 
     /// 发送一次**流式** POST：逐行读取响应体并回调 `on_line`，返回 HTTP 状态码。
     ///
     /// 默认实现回退到 [`post_json`](Self::post_json) 并把整段响应按行回放（非真正增量）；
-    /// 真实传输（如 `UreqTransport`）覆盖此方法以边收边发。非 2xx 响应仍返回 `Ok(status)`，
-    /// 由上层按状态码分类。
-    fn post_json_streaming(
+    /// 真实传输（如 `ReqwestTransport`）覆盖此方法以边收边发。非 2xx 响应仍返回
+    /// `Ok(status)`，由上层按状态码分类。
+    async fn post_json_streaming(
         &self,
         request: &HttpRequest,
-        on_line: &mut dyn FnMut(&str),
+        on_line: &mut (dyn FnMut(String) + Send),
     ) -> Result<u16, String> {
-        let response = self.post_json(request)?;
-        for line in response.body.lines() {
+        let response = self.post_json(request).await?;
+        let lines: Vec<String> = response.body.lines().map(str::to_string).collect();
+        for line in lines {
             on_line(line);
         }
         Ok(response.status)

@@ -3,7 +3,7 @@
 //! 覆盖：echo 单轮的 Started/Final 转发、tool 轮的 ToolInvoked 转发、路由信息带出、
 //! 最终 outbound 仍投递。用 fake provider + RecordingChannel，不触网。
 
-use std::cell::RefCell;
+use std::sync::{Arc, Mutex};
 
 use lure_core::agent::{AgentLoop, ContextBuilder};
 use lure_core::bus::{InboundMessage, ProgressKind};
@@ -17,8 +17,8 @@ use lure_core::tool::{Tool, ToolRegistry, ToolResult};
 use serde_json::{json, Value};
 use tempfile::tempdir;
 
-#[test]
-fn gateway_forwards_started_and_final_progress_to_channel() {
+#[tokio::test]
+async fn gateway_forwards_started_and_final_progress_to_channel() {
     let dir = tempdir().unwrap();
     let sessions = SessionManager::new(dir.path()).unwrap();
     let agent = AgentLoop::new(
@@ -35,13 +35,13 @@ fn gateway_forwards_started_and_final_progress_to_channel() {
     gateway.start();
 
     gateway.submit(InboundMessage::new("cli", "direct", "hello"));
-    gateway.dispatch_pending().unwrap();
+    gateway.dispatch_pending().await.unwrap();
 
     // 最终 outbound 仍投递。
-    assert_eq!(delivery_log.borrow().len(), 1);
+    assert_eq!(delivery_log.lock().unwrap().len(), 1);
 
     // progress 转发：Started + Final，带路由信息。
-    let progress = progress_log.borrow();
+    let progress = progress_log.lock().unwrap();
     assert!(
         progress.iter().any(|p| p.kind == ProgressKind::Started),
         "应含 Started: {progress:?}"
@@ -59,17 +59,19 @@ fn gateway_forwards_started_and_final_progress_to_channel() {
 
 /// 先返回 tool_call、再返回终态文本的脚本化 provider。
 struct ScriptedToolProvider {
-    responses: RefCell<Vec<LlmResponse>>,
+    responses: Mutex<Vec<LlmResponse>>,
 }
 
+#[async_trait::async_trait]
 impl LlmProvider for ScriptedToolProvider {
     fn default_model(&self) -> &str {
         "tool-model"
     }
-    fn complete(&self, _request: &CompletionRequest) -> Result<LlmResponse, ProviderError> {
+    async fn complete(&self, _request: &CompletionRequest) -> Result<LlmResponse, ProviderError> {
         Ok(self
             .responses
-            .borrow_mut()
+            .lock()
+            .unwrap()
             .pop()
             .unwrap_or_else(|| LlmResponse::text("")))
     }
@@ -92,8 +94,8 @@ impl Tool for NoopTool {
     }
 }
 
-#[test]
-fn gateway_forwards_tool_invoked_progress() {
+#[tokio::test]
+async fn gateway_forwards_tool_invoked_progress() {
     let dir = tempdir().unwrap();
     let sessions = SessionManager::new(dir.path()).unwrap();
 
@@ -109,7 +111,7 @@ fn gateway_forwards_tool_invoked_progress() {
         }],
     };
     let provider = ScriptedToolProvider {
-        responses: RefCell::new(vec![LlmResponse::text("最终答案"), tool_call]),
+        responses: Mutex::new(vec![LlmResponse::text("最终答案"), tool_call]),
     };
     let mut registry = ToolRegistry::new();
     registry.register(Box::new(NoopTool));
@@ -124,9 +126,9 @@ fn gateway_forwards_tool_invoked_progress() {
     gateway.start();
 
     gateway.submit(InboundMessage::new("cli", "direct", "go"));
-    gateway.dispatch_pending().unwrap();
+    gateway.dispatch_pending().await.unwrap();
 
-    let progress = progress_log.borrow();
+    let progress = progress_log.lock().unwrap();
     assert!(
         progress
             .iter()

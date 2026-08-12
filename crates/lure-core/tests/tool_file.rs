@@ -6,8 +6,8 @@ use lure_core::tool::{ReadFileTool, Tool, WriteFileTool};
 use serde_json::json;
 use tempfile::tempdir;
 
-#[test]
-fn write_then_read_within_workspace() {
+#[tokio::test]
+async fn write_then_read_within_workspace() {
     let dir = tempdir().unwrap();
     let workspace = dir.path();
 
@@ -22,8 +22,8 @@ fn write_then_read_within_workspace() {
     assert_eq!(read_result.content, "买菜");
 }
 
-#[test]
-fn read_outside_workspace_is_rejected() {
+#[tokio::test]
+async fn read_outside_workspace_is_rejected() {
     let dir = tempdir().unwrap();
     let workspace = dir.path().join("workspace");
     std::fs::create_dir_all(&workspace).unwrap();
@@ -37,8 +37,8 @@ fn read_outside_workspace_is_rejected() {
     assert!(!result.content.contains("顶级机密"), "不得泄露越界文件内容");
 }
 
-#[test]
-fn write_outside_workspace_is_rejected() {
+#[tokio::test]
+async fn write_outside_workspace_is_rejected() {
     let dir = tempdir().unwrap();
     let workspace = dir.path().join("workspace");
     std::fs::create_dir_all(&workspace).unwrap();
@@ -50,8 +50,8 @@ fn write_outside_workspace_is_rejected() {
     assert!(!dir.path().join("escaped.txt").exists(), "越界写入不得落盘");
 }
 
-#[test]
-fn missing_arguments_are_reported() {
+#[tokio::test]
+async fn missing_arguments_are_reported() {
     let dir = tempdir().unwrap();
     let reader = ReadFileTool::new(dir.path());
     let result = reader.execute(&json!({}));

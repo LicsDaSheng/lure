@@ -10,8 +10,8 @@ use lure_core::config::{load_config, ConfigError, DEFAULT_MODEL};
 use std::fs;
 use tempfile::tempdir;
 
-#[test]
-fn missing_file_uses_defaults() {
+#[tokio::test]
+async fn missing_file_uses_defaults() {
     let dir = tempdir().unwrap();
     let config = load_config(&dir.path().join("missing.json")).unwrap();
 
@@ -19,8 +19,8 @@ fn missing_file_uses_defaults() {
     assert_eq!(config.agents.defaults.model, DEFAULT_MODEL);
 }
 
-#[test]
-fn invalid_json_fails_fast() {
+#[tokio::test]
+async fn invalid_json_fails_fast() {
     let dir = tempdir().unwrap();
     let path = dir.path().join("config.json");
     fs::write(&path, "{broken json").unwrap();
@@ -30,8 +30,8 @@ fn invalid_json_fails_fast() {
     assert!(err.to_string().contains("加载配置失败"));
 }
 
-#[test]
-fn type_mismatch_fails_fast() {
+#[tokio::test]
+async fn type_mismatch_fails_fast() {
     let dir = tempdir().unwrap();
     let path = dir.path().join("config.json");
     // maxTokens 期望无符号整数，负数应作为解析错误快速失败。

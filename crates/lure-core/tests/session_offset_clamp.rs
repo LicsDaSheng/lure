@@ -16,28 +16,28 @@ fn session(count: usize, offset: Value) -> Session {
     Session::with_messages("chan:chat", messages(count), &offset)
 }
 
-#[test]
-fn out_of_range_offset_is_reset() {
+#[tokio::test]
+async fn out_of_range_offset_is_reset() {
     assert_eq!(session(10, json!(999)).last_consolidated(), 0);
     assert_eq!(session(3, json!(-5)).last_consolidated(), 0);
 }
 
-#[test]
-fn non_integer_offset_is_reset() {
+#[tokio::test]
+async fn non_integer_offset_is_reset() {
     for offset in [json!("999"), json!(null), json!(0.5), json!(true)] {
         assert_eq!(session(3, offset).last_consolidated(), 0);
     }
 }
 
-#[test]
-fn valid_offset_is_preserved() {
+#[tokio::test]
+async fn valid_offset_is_preserved() {
     let session = session(10, json!(4));
     assert_eq!(session.last_consolidated(), 4);
     assert_eq!(session.get_history(0).len(), 6);
 }
 
-#[test]
-fn loaded_corrupt_offset_keeps_messages() {
+#[tokio::test]
+async fn loaded_corrupt_offset_keeps_messages() {
     for offset in [json!("999"), json!(null), json!(0.5), json!(true)] {
         let dir = tempdir().unwrap();
         let mut manager = SessionManager::new(dir.path()).unwrap();

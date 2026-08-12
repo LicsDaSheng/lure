@@ -52,8 +52,8 @@ fn loader(workspace: &Path, builtin: &Path) -> SkillsLoader {
 
 // —— list_skills 基础 —— //
 
-#[test]
-fn empty_when_skills_dir_missing() {
+#[tokio::test]
+async fn empty_when_skills_dir_missing() {
     let d = TempDir::new().unwrap();
     let ws = d.path().join("ws");
     std::fs::create_dir_all(&ws).unwrap();
@@ -62,8 +62,8 @@ fn empty_when_skills_dir_missing() {
     assert!(loader(&ws, &builtin).list_skills(false).is_empty());
 }
 
-#[test]
-fn empty_when_skills_dir_exists_but_empty() {
+#[tokio::test]
+async fn empty_when_skills_dir_exists_but_empty() {
     let d = TempDir::new().unwrap();
     let ws = d.path().join("ws");
     std::fs::create_dir_all(ws.join("skills")).unwrap();
@@ -72,8 +72,8 @@ fn empty_when_skills_dir_exists_but_empty() {
     assert!(loader(&ws, &builtin).list_skills(false).is_empty());
 }
 
-#[test]
-fn workspace_entry_shape_and_source() {
+#[tokio::test]
+async fn workspace_entry_shape_and_source() {
     let d = TempDir::new().unwrap();
     let ws = d.path().join("ws");
     let skills_root = ws.join("skills");
@@ -86,8 +86,8 @@ fn workspace_entry_shape_and_source() {
     assert_eq!(entries, vec![entry("alpha", &path, "workspace")]);
 }
 
-#[test]
-fn skips_non_directories_and_missing_skill_md() {
+#[tokio::test]
+async fn skips_non_directories_and_missing_skill_md() {
     let d = TempDir::new().unwrap();
     let ws = d.path().join("ws");
     let skills_root = ws.join("skills");
@@ -102,8 +102,8 @@ fn skips_non_directories_and_missing_skill_md() {
     assert_eq!(entries, vec![entry("ok", &ok_path, "workspace")]);
 }
 
-#[test]
-fn workspace_shadows_builtin_same_name() {
+#[tokio::test]
+async fn workspace_shadows_builtin_same_name() {
     let d = TempDir::new().unwrap();
     let ws = d.path().join("ws");
     let ws_skills = ws.join("skills");
@@ -116,8 +116,8 @@ fn workspace_shadows_builtin_same_name() {
     assert_eq!(entries, vec![entry("dup", &ws_path, "workspace")]);
 }
 
-#[test]
-fn merges_workspace_and_builtin() {
+#[tokio::test]
+async fn merges_workspace_and_builtin() {
     let d = TempDir::new().unwrap();
     let ws = d.path().join("ws");
     let ws_skills = ws.join("skills");
@@ -137,8 +137,8 @@ fn merges_workspace_and_builtin() {
     );
 }
 
-#[test]
-fn builtin_omitted_when_dir_missing() {
+#[tokio::test]
+async fn builtin_omitted_when_dir_missing() {
     let d = TempDir::new().unwrap();
     let ws = d.path().join("ws");
     let ws_skills = ws.join("skills");
@@ -152,8 +152,8 @@ fn builtin_omitted_when_dir_missing() {
 
 // —— 需求过滤（which/env 注入）—— //
 
-#[test]
-fn filter_unavailable_excludes_unmet_bin() {
+#[tokio::test]
+async fn filter_unavailable_excludes_unmet_bin() {
     let d = TempDir::new().unwrap();
     let ws = d.path().join("ws");
     let skills_root = ws.join("skills");
@@ -172,8 +172,8 @@ fn filter_unavailable_excludes_unmet_bin() {
     assert!(l.list_skills(true).is_empty());
 }
 
-#[test]
-fn filter_unavailable_includes_when_bin_met() {
+#[tokio::test]
+async fn filter_unavailable_includes_when_bin_met() {
     let d = TempDir::new().unwrap();
     let ws = d.path().join("ws");
     let skills_root = ws.join("skills");
@@ -195,8 +195,8 @@ fn filter_unavailable_includes_when_bin_met() {
     );
 }
 
-#[test]
-fn filter_unavailable_false_keeps_unmet() {
+#[tokio::test]
+async fn filter_unavailable_false_keeps_unmet() {
     let d = TempDir::new().unwrap();
     let ws = d.path().join("ws");
     let skills_root = ws.join("skills");
@@ -217,8 +217,8 @@ fn filter_unavailable_false_keeps_unmet() {
     );
 }
 
-#[test]
-fn filter_unavailable_excludes_unmet_env() {
+#[tokio::test]
+async fn filter_unavailable_excludes_unmet_env() {
     let d = TempDir::new().unwrap();
     let ws = d.path().join("ws");
     let skills_root = ws.join("skills");
@@ -236,8 +236,8 @@ fn filter_unavailable_excludes_unmet_env() {
     assert!(l.list_skills(true).is_empty());
 }
 
-#[test]
-fn openclaw_metadata_parsed_for_requirements() {
+#[tokio::test]
+async fn openclaw_metadata_parsed_for_requirements() {
     let d = TempDir::new().unwrap();
     let ws = d.path().join("ws");
     let skills_root = ws.join("skills");
@@ -271,8 +271,8 @@ fn openclaw_metadata_parsed_for_requirements() {
 
 // —— disabled —— //
 
-#[test]
-fn disabled_excluded_from_list() {
+#[tokio::test]
+async fn disabled_excluded_from_list() {
     let d = TempDir::new().unwrap();
     let ws = d.path().join("ws");
     let ws_skills = ws.join("skills");
@@ -288,8 +288,8 @@ fn disabled_excluded_from_list() {
     assert_eq!(entries, vec![entry("beta", &beta, "workspace")]);
 }
 
-#[test]
-fn disabled_empty_set_no_effect() {
+#[tokio::test]
+async fn disabled_empty_set_no_effect() {
     let d = TempDir::new().unwrap();
     let ws = d.path().join("ws");
     let ws_skills = ws.join("skills");
@@ -302,8 +302,8 @@ fn disabled_empty_set_no_effect() {
     assert_eq!(loader(&ws, &builtin).list_skills(false).len(), 2);
 }
 
-#[test]
-fn disabled_excluded_from_summary() {
+#[tokio::test]
+async fn disabled_excluded_from_summary() {
     let d = TempDir::new().unwrap();
     let ws = d.path().join("ws");
     let ws_skills = ws.join("skills");
@@ -319,8 +319,8 @@ fn disabled_excluded_from_summary() {
     assert!(summary.contains("beta"));
 }
 
-#[test]
-fn disabled_excluded_from_get_always_skills() {
+#[tokio::test]
+async fn disabled_excluded_from_get_always_skills() {
     let d = TempDir::new().unwrap();
     let ws = d.path().join("ws");
     let ws_skills = ws.join("skills");
@@ -340,8 +340,8 @@ fn disabled_excluded_from_get_always_skills() {
 
 // —— build_skills_summary 分组 —— //
 
-#[test]
-fn summary_groups_paths_by_root() {
+#[tokio::test]
+async fn summary_groups_paths_by_root() {
     let d = TempDir::new().unwrap();
     let ws = d.path().join("ws");
     let ws_skills = ws.join("skills");
@@ -369,8 +369,8 @@ fn summary_groups_paths_by_root() {
 
 // —— YAML 类型 —— //
 
-#[test]
-fn get_skill_metadata_handles_yaml_types() {
+#[tokio::test]
+async fn get_skill_metadata_handles_yaml_types() {
     let d = TempDir::new().unwrap();
     let ws = d.path().join("ws");
     let ws_skills = ws.join("skills");
@@ -390,8 +390,8 @@ fn get_skill_metadata_handles_yaml_types() {
     assert!(meta.get("metadata").is_some_and(|v| v.is_object()));
 }
 
-#[test]
-fn summary_folded_description() {
+#[tokio::test]
+async fn summary_folded_description() {
     let d = TempDir::new().unwrap();
     let ws = d.path().join("ws");
     let ws_skills = ws.join("skills");
@@ -409,8 +409,8 @@ fn summary_folded_description() {
     assert!(summary.contains("visual quality"));
 }
 
-#[test]
-fn literal_description_parsed() {
+#[tokio::test]
+async fn literal_description_parsed() {
     let d = TempDir::new().unwrap();
     let ws = d.path().join("ws");
     let ws_skills = ws.join("skills");
@@ -431,8 +431,8 @@ fn literal_description_parsed() {
 
 // —— load_skill / context —— //
 
-#[test]
-fn load_skills_for_context_strips_frontmatter() {
+#[tokio::test]
+async fn load_skills_for_context_strips_frontmatter() {
     let d = TempDir::new().unwrap();
     let ws = d.path().join("ws");
     let ws_skills = ws.join("skills");

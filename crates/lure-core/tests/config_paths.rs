@@ -7,32 +7,32 @@ use lure_core::config::{
     default_config_path, default_workspace, home_dir, is_default_workspace, resolve_workspace,
 };
 
-#[test]
-fn config_path_defaults_to_nanobot_home() {
+#[tokio::test]
+async fn config_path_defaults_to_nanobot_home() {
     assert_eq!(
         default_config_path(),
         home_dir().join(".nanobot").join("config.json")
     );
 }
 
-#[test]
-fn workspace_defaults_to_nanobot_home() {
+#[tokio::test]
+async fn workspace_defaults_to_nanobot_home() {
     assert_eq!(
         resolve_workspace(None),
         home_dir().join(".nanobot").join("workspace")
     );
 }
 
-#[test]
-fn custom_workspace_expands_tilde() {
+#[tokio::test]
+async fn custom_workspace_expands_tilde() {
     assert_eq!(
         resolve_workspace(Some("~/custom-workspace")),
         home_dir().join("custom-workspace")
     );
 }
 
-#[test]
-fn is_default_workspace_distinguishes_default_and_custom() {
+#[tokio::test]
+async fn is_default_workspace_distinguishes_default_and_custom() {
     assert!(is_default_workspace(None));
 
     let default = default_workspace();

@@ -15,31 +15,31 @@ use serde_json::json;
 
 // —— 名称净化 —— //
 
-#[test]
-fn sanitize_replaces_illegal_chars() {
+#[tokio::test]
+async fn sanitize_replaces_illegal_chars() {
     assert_eq!(sanitize_name("foo bar"), "foo_bar");
     assert_eq!(sanitize_name("a@b#c"), "a_b_c");
     // 合法字符（字母数字、下划线、连字符）保留。
     assert_eq!(sanitize_name("foo-bar_1"), "foo-bar_1");
 }
 
-#[test]
-fn sanitize_collapses_repeated_underscores() {
+#[tokio::test]
+async fn sanitize_collapses_repeated_underscores() {
     // 多个非法字符相邻折叠为单个下划线。
     assert_eq!(sanitize_name("a  b"), "a_b");
     assert_eq!(sanitize_name("x@@@y"), "x_y");
     assert_eq!(sanitize_name("a_b__c"), "a_b_c");
 }
 
-#[test]
-fn limit_keeps_short_names_unchanged() {
+#[tokio::test]
+async fn limit_keeps_short_names_unchanged() {
     assert_eq!(limit_tool_name("short_name"), "short_name");
     let exactly_64 = "a".repeat(64);
     assert_eq!(limit_tool_name(&exactly_64), exactly_64);
 }
 
-#[test]
-fn limit_truncates_long_names_with_hash_suffix() {
+#[tokio::test]
+async fn limit_truncates_long_names_with_hash_suffix() {
     let long = "a".repeat(100);
     let limited = limit_tool_name(&long);
     assert_eq!(limited.chars().count(), 64, "限长至 64");
@@ -53,8 +53,8 @@ fn limit_truncates_long_names_with_hash_suffix() {
     assert_eq!(limit_tool_name(&long), limited);
 }
 
-#[test]
-fn sanitize_mcp_tool_name_combines_sanitize_and_limit() {
+#[tokio::test]
+async fn sanitize_mcp_tool_name_combines_sanitize_and_limit() {
     let name = format!("mcp test {}", "z".repeat(100));
     let result = sanitize_mcp_tool_name(&name);
     assert!(result.chars().count() <= 64);
@@ -64,8 +64,8 @@ fn sanitize_mcp_tool_name_combines_sanitize_and_limit() {
 
 // —— schema 归一 —— //
 
-#[test]
-fn preserves_non_nullable_unions() {
+#[tokio::test]
+async fn preserves_non_nullable_unions() {
     let schema = json!({
         "type": "object",
         "properties": {
@@ -79,8 +79,8 @@ fn preserves_non_nullable_unions() {
     );
 }
 
-#[test]
-fn normalizes_nullable_type_union() {
+#[tokio::test]
+async fn normalizes_nullable_type_union() {
     let schema = json!({
         "type": "object",
         "properties": {"name": {"type": ["string", "null"]}}
@@ -92,8 +92,8 @@ fn normalizes_nullable_type_union() {
     );
 }
 
-#[test]
-fn normalizes_nullable_anyof_merging_branch() {
+#[tokio::test]
+async fn normalizes_nullable_anyof_merging_branch() {
     let schema = json!({
         "type": "object",
         "properties": {
@@ -110,21 +110,21 @@ fn normalizes_nullable_anyof_merging_branch() {
     );
 }
 
-#[test]
-fn non_object_schema_falls_back() {
+#[tokio::test]
+async fn non_object_schema_falls_back() {
     let out = normalize_schema_for_openai(&json!("not a schema"));
     assert_eq!(out, json!({"type": "object", "properties": {}}));
 }
 
-#[test]
-fn object_gets_properties_and_required_defaults() {
+#[tokio::test]
+async fn object_gets_properties_and_required_defaults() {
     let out = normalize_schema_for_openai(&json!({"type": "object"}));
     assert_eq!(out["properties"], json!({}));
     assert_eq!(out["required"], json!([]));
 }
 
-#[test]
-fn recurses_into_items() {
+#[tokio::test]
+async fn recurses_into_items() {
     let schema = json!({
         "type": "array",
         "items": {"type": ["string", "null"]}
@@ -135,8 +135,8 @@ fn recurses_into_items() {
 
 // —— JSON-RPC 畸形进度通知检测 —— //
 
-#[test]
-fn malformed_progress_without_token_is_detected() {
+#[tokio::test]
+async fn malformed_progress_without_token_is_detected() {
     let msg = json!({
         "jsonrpc": "2.0",
         "method": "notifications/progress",
@@ -145,8 +145,8 @@ fn malformed_progress_without_token_is_detected() {
     assert!(is_malformed_progress_notification(&msg));
 }
 
-#[test]
-fn progress_with_token_is_valid() {
+#[tokio::test]
+async fn progress_with_token_is_valid() {
     let msg = json!({
         "jsonrpc": "2.0",
         "method": "notifications/progress",
@@ -155,8 +155,8 @@ fn progress_with_token_is_valid() {
     assert!(!is_malformed_progress_notification(&msg));
 }
 
-#[test]
-fn non_progress_method_is_not_malformed() {
+#[tokio::test]
+async fn non_progress_method_is_not_malformed() {
     let msg = json!({
         "jsonrpc": "2.0",
         "method": "tools/list",

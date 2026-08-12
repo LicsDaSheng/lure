@@ -28,12 +28,13 @@ impl Default for EchoProvider {
     }
 }
 
+#[async_trait::async_trait]
 impl LlmProvider for EchoProvider {
     fn default_model(&self) -> &str {
         &self.model
     }
 
-    fn complete(&self, request: &CompletionRequest) -> Result<LlmResponse, ProviderError> {
+    async fn complete(&self, request: &CompletionRequest) -> Result<LlmResponse, ProviderError> {
         let last_user = request
             .messages
             .iter()

@@ -25,7 +25,8 @@ use lure_core::bus::InboundMessage;
 use lure_core::config::{default_workspace, home_dir, save_config, Config};
 use lure_core::session::SessionManager;
 
-fn main() -> ExitCode {
+#[tokio::main]
+async fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
 
     match args.first().map(String::as_str) {
@@ -39,7 +40,7 @@ fn main() -> ExitCode {
                 ExitCode::FAILURE
             }
         },
-        Some("agent") => match run_agent(&args[1..]) {
+        Some("agent") => match run_agent(&args[1..]).await {
             Ok(run) => {
                 if let AgentRun::Single(reply) = run {
                     // 思维链走 stderr（保持 stdout 为纯答案、可脚本化），答案走 stdout。
@@ -269,7 +270,7 @@ enum AgentRun {
 ///
 /// `--preset` 与 `--model` 互斥：前者从加载的 config 选中命名 preset，后者覆盖默认
 /// preset 的 model。
-fn run_agent(args: &[String]) -> Result<AgentRun, String> {
+async fn run_agent(args: &[String]) -> Result<AgentRun, String> {
     let mut message: Option<String> = None;
     let mut session_id = String::from("cli:direct");
     let mut workspace: Option<String> = None;
@@ -339,17 +340,18 @@ fn run_agent(args: &[String]) -> Result<AgentRun, String> {
     match message {
         Some(message) => {
             let reply =
-                process_cli_turn(&mut agent_loop, &channel, &chat_id, message, show_reasoning)?;
+                process_cli_turn(&mut agent_loop, &channel, &chat_id, message, show_reasoning)
+                    .await?;
             Ok(AgentRun::Single(reply))
         }
         None => {
-            run_interactive(agent_loop, &channel, &chat_id, show_reasoning)?;
+            run_interactive(agent_loop, &channel, &chat_id, show_reasoning).await?;
             Ok(AgentRun::Interactive)
         }
     }
 }
 
-fn process_cli_turn(
+async fn process_cli_turn(
     agent_loop: &mut AgentLoop,
     channel: &str,
     chat_id: &str,
@@ -357,7 +359,10 @@ fn process_cli_turn(
     show_reasoning: bool,
 ) -> Result<AgentReply, String> {
     let input = InboundMessage::new(channel, chat_id, message);
-    let outcome = agent_loop.process(&input).map_err(|e| e.to_string())?;
+    let outcome = agent_loop
+        .process(&input)
+        .await
+        .map_err(|e| e.to_string())?;
     Ok(AgentReply {
         final_content: outcome.final_content,
         reasoning: if show_reasoning {
@@ -651,7 +656,7 @@ extern "C" fn on_sigint(_sig: libc::c_int) {
     }
 }
 
-fn run_interactive(
+async fn run_interactive(
     agent_loop: AgentLoop,
     channel: &str,
     chat_id: &str,
@@ -678,7 +683,8 @@ fn run_interactive(
         chat_id,
         show_reasoning,
         &cancel,
-    );
+    )
+    .await;
 
     // 复位信号处理与指针，避免退出后悬垂：先摘 handler 再清空指针。
     unsafe { libc::signal(libc::SIGINT, libc::SIG_DFL) };
@@ -688,7 +694,7 @@ fn run_interactive(
 
 /// 交互主循环：读一行 → 驱动一轮流式 → 渲染/中断处理。抽出为独立函数，使
 /// [`run_interactive`] 能在其返回后统一复位信号处理与 [`CANCEL_PTR`]。
-fn run_interactive_loop(
+async fn run_interactive_loop(
     agent_loop: &mut AgentLoop,
     stdin: &mut impl BufRead,
     channel: &str,
@@ -749,46 +755,49 @@ fn run_interactive_loop(
         // 初始标签「Thinking」：等待模型开始响应。工具轮会切到「Calling <tool>」。
         let mut animator =
             SpinnerAnimator::new(io::stdout(), Spinner::new("Thinking"), SPINNER_INTERVAL);
-        let result = agent_loop.process_streaming(&input, &mut |event| match event {
-            // 动画已在跑，TurnStarted 无需额外处理。
-            ProgressEvent::TurnStarted { .. } => {}
-            ProgressEvent::ContentDelta { text } => {
-                // 已按 Ctrl-C：停止渲染后续增量（core 会在流后作废本轮）。
-                if cancel.load(Ordering::Relaxed) {
-                    return;
+        let result = agent_loop
+            .process_streaming(&input, &mut |event| match &event {
+                // 动画已在跑，TurnStarted 无需额外处理。
+                ProgressEvent::TurnStarted { .. } => {}
+                ProgressEvent::ContentDelta { text } => {
+                    // 已按 Ctrl-C：停止渲染后续增量（core 会在流后作废本轮）。
+                    if cancel.load(Ordering::Relaxed) {
+                        return;
+                    }
+                    animator.suspend(|out| {
+                        let _ = renderer.push(out, text);
+                    });
                 }
-                animator.suspend(|out| {
-                    let _ = renderer.push(out, text);
-                });
-            }
-            ProgressEvent::ReasoningDelta { text } => {
-                if show_reasoning {
-                    streamed_reasoning = true;
-                    if let Some(sentence) = reasoning_buffer.add(text) {
-                        // 推理写 stderr，仍经 suspend 擦除 spinner（stdout）并暂停动画。
-                        animator.suspend(|_out| {
-                            eprintln!("✻ {sentence}");
-                        });
+                ProgressEvent::ReasoningDelta { text } => {
+                    if show_reasoning {
+                        streamed_reasoning = true;
+                        if let Some(sentence) = reasoning_buffer.add(text) {
+                            // 推理写 stderr，仍经 suspend 擦除 spinner（stdout）并暂停动画。
+                            animator.suspend(|_out| {
+                                eprintln!("✻ {sentence}");
+                            });
+                        }
                     }
                 }
-            }
-            ProgressEvent::ToolInvoked { name } => {
-                animator.suspend(|out| {
-                    if let Some(line) = format_progress_line(event) {
-                        let _ = renderer.line(out, &line);
-                    }
-                });
-                // 工具执行 + 等待模型下一段：标签切到当前工具，恢复滚动。
-                animator.set_label(format!("Calling {name}"));
-                animator.resume();
-            }
-            // 进入 finalization：切标签为「Finalizing」（spinner 继续滚动，无需断行）。
-            ProgressEvent::Finalizing => {
-                animator.set_label("Finalizing");
-            }
-            // 其它非内容事件（如 FinalResponse）无需在等待指示器上体现。
-            ProgressEvent::FinalResponse { .. } => {}
-        });
+                ProgressEvent::ToolInvoked { name } => {
+                    let line = format_progress_line(&event);
+                    animator.suspend(|out| {
+                        if let Some(line) = &line {
+                            let _ = renderer.line(out, line);
+                        }
+                    });
+                    // 工具执行 + 等待模型下一段：标签切到当前工具，恢复滚动。
+                    animator.set_label(format!("Calling {name}"));
+                    animator.resume();
+                }
+                // 进入 finalization：切标签为「Finalizing」（spinner 继续滚动，无需断行）。
+                ProgressEvent::Finalizing => {
+                    animator.set_label("Finalizing");
+                }
+                // 其它非内容事件（如 FinalResponse）无需在等待指示器上体现。
+                ProgressEvent::FinalResponse { .. } => {}
+            })
+            .await;
         // 停止动画线程并擦除残帧，然后再处理结果/收尾输出。
         animator.stop();
         // 单轮 provider/turn 错误不终止会话：打印到 stderr（保持 stdout 干净）后回到提示符。

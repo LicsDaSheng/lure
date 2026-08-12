@@ -15,15 +15,16 @@ use tungstenite::{client::connect, Message};
 
 struct ScriptedRunner;
 
+#[async_trait::async_trait]
 impl TurnRunner for ScriptedRunner {
-    fn run_turn(
+    async fn run_turn(
         &mut self,
         _chat_id: &str,
         _content: &str,
-        on_progress: &mut dyn FnMut(&ProgressEvent),
+        on_progress: &mut (dyn FnMut(ProgressEvent) + Send),
     ) -> Result<String, String> {
-        on_progress(&ProgressEvent::ContentDelta { text: "你".into() });
-        on_progress(&ProgressEvent::ContentDelta { text: "好".into() });
+        on_progress(ProgressEvent::ContentDelta { text: "你".into() });
+        on_progress(ProgressEvent::ContentDelta { text: "好".into() });
         Ok("你好".to_string())
     }
 }
@@ -34,7 +35,14 @@ fn bind(
     WsServer<impl FnMut() -> ScriptedRunner, ScriptedRunner>,
     SocketAddr,
 ) {
-    let server = WsServer::bind("127.0.0.1:0", || ScriptedRunner, issuer, None).unwrap();
+    let server = WsServer::bind(
+        "127.0.0.1:0",
+        || ScriptedRunner,
+        issuer,
+        None,
+        tokio::runtime::Handle::current(),
+    )
+    .unwrap();
     let addr = server.local_addr().unwrap();
     (server, addr)
 }
@@ -58,8 +66,8 @@ fn read_frame(ws: &mut tungstenite::WebSocket<impl std::io::Read + std::io::Writ
     }
 }
 
-#[test]
-fn rejects_missing_or_unknown_token() {
+#[tokio::test]
+async fn rejects_missing_or_unknown_token() {
     let issuer = Arc::new(Mutex::new(TokenIssuer::new(3600, 16)));
     let (mut server, addr) = bind(issuer);
 
@@ -82,8 +90,8 @@ fn thread_connect(addr: SocketAddr, query: &str) -> std::thread::JoinHandle<Resu
     })
 }
 
-#[test]
-fn full_turn_over_real_websocket() {
+#[tokio::test]
+async fn full_turn_over_real_websocket() {
     let issuer = Arc::new(Mutex::new(TokenIssuer::new(3600, 16)));
     let token = issuer.lock().unwrap().issue().token;
     let (mut server, addr) = bind(issuer);
@@ -137,8 +145,8 @@ fn full_turn_over_real_websocket() {
     let _ = handle.join();
 }
 
-#[test]
-fn hub_push_reaches_attached_connection() {
+#[tokio::test]
+async fn hub_push_reaches_attached_connection() {
     // 服务端主动推送（cron 定时产出）→ 已 attach 该会话的在线连接实时收到，无需刷新。
     let issuer = Arc::new(Mutex::new(TokenIssuer::new(3600, 16)));
     let token = issuer.lock().unwrap().issue().token;
@@ -188,8 +196,8 @@ fn hub_push_reaches_attached_connection() {
     let _ = handle.join();
 }
 
-#[test]
-fn agent_turn_runner_drives_agent_loop_streaming() {
+#[tokio::test]
+async fn agent_turn_runner_drives_agent_loop_streaming() {
     let dir = TempDir::new().unwrap();
     let sessions = SessionManager::new(dir.path()).unwrap();
     let agent = AgentLoop::new(
@@ -206,6 +214,7 @@ fn agent_turn_runner_drives_agent_loop_streaming() {
                 deltas.push(text.clone());
             }
         })
+        .await
         .unwrap();
     assert_eq!(final_text, "echo: ping");
 
@@ -215,8 +224,8 @@ fn agent_turn_runner_drives_agent_loop_streaming() {
     assert_eq!(session.messages.len(), 2);
 }
 
-#[test]
-fn mux_session_accepts_agent_turn_runner_end_to_end() {
+#[tokio::test]
+async fn mux_session_accepts_agent_turn_runner_end_to_end() {
     let dir = TempDir::new().unwrap();
     let build = || {
         let sessions = SessionManager::new(dir.path()).unwrap();
@@ -226,7 +235,7 @@ fn mux_session_accepts_agent_turn_runner_end_to_end() {
             ContextBuilder::new(None),
         ))
     };
-    let mut mux = MuxSession::new(build());
+    let mut mux = MuxSession::new(build(), tokio::runtime::Handle::current());
     let out = mux::collect_frames(
         &mut mux,
         &json!({"type": "message", "chat_id": "c1", "content": "ping"}),

@@ -1,16 +1,15 @@
 //! Channel 契约与测试用记录 channel。
 
-use std::cell::RefCell;
 use std::fmt;
-use std::rc::Rc;
+use std::sync::{Arc, Mutex};
 
 use crate::bus::{OutboundMessage, ProgressUpdate};
 
 /// 共享的投递记录日志。
-pub type DeliveryLog = Rc<RefCell<Vec<OutboundMessage>>>;
+pub type DeliveryLog = Arc<Mutex<Vec<OutboundMessage>>>;
 
 /// 共享的 progress 记录日志。
-pub type ProgressLog = Rc<RefCell<Vec<ProgressUpdate>>>;
+pub type ProgressLog = Arc<Mutex<Vec<ProgressUpdate>>>;
 
 /// channel 相关错误。
 #[derive(Debug, Clone, PartialEq)]
@@ -47,7 +46,7 @@ impl fmt::Display for ChannelError {
 impl std::error::Error for ChannelError {}
 
 /// chat channel 契约。
-pub trait Channel {
+pub trait Channel: Send + Sync {
     /// channel 名（用于 outbound 路由）。
     fn name(&self) -> &str;
 
@@ -77,8 +76,8 @@ impl RecordingChannel {
         Self {
             name: name.into(),
             missing_fields: Vec::new(),
-            delivered: Rc::new(RefCell::new(Vec::new())),
-            progress: Rc::new(RefCell::new(Vec::new())),
+            delivered: Arc::new(Mutex::new(Vec::new())),
+            progress: Arc::new(Mutex::new(Vec::new())),
         }
     }
 
@@ -90,17 +89,17 @@ impl RecordingChannel {
 
     /// 返回共享的投递日志（移入 gateway 后仍可从测试侧查询）。
     pub fn delivery_log(&self) -> DeliveryLog {
-        Rc::clone(&self.delivered)
+        Arc::clone(&self.delivered)
     }
 
     /// 返回共享的 progress 日志（移入 gateway 后仍可从测试侧查询）。
     pub fn progress_log(&self) -> ProgressLog {
-        Rc::clone(&self.progress)
+        Arc::clone(&self.progress)
     }
 
     /// 已投递的消息快照。
     pub fn delivered(&self) -> Vec<OutboundMessage> {
-        self.delivered.borrow().clone()
+        self.delivered.lock().unwrap().clone()
     }
 }
 
@@ -121,12 +120,12 @@ impl Channel for RecordingChannel {
     }
 
     fn deliver(&self, message: &OutboundMessage) -> Result<(), ChannelError> {
-        self.delivered.borrow_mut().push(message.clone());
+        self.delivered.lock().unwrap().push(message.clone());
         Ok(())
     }
 
     fn deliver_progress(&self, update: &ProgressUpdate) -> Result<(), ChannelError> {
-        self.progress.borrow_mut().push(update.clone());
+        self.progress.lock().unwrap().push(update.clone());
         Ok(())
     }
 }

@@ -13,16 +13,16 @@ fn usage(pairs: &[(&str, i64)]) -> Map<String, Value> {
         .collect()
 }
 
-#[test]
-fn error_body_shape() {
+#[tokio::test]
+async fn error_body_shape() {
     let body = error_body(400, "bad request", "invalid_request_error");
     assert_eq!(body["error"]["message"], "bad request");
     assert_eq!(body["error"]["code"], 400);
     assert_eq!(body["error"]["type"], "invalid_request_error");
 }
 
-#[test]
-fn chat_completion_response_shape_and_usage() {
+#[tokio::test]
+async fn chat_completion_response_shape_and_usage() {
     let result = chat_completion_response("hello world", "test-model", &Map::new());
     assert_eq!(result["object"], "chat.completion");
     assert_eq!(result["model"], "test-model");
@@ -46,8 +46,8 @@ fn chat_completion_response_shape_and_usage() {
     assert_eq!(total_only["usage"]["total_tokens"], 77);
 }
 
-#[test]
-fn parse_request_requires_single_user_message() {
+#[tokio::test]
+async fn parse_request_requires_single_user_message() {
     // 缺 messages。
     let err = parse_chat_request(&json!({"model": "test"})).unwrap_err();
     assert_eq!(err.status, 400);
@@ -73,8 +73,8 @@ fn parse_request_requires_single_user_message() {
     assert_eq!(parsed.model, None);
 }
 
-#[test]
-fn parse_request_extracts_multimodal_text_and_stream_flag() {
+#[tokio::test]
+async fn parse_request_extracts_multimodal_text_and_stream_flag() {
     let parsed = parse_chat_request(&json!({
         "model": "m",
         "stream": true,
@@ -90,16 +90,16 @@ fn parse_request_extracts_multimodal_text_and_stream_flag() {
     assert_eq!(parsed.model.as_deref(), Some("m"));
 }
 
-#[test]
-fn validate_model_rejects_mismatch() {
+#[tokio::test]
+async fn validate_model_rejects_mismatch() {
     assert!(validate_model(None, "test-model").is_ok());
     assert!(validate_model(Some("test-model"), "test-model").is_ok());
     let err = validate_model(Some("other-model"), "test-model").unwrap_err();
     assert_eq!(err.status, 400);
 }
 
-#[test]
-fn authorize_allows_when_no_key_and_checks_bearer() {
+#[tokio::test]
+async fn authorize_allows_when_no_key_and_checks_bearer() {
     // 未配置 key：放行（含无 header）。
     assert!(authorize(None, None).is_ok());
     assert!(authorize(Some(""), None).is_ok());
@@ -115,15 +115,15 @@ fn authorize_allows_when_no_key_and_checks_bearer() {
     assert_eq!(authorize(Some("secret"), None).unwrap_err().status, 401);
 }
 
-#[test]
-fn api_session_key_is_fixed_by_default() {
+#[tokio::test]
+async fn api_session_key_is_fixed_by_default() {
     assert_eq!(api_session_key(None), API_SESSION_KEY);
     assert_eq!(api_session_key(Some("")), API_SESSION_KEY);
     assert_eq!(api_session_key(Some("u1")), "api:u1");
 }
 
-#[test]
-fn sse_chunks_have_ordered_content_finish_done() {
+#[tokio::test]
+async fn sse_chunks_have_ordered_content_finish_done() {
     let chunks = sse_chunks("hi", "test-model", "chatcmpl-abc");
     assert_eq!(chunks.len(), 3);
 
@@ -143,8 +143,8 @@ fn sse_chunks_have_ordered_content_finish_done() {
     assert_eq!(chunks[2], "data: [DONE]\n\n");
 }
 
-#[test]
-fn api_error_body_roundtrips() {
+#[tokio::test]
+async fn api_error_body_roundtrips() {
     let err = ApiError::invalid_request(400, "no messages");
     let body = err.body();
     assert_eq!(body["error"]["code"], 400);

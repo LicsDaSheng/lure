@@ -17,8 +17,8 @@ fn bound_job(payload: CronPayload) -> CronJob {
     }
 }
 
-#[test]
-fn origin_context_uses_explicit_origin_fields() {
+#[tokio::test]
+async fn origin_context_uses_explicit_origin_fields() {
     let metadata = json!({"thread_id": "777", "parent_channel_id": "456"});
     let payload = CronPayload {
         message: "check".to_string(),
@@ -34,8 +34,8 @@ fn origin_context_uses_explicit_origin_fields() {
     assert_eq!(returned.get("thread_id").unwrap(), "777");
 }
 
-#[test]
-fn origin_context_rejects_missing_origin_fields() {
+#[tokio::test]
+async fn origin_context_rejects_missing_origin_fields() {
     let payload = CronPayload {
         message: "check".to_string(),
         session_key: Some("websocket:chat-1".to_string()),

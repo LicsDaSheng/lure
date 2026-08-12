@@ -3,7 +3,7 @@
 //! 后续 phase 的集成测试按上游领域拆分文件，例如
 //! `session_goal_state.rs`、`loop_runner_integration.rs` 等。
 
-#[test]
-fn public_version_api_is_reachable() {
+#[tokio::test]
+async fn public_version_api_is_reachable() {
     assert!(!lure_core::version().is_empty());
 }

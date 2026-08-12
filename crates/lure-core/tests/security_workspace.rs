@@ -14,8 +14,8 @@ fn ws(dir: &Path) -> PathBuf {
     workspace
 }
 
-#[test]
-fn accepts_workspace_relative_path() {
+#[tokio::test]
+async fn accepts_workspace_relative_path() {
     let dir = tempdir().unwrap();
     let workspace = ws(dir.path());
     let target = workspace.join("src").join("main.rs");
@@ -33,8 +33,8 @@ fn accepts_workspace_relative_path() {
     assert_eq!(resolved, std::fs::canonicalize(&target).unwrap());
 }
 
-#[test]
-fn blocks_parent_traversal_shapes() {
+#[tokio::test]
+async fn blocks_parent_traversal_shapes() {
     let dir = tempdir().unwrap();
     let workspace = ws(dir.path());
     std::fs::write(dir.path().join("secret.txt"), "secret").unwrap();
@@ -60,8 +60,8 @@ fn blocks_parent_traversal_shapes() {
     }
 }
 
-#[test]
-fn blocks_prefix_sibling_directory() {
+#[tokio::test]
+async fn blocks_prefix_sibling_directory() {
     let dir = tempdir().unwrap();
     let workspace = ws(dir.path());
     let sibling = dir.path().join("workspace-other");
@@ -74,8 +74,8 @@ fn blocks_prefix_sibling_directory() {
 }
 
 #[cfg(unix)]
-#[test]
-fn blocks_symlink_escape() {
+#[tokio::test]
+async fn blocks_symlink_escape() {
     let dir = tempdir().unwrap();
     let workspace = ws(dir.path());
     let outside = dir.path().join("outside");
@@ -96,8 +96,8 @@ fn blocks_symlink_escape() {
     assert!(matches!(err, Err(WorkspaceBoundaryError { .. })));
 }
 
-#[test]
-fn allows_extra_root() {
+#[tokio::test]
+async fn allows_extra_root() {
     let dir = tempdir().unwrap();
     let workspace = ws(dir.path());
     let media = dir.path().join("media");
@@ -116,8 +116,8 @@ fn allows_extra_root() {
     assert_eq!(resolved, std::fs::canonicalize(&image).unwrap());
 }
 
-#[test]
-fn allows_extra_file_only_exactly() {
+#[tokio::test]
+async fn allows_extra_file_only_exactly() {
     let dir = tempdir().unwrap();
     let workspace = ws(dir.path());
     let outside = dir.path().join("outside");

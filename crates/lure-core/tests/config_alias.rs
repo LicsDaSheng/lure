@@ -15,28 +15,28 @@ fn write_and_load(body: &str) -> (TempDir, Config) {
     (dir, config)
 }
 
-#[test]
-fn accepts_camel_case_keys() {
+#[tokio::test]
+async fn accepts_camel_case_keys() {
     let (_dir, config) = write_and_load(r#"{"agents":{"defaults":{"maxTokens":4096}}}"#);
     assert_eq!(config.agents.defaults.max_tokens, 4096);
 }
 
-#[test]
-fn accepts_snake_case_keys() {
+#[tokio::test]
+async fn accepts_snake_case_keys() {
     let (_dir, config) = write_and_load(r#"{"agents":{"defaults":{"max_tokens":4096}}}"#);
     assert_eq!(config.agents.defaults.max_tokens, 4096);
 }
 
-#[test]
-fn partial_config_fills_defaults() {
+#[tokio::test]
+async fn partial_config_fills_defaults() {
     let (_dir, config) = write_and_load(r#"{"agents":{"defaults":{"model":"x/y"}}}"#);
     assert_eq!(config.agents.defaults.model, "x/y");
     assert_eq!(config.agents.defaults.provider, "auto");
     assert_eq!(config.agents.defaults.max_tokens, 8192);
 }
 
-#[test]
-fn unknown_keys_are_ignored() {
+#[tokio::test]
+async fn unknown_keys_are_ignored() {
     let (_dir, config) = write_and_load(r#"{"agents":{"defaults":{"model":"x/y"}},"unknown":1}"#);
     assert_eq!(config.agents.defaults.model, "x/y");
 }

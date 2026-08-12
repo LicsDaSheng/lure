@@ -40,6 +40,8 @@ struct CronTurnRunner {
     agent: AgentLoop,
     transcript: TranscripStore,
     hub: WsHub,
+    /// cron 线程内驱动 async turn 的 runtime 句柄。
+    runtime: tokio::runtime::Handle,
 }
 
 impl CronJobRunner for CronTurnRunner {
@@ -54,7 +56,7 @@ impl CronJobRunner for CronTurnRunner {
             .session_key
             .clone()
             .unwrap_or_else(|| inbound.session_key());
-        match self.agent.process(&inbound) {
+        match lure_core::runtime::block_on(&self.runtime, self.agent.process(&inbound)) {
             Ok(outcome) => {
                 let _ = self.transcript.append_turn(
                     &session_key,
@@ -247,6 +249,7 @@ fn main() -> ExitCode {
         factory,
         issuer.clone(),
         Some(transcript.clone()),
+        rt.handle().clone(),
     ) {
         Ok(server) => server,
         Err(e) => {
@@ -321,6 +324,7 @@ fn main() -> ExitCode {
         let ws = workspace.clone();
         let transcript = cron_transcript;
         let hub = cron_hub;
+        let runtime = rt.handle().clone();
         CronScheduler::spawn(
             CronService::new(&workspace),
             move || {
@@ -337,6 +341,7 @@ fn main() -> ExitCode {
                     agent,
                     transcript,
                     hub: hub.clone(),
+                    runtime: runtime.clone(),
                 }
             },
             cron_poll_interval(),
