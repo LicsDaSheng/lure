@@ -12,9 +12,9 @@
 | Phase 4 Provider | partial | ModelRuntimeResolver、OpenAI-compatible 线协议+SSE 流式、config 驱动 provider 匹配、CLI --config/--preset/--model | OAuth 凭据、重试策略、image 生成、audio 转写（**范围决定：仅做 OpenAI-compat 一种线协议，Anthropic/Bedrock/Azure/Copilot/Codex 原生协议不做**） |
 | Phase 5 Tools | partial | Tool trait/registry、文件读写搜索（edit+grep+list）、shell 执行策略、tool-call 循环、**MCP 纯变换核心**（工具名净化/限长 + OpenAI schema 归一 + 畸形进度检测） | MCP 真实连接/会话/传输（需 MCP SDK + 异步）、apply_patch、web_search/find_files、文档解析、并行 tool、network SSRF 边界 |
 | Phase 6 Memory | partial | MemoryStore（读写/历史/迁移）、dream consolidation（FakeRunner + ProviderDreamRunner）、阈值自动触发、AgentLoop/CLI 记忆接入 | **GitStore 版本化**、**autocompact / context governance**、SOUL/USER 整合 |
-| Phase 7 Gateway | partial | Inbound/OutboundMessage、MessageBus、Channel trait + 访问控制、Gateway 编排、progress 事件传播、**pairing 配对 store**（生成/审批/撤销/TTL/命令派发，对齐上游 test_store 全覆盖） | **真实 channel 平台（telegram/discord/slack…）**、**channel manager 热加载 / plugin**、`/pairing` 命令 UI 接入（随命令路由） |
+| Phase 7 Gateway | partial | Inbound/OutboundMessage、MessageBus、Channel trait + 访问控制、Gateway 编排、progress 事件传播、**pairing 配对 store**（生成/审批/撤销/TTL/命令派发，对齐上游 test_store 全覆盖） | ~~真实 channel 平台（telegram/discord/slack…）~~（**范围决定：不做**，仅 websocket 渠道，见 async-runtime-plan）、channel manager 热加载 / plugin、`/pairing` 命令 UI 接入（随命令路由） |
 | Phase 8 Cron | partial | cron store/next-run(at/every/**cron 表达式**)/session delivery/heartbeat、trigger at-least-once、5 字段 cron + UTC/本地时区、**`cron` agent 工具**、**cron service 定时执行**、**接入 lure-desktop 长驻宿主**(常驻 CronScheduler，产出写 transcript，headless 端到端验证)、**cron 实时推送**(WsHub 在线连接注册表 + 连接读循环 drain 推送队列，cron 产出实时推给在线连接，headless 端到端验证)、**IANA 具名时区**(chrono-tz，含 DST 跳变正确处理；cron 工具接受任意合法 IANA 名) | run history、jobs.json 并发加锁 |
-| Phase 9 API | partial | ChatServer(tiny_http)、/v1/models、逐 token SSE、session 并发锁 | **SDK facade（clients/streaming/types）**、media 上传、锁接入 handler |
+| Phase 9 API | partial | ChatServer(tiny_http)、/v1/models、逐 token SSE、session 并发锁 | ~~SDK facade（clients/streaming/types）~~（**范围决定：不做**）、media 上传、锁接入 handler |
 | Phase 10 WebUI | partial | **desktop 闭环**——vendor React 前端、wry 窗口、loopback HTTP/WS、agent loop 每连接独立、transcript/webui-thread 持久化、/api 读表面全覆盖、**settings 写入大表面**(agent/provider/model-preset GET-style 写、原子落盘)、dream 接真实 provider、`--headless` + Playwright E2E 契约测试(**settings 写入面 + hermetic 种子 config 隔离**) | media 代理、非 macOS、E2E 扩面(跨会话/new-chat)+CI |
 | Phase 11 打包 | partial | config/Docker/legacy 迁移骨架、release checklist | 完整 release pipeline |
 
@@ -35,5 +35,5 @@
 | **Context governance / autocompact** | `agent/context_governance.py`(19KB)、`agent/autocompact.py` | 仅 `compact_history` 容量裁剪 | 大上下文治理策略缺失 |
 | **Turn continuation / goal 状态机** | `session/turn_continuation.py`、`session/goal_state.py` | 仅 goal 派生视图 | 多轮续跑与目标追踪缺失 |
 | **WebUI 大表面** | `media_api`/`attachment_ingress`/`token_usage`/`forking`/`workspaces`/`cli_apps_api` | 仅读表面 + settings 写 | 媒体上传/附件/用量面板/会话分叉/工作区管理缺失 |
-| **SDK facade** | `sdk/`(clients/streaming/types) | 无 | 程序化嵌入接口缺失 |
+|| ~~SDK facade~~ | `sdk/`(clients/streaming/types) | 无 | **范围决定：不做**。lure 消费面为 CLI + desktop WebUI 两条自有入口（见 async-runtime-plan） |
 | **network SSRF 安全** | `security/network.py`(10KB)、`security/workspace_access.py`(13KB) | 仅 workspace policy | 出网访问控制未建模 |

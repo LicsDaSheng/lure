@@ -91,6 +91,8 @@ BaseChannel 子类，统一进 bus，单实例 AgentLoop 常驻调度**。
 4. **进程模型取舍**：desktop 形态内**单进程多 task**，不复刻上游 multiprocessing（进程隔离在桌面场景无必要，且与内嵌 loopback 架构冲突）。
    gateway 作为 async 对象运行在同一 runtime 内；`process_runtime.py` 的子进程托管**明确不建模**，台账记录范围决定。
 5. **webui 契约不变**：axum（hyper）替换 tiny_http，`/api/*`、`/webui/bootstrap`、WS 复用协议保持字面对齐；E2E（Playwright）是守护网。
+6. **范围决定（用户确认，2026-08）**：channel 体系只做 **websocket 渠道**（WebUI channel 化）；
+   外部平台 channel（telegram/discord/slack 等）与 `lure_core::sdk`（SDK facade）**明确不实现**。
 
 ## 4. 分阶段执行计划
 
@@ -135,7 +137,7 @@ BaseChannel 子类，统一进 bus，单实例 AgentLoop 常驻调度**。
 - **改动**：cron/service.rs 线程轮询 → interval task；trigger 队列异步化；desktop 装配改 runtime 内 task。
 - **验证**：cron 相关既有测试（含实时推送端到端）+ 新增 defer 契约测试。
 
-### Stage 5：channel 异步化 + WebUI channel 化 + 第一个真实 channel
+### Stage 5：channel 异步化 + WebUI/websocket channel 化（唯一渠道）
 - **契约**：
   - `Channel` trait async（send/progress/deliver）；gateway async 编排。
   - **WebUI channel 化**（对齐 1.4 上游形态）：现有 webui 直连模式重构为
@@ -143,11 +145,12 @@ BaseChannel 子类，统一进 bus，单实例 AgentLoop 常驻调度**。
     `WsHub` 订阅簿记平移为 channel 内订阅表；`/webui/bootstrap` 与 `/api/*` 路由
     语义保持字面不变（E2E 守护）；每连接独立 AgentLoop 的隔离语义由「单实例 +
     按 session 调度」替代（隔离性不变、资源复用）。
-  - Telegram channel（reqwest polling + getUpdates/offset 语义对齐上游 telegram 模块）。
+- **范围决定**：websocket 是**唯一**真实 channel 渠道——外部平台 channel
+  （telegram/discord/slack 等上游 60K 行）**明确不实现**（见 roadmap 范围决定）。
 - **改动**：channel trait async-trait；webui 模块拆分出 `channel/websocket.rs`
-  （复用现有 WsHub/transcript/token/静态资源逻辑）；新增 `channel/telegram.rs`；
-  Gateway 改 async 编排；desktop 装配从「每连接 factory + cron 独立实例」改为
-  「单实例 AgentLoop.run() + 各 channel 注册进 bus」。
+  （复用现有 WsHub/transcript/token/静态资源逻辑）；Gateway 改 async 编排；
+  desktop 装配从「每连接 factory + cron 独立实例」改为
+  「单实例 AgentLoop.run() + websocket channel 注册进 bus」。
 - **依赖**：本阶段以 Stage 1 的 bus 消费 + 单实例调度为前提——channel 化的落点
   就是异步 AgentLoop 的 run() 循环；若 Stage 1/3 已先行，此处仅剩 trait 化与接线。
 - **验证**：channel 契约测试（mock 传输）+ gateway async 编排测试 + 既有 E2E 7 用例全绿
@@ -158,9 +161,10 @@ BaseChannel 子类，统一进 bus，单实例 AgentLoop 常驻调度**。
 - **改动**：agent/subagent.rs 簿记核心接入执行；新 `mcp` 客户端模块。
 - **验证**：上游 test_subagent/test_mcp_* 等价 Rust 测试；台账 deferred → covered。
 
-### Stage 7：SDK facade（远期）
-- `lure_core::sdk`：Nanobot 等价物（from_config/run/run_streamed/process_direct），clients/streaming/types。
-- 同步死代码删除；旧 573 测试适配/重写收尾；README/roadmap 更新。
+### Stage 7：收尾（SDK facade 明确不做）
+- **范围决定**：`lure_core::sdk`（Nanobot 等价物 from_config/run/run_streamed）**不实现**——
+  lure 的消费面是 CLI + desktop WebUI 两条自有入口，程序化嵌入无真实需求；上游 `sdk/`（679 行）不入范围。
+- **收尾**：同步死代码删除（同步 `process()` 薄层、tiny_http 残留、线程模型遗留）；旧 573 测试适配/重写收尾；README/roadmap 更新；台账最终核销。
 
 ## 5. 验证与门禁
 
