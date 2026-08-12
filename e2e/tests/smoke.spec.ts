@@ -5,10 +5,10 @@ import { test, expect } from "@playwright/test";
 test.describe.serial("webui smoke (headless backend + echo)", () => {
   test("加载并完成 bootstrap，应用外壳渲染", async ({ page }) => {
     await page.goto("/");
-    // composer dock 或欢迎布局可见 → bootstrap 与加载期 /api 全部成功（否则页面会崩/白屏）。
+    // 欢迎布局 heading 或 composer 输入框可见 → bootstrap 与加载期 /api 全部成功（否则页面会崩/白屏）。
     const shell = page
-      .getByTestId("thread-composer-dock")
-      .or(page.getByTestId("thread-welcome-layout"));
+      .getByRole("heading", { name: "开始一段对话" })
+      .or(page.getByRole("textbox", { name: "发消息给 Lure…" }));
     await expect(shell.first()).toBeVisible({ timeout: 15_000 });
   });
 
@@ -28,7 +28,7 @@ test.describe.serial("webui smoke (headless backend + echo)", () => {
     // 与 webui-thread 读取路径——后者曾因 key 未 URL 解码而静默丢历史（见 5142550）。
     await page.goto("/");
     // 侧栏空态文案消失 → 会话已落库并被 /api/sessions 列出。
-    await expect(page.getByText("No sessions yet.")).toBeHidden({ timeout: 15_000 });
+    await expect(page.getByText("还没有对话")).toBeHidden({ timeout: 15_000 });
 
     // 在浏览器上下文用真实 encodeURIComponent 取 webui-thread，断言历史回得来。
     const thread = await page.evaluate(async () => {
