@@ -76,7 +76,7 @@ Phase 0 已完成，确定 phase 1-4 关键上游测试的 Rust 测试落点（�
 | 上游测试 | 归属 phase | Rust 测试 | 状态 | 说明 |
 |---|---:|---|---|---|
 | `tests/webui/test_session_list_index.py` | 10 | `crates/lure-core/tests/webui_protocol.rs` | partial | session 列表 preview/计数/枚举已覆盖；索引缓存/增量重扫优化待补 |
-| `nanobot/channels/websocket/runtime.py`（事件协议） | 10 | `crates/lure-core/tests/webui_protocol.rs` | partial | message/delta/status/error 事件形状与入站校验已覆盖；**服务端主动推送**（`webui::hub::WsHub` + 连接读循环 drain：cron 产出实时推给在线连接，`webui_ws_server.rs::hub_push_reaches_attached_connection` + headless 端到端）已覆盖；SSL、媒体待补 |
+| `nanobot/channels/websocket/runtime.py`（事件协议 + channel 化） | 10 | `crates/lure-core/tests/webui_protocol.rs` + `crates/lure-core/tests/channel.rs` | partial | message/delta/status/error 事件形状与入站校验已覆盖；**服务端主动推送**（`webui::hub::WsHub` + 连接读循环 drain：cron 产出实时推给在线连接，`webui_ws_server.rs::hub_push_reaches_attached_connection` + headless 端到端）已覆盖；**Stage 5 channel 化**（`TurnEventRegistry` 按 turn_id 路由 turn 事件、`BusTurnRunner` 发布到共享 bus + 等待事件流替代每连接 AgentLoop、调度核心 `process_streaming` 流式转发、mux 事件序列经 bus runner 保持不变、chat/cron 共用单实例调度核心）`crates/lure-core/tests/channel.rs` 已覆盖；SSL、媒体待补 |
 | `webui/src/tests/` | 10 | 待定 | deferred | 前端行为测试，属外部前端构建资产 |
 
 > 注：Phase 10 为传输无关的 WebUI 后端协议；真实 HTTP/WebSocket 服务、前端资源构建、

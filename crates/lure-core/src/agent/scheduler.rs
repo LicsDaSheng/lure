@@ -19,7 +19,10 @@ use tokio::sync::Mutex as AsyncMutex;
 use tokio::task::JoinHandle;
 
 use crate::agent::loop_run::AgentLoop;
+use crate::agent::ProgressEvent;
 use crate::bus::{AsyncBusReceiver, InboundMessage};
+use crate::channel::turn_events::{TurnEvent, TurnEventRegistry};
+use crate::memory::DreamRunner;
 
 /// 停止控制命令（对齐上游 /stop 优先级命令）。
 pub const STOP_COMMAND: &str = "/stop";
@@ -72,6 +75,11 @@ pub struct AgentLoopScheduler {
     on_turn: Option<Arc<TurnHook>>,
     on_completed: Option<Arc<CompletedHook>>,
     heartbeat: Option<Arc<HeartbeatHook>>,
+    /// Stage 5：带 `turn_id` 元数据的消息，其流式进度经 registry 投递回发起连接。
+    turn_events: Option<Arc<TurnEventRegistry>>,
+    /// 每轮 turn 完成后的 memory consolidation（chat/cron 共用单实例后保留）。
+    dream_runner: Option<Arc<dyn DreamRunner>>,
+    dream_threshold: usize,
 }
 
 impl AgentLoopScheduler {
@@ -83,6 +91,9 @@ impl AgentLoopScheduler {
             on_turn: None,
             on_completed: None,
             heartbeat: None,
+            turn_events: None,
+            dream_runner: None,
+            dream_threshold: 10,
         }
     }
 
@@ -144,20 +155,59 @@ impl AgentLoopScheduler {
         let state = self.state.clone();
         let on_turn = self.on_turn.clone();
         let on_completed = self.on_completed.clone();
+        let turn_events = self.turn_events.clone();
+        let dream_runner = self.dream_runner.clone();
+        let dream_threshold = self.dream_threshold;
         let task_key = key.clone();
         let handle = tokio::spawn(async move {
             let mut current = Some(msg);
             while let Some(msg) = current.take() {
+                let turn_id = msg
+                    .metadata
+                    .get("turn_id")
+                    .and_then(serde_json::Value::as_str)
+                    .map(str::to_string);
                 let outcome = {
                     let mut agent = agent.lock().await;
-                    agent.process(&msg).await
-                };
-                if let Ok(turn) = &outcome {
-                    if let Some(hook) = &on_turn {
-                        hook(&msg.session_key(), &msg.content);
+                    match (&turn_events, &turn_id) {
+                        // Stage 5：带 turn_id → 流式进度投递回发起连接。
+                        (Some(registry), Some(tid)) => {
+                            let registry = registry.clone();
+                            let tid = tid.clone();
+                            agent
+                                .process_streaming(&msg, &mut move |progress| {
+                                    forward_turn_progress(&registry, &tid, &progress);
+                                })
+                                .await
+                        }
+                        _ => agent.process(&msg).await,
                     }
-                    if let Some(hook) = &on_completed {
-                        hook(&msg, &turn.final_content);
+                };
+                match &outcome {
+                    Ok(turn) => {
+                        if let Some(hook) = &on_turn {
+                            hook(&msg.session_key(), &msg.content);
+                        }
+                        if let Some(hook) = &on_completed {
+                            hook(&msg, &turn.final_content);
+                        }
+                        if let (Some(registry), Some(tid)) = (&turn_events, &turn_id) {
+                            registry.route(tid, TurnEvent::Final(turn.final_content.clone()));
+                            registry.route(tid, TurnEvent::Done);
+                        }
+                        // 保留 memory consolidation：每轮成功 turn 后按阈值触发。
+                        if let Some(dream) = &dream_runner {
+                            let guard = agent.lock().await;
+                            let _ = guard
+                                .maybe_consolidate(dream.as_ref(), dream_threshold)
+                                .await;
+                        }
+                    }
+                    Err(e) => {
+                        if let (Some(registry), Some(tid)) = (&turn_events, &turn_id) {
+                            registry.route(tid, TurnEvent::Error(e.to_string()));
+                            registry.route(tid, TurnEvent::Done);
+                        }
                     }
                 }
                 // Stage 1：turn 错误仅丢弃（Stage 2 接错误传播/重试策略）。
@@ -191,6 +241,9 @@ pub struct SchedulerBuilder {
     on_turn: Option<Arc<TurnHook>>,
     on_completed: Option<Arc<CompletedHook>>,
     heartbeat: Option<Arc<HeartbeatHook>>,
+    turn_events: Option<Arc<TurnEventRegistry>>,
+    dream_runner: Option<Arc<dyn DreamRunner>>,
+    dream_threshold: usize,
 }
 
 impl SchedulerBuilder {
@@ -233,6 +286,19 @@ impl SchedulerBuilder {
         self
     }
 
+    /// 挂载 turn 事件路由（Stage 5）：带 `turn_id` 的消息，其流式进度投递回发起连接。
+    pub fn turn_events(mut self, registry: TurnEventRegistry) -> Self {
+        self.turn_events = Some(Arc::new(registry));
+        self
+    }
+
+    /// 挂载 dream runner：每轮 turn 完成后按阈值触发 memory consolidation。
+    pub fn with_dream(mut self, runner: Box<dyn DreamRunner>, threshold: usize) -> Self {
+        self.dream_runner = Some(Arc::from(runner));
+        self.dream_threshold = threshold;
+        self
+    }
+
     /// 构建调度器。
     pub fn build(self) -> AgentLoopScheduler {
         AgentLoopScheduler {
@@ -242,6 +308,22 @@ impl SchedulerBuilder {
             on_turn: self.on_turn,
             on_completed: self.on_completed,
             heartbeat: self.heartbeat,
+            turn_events: self.turn_events,
+            dream_runner: self.dream_runner,
+            dream_threshold: self.dream_threshold,
         }
+    }
+}
+
+/// 把单个进度事件投递到 turn_id 的通道（Stage 5 流式：delta / reasoning_delta）。
+fn forward_turn_progress(registry: &TurnEventRegistry, turn_id: &str, progress: &ProgressEvent) {
+    match progress {
+        ProgressEvent::ContentDelta { text } => {
+            registry.route(turn_id, TurnEvent::Delta(text.clone()));
+        }
+        ProgressEvent::ReasoningDelta { text } => {
+            registry.route(turn_id, TurnEvent::Reasoning(text.clone()));
+        }
+        _ => {}
     }
 }
