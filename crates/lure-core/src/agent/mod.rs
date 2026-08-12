@@ -13,6 +13,7 @@ mod runner;
 pub mod scheduler;
 pub mod skills;
 pub mod subagent;
+pub mod subagent_run;
 
 pub use active::SessionBusy;
 pub use context::ContextBuilder;

@@ -146,6 +146,8 @@ struct TaskEntry {
     /// 是否已完成（但可能尚未 cleanup 移除）。
     done: bool,
     status: SubagentStatus,
+    /// 后台 task 的 abort 句柄（Stage 6：exec 级联终止用，spawn 后挂载）。
+    abort: Option<tokio::task::AbortHandle>,
 }
 
 /// subagent 后台任务登记表：跟踪 task→状态与 session→tasks 索引。
@@ -178,8 +180,16 @@ impl SubagentRegistry {
                 session_key: session_key.map(str::to_string),
                 done: false,
                 status,
+                abort: None,
             },
         );
+    }
+
+    /// 挂载后台 task 的 abort 句柄（spawn 后调用，供级联终止）。
+    pub fn attach_abort(&mut self, task_id: &str, abort: tokio::task::AbortHandle) {
+        if let Some(entry) = self.tasks.get_mut(task_id) {
+            entry.abort = Some(abort);
+        }
     }
 
     /// 标记 task 已完成（保留在表中，直到 `finish` cleanup）。
@@ -236,6 +246,11 @@ impl SubagentRegistry {
             .unwrap_or_default();
         let count = targets.len();
         for id in targets {
+            // Stage 6：级联终止——先 abort 后台 task，再 cleanup 登记。
+            let abort = self.tasks.get(&id).and_then(|e| e.abort.clone());
+            if let Some(abort) = abort {
+                abort.abort();
+            }
             self.finish(&id);
         }
         count

@@ -21,7 +21,7 @@ uuid = { version = "1", features = ["v4"] }
 serde_yaml = "0.9.34"
 sha1 = "0.11.0"
 # 异步运行时（Stage 0）：为 AgentLoop.run 调度核心（Stage 1）与全 IO 面异步化铺路。
-tokio = { version = "1", features = ["rt-multi-thread", "sync", "time", "net", "macros", "signal"] }
+tokio = { version = "1", features = ["rt-multi-thread", "sync", "time", "net", "macros", "signal", "process"] }
 futures = "0.3"
 # 异步 trait 与 HTTP 客户端（Stage 2）：provider/turn 异步化。
 async-trait = "0.1"

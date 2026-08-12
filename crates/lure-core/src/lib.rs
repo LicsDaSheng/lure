@@ -28,6 +28,7 @@ pub mod command;
 pub mod config;
 pub mod cron;
 pub mod gateway;
+pub mod mcp;
 pub mod memory;
 pub mod pairing;
 pub mod provider;

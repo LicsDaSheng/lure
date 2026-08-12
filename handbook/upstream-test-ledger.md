@@ -183,7 +183,7 @@ Phase 0 已完成，确定 phase 1-4 关键上游测试的 Rust 测试落点（�
 | 上游测试 | 归属 phase | Rust 测试 | 状态 | 说明 |
 |---|---:|---|---|---|
 | `tests/tools/test_mcp_tool.py`（纯变换子集） | 5 | `crates/lure-core/tests/tool_mcp.rs` | partial | `sanitize_name`（非法字符→`_`、折叠连续 `_`）、`limit_tool_name`（≤64 不变，超长 `<prefix>_<8 位 sha1>`）、`sanitize_mcp_tool_name`、`normalize_schema_for_openai`（type 联合含 null→nullable、oneOf/anyOf nullable 分支合并、递归 properties/items、object 补默认、非 object 回落）、`extract_nullable_branch`、JSON-RPC 畸形进度通知检测——14 例覆盖纯变换核心 |
-| `tests/agent/test_mcp_connection.py` / `test_mcp_reconnect_crash.py` / `test_mcp_transient_retry.py` / `test_mcp_probe.py` | 5 | 待定 | deferred | MCP 连接/会话/传输（stdio/HTTP/SSE）、enabled-tools 过滤、重连/瞬时重试、URL 探活——依赖 MCP 客户端 SDK + asyncio，lure 同步模型待引入异步运行时与 MCP 客户端库后回补 |
+| `tests/agent/test_mcp_connection.py` / `test_mcp_reconnect_crash.py` / `test_mcp_transient_retry.py` / `test_mcp_probe.py` | 5 | `crates/lure-core/tests/mcp_client.rs` | partial | **Stage 6 `McpClient`（JSON-RPC 2.0 newline 传输，传输无关）**：`initialize` 握手、`tools/list` + **enabled-tools 过滤**、`tools/call`、**瞬时错误重试**（-32000 等瞬态码）、非瞬时 RPC 错误不重试、**stdio 子进程传输**（`connect_stdio`，python3 mock 服务器端到端）已覆盖；HTTP/SSE 传输、重连（会话级）、URL 探活待补（需真实协议服务器） |
 | `tests/webui/test_mcp_presets_api.py` / `test_mcp_presets_runtime.py` | 10 | 待定 | deferred | MCP 预设 webui 大表面（45KB），随 Phase 10 webui 变更表面推进 |
 
 > 注：lure 复刻 MCP 的纯 wire-兼容变换核心（工具名净化/限长、OpenAI schema 归一、畸形进度检测）——
@@ -195,7 +195,7 @@ Phase 0 已完成，确定 phase 1-4 关键上游测试的 Rust 测试落点（�
 | 上游测试 | 归属 phase | Rust 测试 | 状态 | 说明 |
 |---|---:|---|---|---|
 | `tests/agent/test_subagent_lifecycle.py`（状态/簿记/格式化子集） | 3 | `crates/lure-core/tests/subagent.rs` | partial | `SubagentStatus`（默认 phase initializing）、`derive_label`（短/长截断/自定义）、`format_partial_progress`（末 3 完成 + 失败 + error 回落 + 兜底）、`SubagentRegistry`（register/finish/mark_done、`get_running_count`、`get_running_count_by_session`、`cancel_by_session` + session 隔离）——21 例覆盖确定性核心 |
-| `tests/agent/test_subagent.py`（spawn/announce/run 执行） | 3 | 待定 | deferred | `spawn`/`_run_subagent` 起后台 agent turn、`_announce_result` 经 bus 回灌、exec session 级联终止——依赖 asyncio 后台任务 + 完整 agent 运行时，lure 同步模型待引入异步运行时后回补 |
+| `tests/agent/test_subagent.py`（spawn/announce/run 执行） | 3 | `crates/lure-core/tests/subagent_run.rs` | partial | **Stage 6 `SubagentRunner`**：`run`（fresh AgentLoop 跑 subagent turn 返回文本）、`spawn`（后台 task 执行 + 登记持 abort 句柄 + 完成后 **announce 经 `AsyncBus` 回灌** + mark_done/finish 清理）、**exec 级联终止**（`cancel_by_session` abort 运行中 subagent，`/stop` 原语）已覆盖；desktop 的 subagent 工具注册接线为集成后续 |
 
 > 注：lure 同步模型下以 `done` 标志 + `finish`（cleanup 移除）建模 asyncio 任务生命周期；
 > `cancel_by_session` 是 `/stop` 级联终止的取消原语（上游还 `terminate_by_owner` exec session，此处
