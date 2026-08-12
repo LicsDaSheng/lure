@@ -20,6 +20,9 @@ tungstenite = "0.26"
 uuid = { version = "1", features = ["v4"] }
 serde_yaml = "0.9.34"
 sha1 = "0.11.0"
+# 异步运行时（Stage 0）：为 AgentLoop.run 调度核心（Stage 1）与全 IO 面异步化铺路。
+tokio = { version = "1", features = ["rt-multi-thread", "sync", "time", "net", "macros", "signal"] }
+futures = "0.3"
 
 [dev-dependencies]
 tempfile = "3"

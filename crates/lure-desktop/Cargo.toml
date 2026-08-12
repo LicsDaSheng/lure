@@ -16,6 +16,8 @@ lure-cli = { path = "../lure-cli" }
 serde_json = "1"
 rust-embed = "8.12.0"
 tauri = { version = "2", features = [] }
+# 异步运行时（Stage 0）：main 入口创建 tokio runtime，为 AgentLoop.run 常驻调度铺路。
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time"] }
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }

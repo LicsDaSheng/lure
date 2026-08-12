@@ -183,6 +183,20 @@ fn main() -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
+
+    // tokio 异步运行时（Stage 0）：WS/HTTP/cron 仍由独立线程承载（行为不变），
+    // runtime 供异步基础设施使用（Stage 1 起 AgentLoop.run 常驻调度接入）。
+    let rt = match tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+    {
+        Ok(rt) => rt,
+        Err(e) => {
+            eprintln!("错误: 创建 tokio runtime 失败: {e}");
+            return ExitCode::FAILURE;
+        }
+    };
+
     let workspace = args
         .workspace
         .as_ref()
@@ -338,9 +352,9 @@ fn main() -> ExitCode {
         println!("LURE_HTTP_URL={url}");
         use std::io::Write;
         let _ = std::io::stdout().flush();
-        loop {
-            thread::park();
-        }
+        // 在 tokio runtime 内永久挂起主 future：与 thread::park 等价（进程保活），
+        // 顺带验证 runtime block_on 语义；WS/HTTP/cron 线程不受影响。
+        rt.block_on(std::future::pending::<()>());
     }
 
     run_window(&url);
