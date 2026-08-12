@@ -24,11 +24,11 @@
 
 | 上游子系统 | 上游模块（规模） | lure 现状 | 影响 |
 |---|---|---|---|
-| ~~MCP 集成~~ | `webui/mcp_presets_api.py`(45KB)、MCP tool | **纯变换核心已复刻**（`lure_core::tool::mcp`：工具名净化/限长、OpenAI schema 归一、畸形进度检测，14 例） | 真实连接/会话/传输（stdio/HTTP/SSE，需 MCP SDK + 异步）、webui 预设表面（Phase 10） |
+| ~~MCP 集成~~ | `webui/mcp_presets_api.py`(45KB)、MCP tool | **纯变换核心已复刻**（`lure_core::tool::mcp`：工具名净化/限长、OpenAI schema 归一、畸形进度检测，14 例）；**Stage 6 `McpClient` stdio 传输已落地**（`lure_core::mcp`：JSON-RPC initialize/tools list+过滤/tools call/瞬时重试，6 例，python3 mock 端到端） | HTTP/SSE 传输、重连、webui 预设表面（Phase 10）待补 |
 | ~~原生多协议 provider~~ | `providers/anthropic`/`bedrock`/`azure`/`github_copilot`/`openai_codex`/`fallback` | 仅 OpenAI-compat 线协议 | **范围决定：不做**。lure 只对接 OpenAI 兼容端点；原生 Anthropic Messages/Bedrock 等协议与 fallback 链明确不复刻 |
 | **图像生成 / 音频转写** | `providers/image_generation.py`(64KB)、`providers/transcription.py`(28KB)、`audio/`、`webui/transcription_ws.py` | 无 | 多模态生成与语音输入整条链缺失（走 OpenAI-compat 端点实现，不涉原生协议） |
 | ~~Skills 系统~~ | `agent/skills.py`、`webui/skills_api.py`、`/skill` 命令 | **loader 已复刻**（`lure_core::agent::skills`，21 例对齐 test_skills_loader；`/skill` 已接入路由） | webui skills_api（Phase 10）、bundled skills vendored 资产 |
-| ~~Subagent~~ | `agent/subagent.py`(19KB)、级联 exec 终止 | **状态/簿记核心已复刻**（`lure_core::agent::subagent`：SubagentStatus/registry/cancel_by_session/partial-progress，21 例） | 真实后台执行（spawn 起 agent turn、announce 回灌、exec 级联终止）需异步运行时 |
+| ~~Subagent~~ | `agent/subagent.py`(19KB)、级联 exec 终止 | **状态/簿记核心已复刻**（`lure_core::agent::subagent`：SubagentStatus/registry/cancel_by_session/partial-progress，21 例）；**Stage 6 后台执行已落地**（`SubagentRunner`：run/spawn/announce 经 bus 回灌/cancel_by_session abort 级联，3 例） | desktop 的 subagent 工具注册接线为集成后续 |
 | **命令路由全量** | `command/builtin.py`(106KB)、`command/router.py` | **router 核心 + 全表登记已复刻**（`lure_core::command`，/help//pairing 完整，谓词对齐 test_router_dispatchable） | 运行时命令处理器（/new /goal /dream* /skill /stop…）随各子系统接线；CLI REPL 接入统一 router |
 | ~~Pairing 配对~~ | `pairing/store.py`(9.6KB) | **store 已复刻**（`lure_core::pairing`，31 例对齐 test_store） | 仅剩 `/pairing` 命令 UI 接入（随命令路由） |
 | **GitStore 记忆版本化** | `utils/gitstore.py`(20KB) | 无 | 记忆快照/回滚（/dream-restore）缺失 |

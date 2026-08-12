@@ -6,9 +6,6 @@
 //! 与 agent/gateway 解耦、可测。后台调度线程见 [`CronScheduler`]。
 
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
-use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
 use chrono::Utc;
@@ -87,64 +84,6 @@ impl CronService {
 /// 当前 epoch ms。
 fn now_ms() -> i64 {
     Utc::now().timestamp_millis()
-}
-
-/// 后台轮询调度器：固定间隔 tick，直到停止。
-///
-/// 采用轮询（而非精确睡到 next_wake）以求简单稳健；间隔内到期的 job 会在下个 tick 执行。
-pub struct CronScheduler {
-    stop: Arc<AtomicBool>,
-    handle: Option<JoinHandle<()>>,
-}
-
-impl CronScheduler {
-    /// 启动后台线程，每 `poll` 间隔对 `service` 执行一次 tick（用 `runner` 跑到期 job）。
-    ///
-    /// runner 由 `make_runner` 在**后台线程内**构建：runner 及其持有的 agent/gateway 等
-    /// 常常非 `Send`（含 `Rc`、trait 对象），线程内构建可避免跨线程移动约束——只要 factory
-    /// 本身 `Send`（通常只捕获 config 路径等可 Send 值）。
-    pub fn spawn<R, F>(service: CronService, make_runner: F, poll: Duration) -> Self
-    where
-        F: FnOnce() -> R + Send + 'static,
-        R: CronJobRunner,
-    {
-        let stop = Arc::new(AtomicBool::new(false));
-        let stop_thread = stop.clone();
-        let handle = thread::spawn(move || {
-            let mut runner = make_runner();
-            while !stop_thread.load(Ordering::Relaxed) {
-                let _ = service.tick(&mut runner, now_ms());
-                // 分片睡眠：及时响应 stop，不必等满一个 poll 周期。
-                let mut slept = Duration::ZERO;
-                let slice = Duration::from_millis(50);
-                while slept < poll && !stop_thread.load(Ordering::Relaxed) {
-                    thread::sleep(slice.min(poll - slept));
-                    slept += slice;
-                }
-            }
-        });
-        Self {
-            stop,
-            handle: Some(handle),
-        }
-    }
-
-    /// 停止后台线程并等待其结束。
-    pub fn stop(mut self) {
-        self.stop.store(true, Ordering::Relaxed);
-        if let Some(handle) = self.handle.take() {
-            let _ = handle.join();
-        }
-    }
-}
-
-impl Drop for CronScheduler {
-    fn drop(&mut self) {
-        self.stop.store(true, Ordering::Relaxed);
-        if let Some(handle) = self.handle.take() {
-            let _ = handle.join();
-        }
-    }
 }
 
 /// 异步 cron 调度器（Stage 4）：tokio runtime 内 interval task，替代后台轮询线程。

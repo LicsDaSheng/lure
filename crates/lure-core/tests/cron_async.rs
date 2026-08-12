@@ -4,8 +4,7 @@
 //! 1. `AsyncCronScheduler` 为 tokio interval task（非后台线程），按 poll 周期触发 submit。
 //! 2. cron 到期 → `cron_submit_message` 构建 `InboundMessage` → 进 `AsyncBus` → 共享
 //!    `AgentLoopScheduler` 消费执行（turn 完成经 `on_completed` 拿到回复文本）。
-//! 3. `SessionBusy` 跨实例 defer：目标 session 有活跃 turn 时 cron 让位（不提交，job 留待下个 tick）。
-//! 4. trigger 队列 at-least-once 语义在异步投递循环下保持（claim → deliver → complete；interrupt recover）。
+//! 3. trigger 队列 at-least-once 语义在异步投递循环下保持（claim → deliver → complete；interrupt recover）。
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -45,21 +44,6 @@ fn due_job(id: &str, message: &str) -> CronJob {
         updated_at_ms: 0,
         delete_after_run: false,
     }
-}
-
-// ---- SessionBusy：跨实例 defer 注册表 ------------------------------------
-
-#[test]
-fn session_busy_mark_unmark_and_isolated() {
-    use lure_core::agent::SessionBusy;
-
-    let busy = SessionBusy::default();
-    assert!(!busy.is_busy("websocket:t1"));
-    busy.mark("websocket:t1");
-    assert!(busy.is_busy("websocket:t1"), "mark 后应 busy");
-    assert!(!busy.is_busy("websocket:t2"), "不同 session 互不影响");
-    busy.unmark("websocket:t1");
-    assert!(!busy.is_busy("websocket:t1"), "unmark 后应空闲");
 }
 
 // ---- AsyncCronScheduler：tokio interval task -----------------------------

@@ -1,14 +1,12 @@
 //! Cron service 定时执行：tick 处理到期 job、record_run 推进/删除、后台调度。
 
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
 
 use lure_core::agent::{AgentLoop, ContextBuilder};
 use lure_core::channel::RecordingChannel;
 use lure_core::cron::{
-    CronJob, CronJobRunner, CronJobState, CronPayload, CronSchedule, CronScheduler, CronService,
-    CronStore, RunStatus,
+    CronJob, CronJobRunner, CronJobState, CronPayload, CronSchedule, CronService, CronStore,
+    RunStatus,
 };
 use lure_core::gateway::{Gateway, GatewayCronRunner};
 use lure_core::provider::EchoProvider;
@@ -162,42 +160,8 @@ async fn next_wake_returns_earliest_enabled_next_run() {
     assert_eq!(service.next_wake_ms().unwrap(), Some(1500));
 }
 
-#[tokio::test]
-async fn scheduler_background_runs_due_job() {
-    let dir = tempfile::tempdir().unwrap();
-    let mut store = CronStore::load(dir.path()).unwrap();
-    // 远久前 next_run，确保任何 now 都到期。
-    store
-        .add(job("a", CronSchedule::every(1), false), 0)
-        .unwrap();
-
-    // runner 计数（跨线程共享）。
-    struct CountingRunner(Arc<AtomicUsize>);
-    impl CronJobRunner for CountingRunner {
-        fn run(&mut self, _job: &CronJob) -> RunStatus {
-            self.0.fetch_add(1, Ordering::Relaxed);
-            RunStatus::Ok
-        }
-    }
-    let count = Arc::new(AtomicUsize::new(0));
-    let count_for_factory = count.clone();
-    let scheduler = CronScheduler::spawn(
-        CronService::new(dir.path()),
-        move || CountingRunner(count_for_factory),
-        Duration::from_millis(20),
-    );
-
-    // 等待至少一次 tick。
-    let start = std::time::Instant::now();
-    while count.load(Ordering::Relaxed) == 0 && start.elapsed() < Duration::from_secs(2) {
-        std::thread::sleep(Duration::from_millis(10));
-    }
-    scheduler.stop();
-    assert!(
-        count.load(Ordering::Relaxed) >= 1,
-        "后台调度应至少执行一次到期 job"
-    );
-}
+// 注：同步线程版 CronScheduler 已在 Stage 7 删除（Stage 4 起用 AsyncCronScheduler，
+// interval task 的到期执行语义由 `tests/cron_async.rs::async_cron_scheduler_*` 覆盖）。
 
 #[tokio::test]
 async fn gateway_cron_runner_delivers_due_job_reply_to_channel() {

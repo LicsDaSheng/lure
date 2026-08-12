@@ -15,7 +15,6 @@ chrono = { version = "0.4", default-features = false, features = ["clock", "serd
 chrono-tz = "0.10"
 regex = "1"
 ureq = "2"
-tiny_http = "0.12"
 tungstenite = "0.26"
 uuid = { version = "1", features = ["v4"] }
 serde_yaml = "0.9.34"
