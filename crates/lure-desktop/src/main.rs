@@ -11,14 +11,14 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use lure_cli::{build_agent_loop, build_provider};
-use lure_core::agent::AgentLoop;
-use lure_core::bus::InboundMessage;
+use lure_core::agent::scheduler::AgentLoopScheduler;
+use lure_core::agent::SessionBusy;
+use lure_core::bus::{async_bus_channel, InboundMessage};
 use lure_core::cron::{
-    origin_delivery_context, CronJob, CronJobRunner, CronScheduler, CronService, RunStatus,
+    cron_submit_message, AsyncCronScheduler, CronJob, CronService, CronStore, RunStatus,
 };
 use lure_core::session::SessionManager;
-use lure_core::webui::hub::WsHub;
-use lure_core::webui::transcript::TranscripStore;
+use lure_core::webui::mux::TurnRunner;
 
 /// cron 调度默认轮询间隔（ms）：cron 最小粒度为分钟，30s 轮询确保到期后半分钟内触发。
 const CRON_POLL_DEFAULT_MS: u64 = 30_000;
@@ -32,53 +32,40 @@ fn cron_poll_interval() -> Duration {
     Duration::from_millis(ms)
 }
 
-/// 桌面 cron 执行：跑 job 的 agent turn，把 (message, reply) 写入 origin 会话 transcript，
-/// 并向**在线**查看该会话的 WS 连接实时推送产出（无需刷新即见）。
-/// 缺 origin 记 `Skipped`，agent 出错记 `Error`。
-struct CronTurnRunner {
-    agent: AgentLoop,
-    transcript: TranscripStore,
-    hub: WsHub,
-    /// cron 线程内驱动 async turn 的 runtime 句柄。
-    runtime: tokio::runtime::Handle,
+/// 在 turn 执行期间标记 session 活跃（Stage 4 defer 协调）：cron submit 侧据此让位。
+struct BusyTurnRunner {
+    inner: AgentTurnRunner,
+    busy: SessionBusy,
 }
 
-impl CronJobRunner for CronTurnRunner {
-    fn run(&mut self, job: &CronJob) -> RunStatus {
-        let (channel, chat_id, _meta) = match origin_delivery_context(job) {
-            Ok(ctx) => ctx,
-            Err(_) => return RunStatus::Skipped,
-        };
-        let inbound = InboundMessage::new(&channel, &chat_id, &job.payload.message);
-        let session_key = job
-            .payload
-            .session_key
-            .clone()
-            .unwrap_or_else(|| inbound.session_key());
-        match lure_core::runtime::block_on(&self.runtime, self.agent.process(&inbound)) {
-            Ok(outcome) => {
-                let _ = self.transcript.append_turn(
-                    &session_key,
-                    &job.payload.message,
-                    &outcome.final_content,
-                );
-                // 向在线连接实时推送：assistant 回复 + session_updated 刷新侧栏。
-                // 无在线连接（push 返回 0）时静默——transcript 已落，下次打开可见。
-                let reply = serde_json::json!({
-                    "event": "message",
-                    "chat_id": chat_id,
-                    "text": outcome.final_content,
-                });
-                self.hub.push(&chat_id, &reply);
-                self.hub.push(
-                    &chat_id,
-                    &serde_json::json!({"event": "session_updated", "chat_id": chat_id}),
-                );
-                RunStatus::Ok
-            }
-            Err(_) => RunStatus::Error,
-        }
+#[async_trait::async_trait]
+impl TurnRunner for BusyTurnRunner {
+    async fn run_turn(
+        &mut self,
+        chat_id: &str,
+        content: &str,
+        on_progress: &mut (dyn FnMut(lure_core::agent::ProgressEvent) + Send),
+    ) -> Result<String, String> {
+        let session_key = format!("websocket:{chat_id}");
+        self.busy.mark(&session_key);
+        let result = self.inner.run_turn(chat_id, content, on_progress).await;
+        self.busy.unmark(&session_key);
+        result
     }
+}
+
+/// 按 job id 推进 cron 运行状态（record_run：推进 next_run / 删一次性）。
+///
+/// 共享调度核心的 completion 钩子在 cron turn 完成后调用（异步执行，tick 内不再同步记录）。
+fn record_cron_run(workspace: &std::path::Path, job_id: &str) {
+    let Ok(mut store) = CronStore::load(workspace) else {
+        return;
+    };
+    let now_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0);
+    let _ = store.record_run(job_id, RunStatus::Ok, now_ms);
 }
 use lure_core::webui::axum_server::AgentTurnRunner;
 use lure_core::webui::axum_server::{StaticAssets, WebuiServer, WebuiServerConfig};
@@ -218,6 +205,9 @@ fn main() -> ExitCode {
     // cron 调度器用的 transcript 副本（transcript 稍后被 http server 移入）。
     let cron_transcript = transcript.clone();
 
+    // 跨实例「活跃 session」注册表（Stage 4）：chat turn 执行时标记，cron submit 侧让位。
+    let busy = SessionBusy::default();
+
     // WS + HTTP 统一 server（axum）：每 WS 连接在连接 task 内构建独立 AgentLoop
     // （复用 CLI 构建逻辑），HTTP 提供静态资源 + bootstrap + /api/*。
     let factory = {
@@ -225,6 +215,7 @@ fn main() -> ExitCode {
         let preset = args.preset.clone();
         let model = args.model.clone();
         let workspace = workspace.clone();
+        let busy = busy.clone();
         move || {
             let sessions = SessionManager::new(&workspace).expect("session 存储可用");
             let agent = build_agent_loop(
@@ -241,7 +232,11 @@ fn main() -> ExitCode {
                 build_provider(config.as_deref(), preset.as_deref(), model.as_deref())
                     .unwrap_or_else(|_| Box::new(lure_core::provider::EchoProvider::new()));
             let dream = Box::new(lure_core::memory::ProviderDreamRunner::new(dream_provider));
-            AgentTurnRunner::new(agent).with_dream(dream, 10)
+            // 包 BusyTurnRunner：turn 执行期间标记 session 活跃（cron defer 协调）。
+            BusyTurnRunner {
+                inner: AgentTurnRunner::new(agent).with_dream(dream, 10),
+                busy: busy.clone(),
+            }
         }
     };
     // lure config 路径（缺省回落 default_config_path）：既用于加载 /api/settings 载荷，
@@ -289,34 +284,70 @@ fn main() -> ExitCode {
         let _ = webui_server.serve_forever().await;
     });
 
-    // cron 后台调度：常驻线程每 CRON_POLL 轮询到期 job，跑 agent turn，把结果写入
-    // transcript 并向在线连接实时推送——在线时即刻可见，离线时下次打开会话可见。
-    // runner 在线程内构建（AgentLoop/TranscripStore 非 Send，经工厂闭包避免跨线程移动）。
-    let _cron_scheduler = {
-        let config = args.config.clone();
-        let preset = args.preset.clone();
-        let model = args.model.clone();
-        let ws = workspace.clone();
-        let transcript = cron_transcript;
-        let hub = cron_hub;
-        let runtime = rt.handle().clone();
-        CronScheduler::spawn(
+    // Stage 4：cron 走共享调度核心——单实例 AgentLoop 消费 async bus，cron turn 经
+    // submit 语义投递进 bus，由调度器按 session 执行（defer/pending/串行语义与聊天
+    // turn 对齐；chat 侧 Stage 5 channel 化后并入同一核心）。投递回 origin session
+    // （transcript 落库 + hub 实时推送 + record_run 推进）经 completion 钩子完成。
+    let (cron_bus_tx, cron_bus_rx) = async_bus_channel(64);
+    let cron_sessions = SessionManager::new(&workspace).expect("session 存储可用");
+    let cron_agent = build_agent_loop(
+        args.config.as_deref(),
+        args.preset.as_deref(),
+        args.model.as_deref(),
+        &workspace,
+        cron_sessions,
+    )
+    .expect("cron agent loop 构建失败（检查 --config/--preset/--model 与 API key）");
+    let cron_transcript = cron_transcript.clone();
+    let cron_hub = cron_hub.clone();
+    let cron_workspace = workspace.clone();
+    let cron_scheduler = AgentLoopScheduler::builder(cron_agent)
+        .on_completed(move |msg: &InboundMessage, reply: &str| {
+            let session_key = msg.session_key();
+            let chat_id = msg.chat_id.clone();
+            // transcript 落库（origin 会话历史可回看，webui-thread GET 读取）。
+            let _ = cron_transcript.append_turn(&session_key, &msg.content, reply);
+            // 向在线连接实时推送：assistant 回复 + session_updated 刷新侧栏。
+            // 无在线连接（push 返回 0）时静默——transcript 已落，下次打开可见。
+            cron_hub.push(
+                &chat_id,
+                &serde_json::json!({"event": "message", "chat_id": chat_id, "text": reply}),
+            );
+            cron_hub.push(
+                &chat_id,
+                &serde_json::json!({"event": "session_updated", "chat_id": chat_id}),
+            );
+            // 推进 cron 状态（submit 时经 metadata 携带 job id）。
+            if let Some(job_id) = msg
+                .metadata
+                .get("cron_job_id")
+                .and_then(serde_json::Value::as_str)
+            {
+                record_cron_run(&cron_workspace, job_id);
+            }
+        })
+        .build();
+    rt.spawn(async move {
+        cron_scheduler.run(cron_bus_rx).await;
+    });
+
+    // cron 调度：tokio interval task，submit 语义投递进共享 bus；目标 session 有
+    // 活跃 chat turn 时让位（不投递，job 留待下个 tick —— at-least-once）。
+    let _cron_async = {
+        let tx = cron_bus_tx;
+        let busy = busy.clone();
+        AsyncCronScheduler::spawn(
+            rt.handle(),
             CronService::new(&workspace),
-            move || {
-                let sessions = SessionManager::new(&ws).expect("session 存储可用");
-                let agent = build_agent_loop(
-                    config.as_deref(),
-                    preset.as_deref(),
-                    model.as_deref(),
-                    &ws,
-                    sessions,
-                )
-                .expect("cron agent loop 构建失败（检查 --config/--preset/--model 与 API key）");
-                CronTurnRunner {
-                    agent,
-                    transcript,
-                    hub: hub.clone(),
-                    runtime: runtime.clone(),
+            move |job: &CronJob| {
+                let session_key = job.payload.session_key.clone().unwrap_or_default();
+                if busy.is_busy(&session_key) {
+                    return; // defer：chat turn 活跃，让位到下个 tick。
+                }
+                if let Ok(mut msg) = cron_submit_message(job) {
+                    msg.metadata
+                        .insert("cron_job_id".into(), serde_json::json!(job.id));
+                    let _ = tx.try_publish(msg);
                 }
             },
             cron_poll_interval(),

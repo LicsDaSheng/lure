@@ -55,6 +55,12 @@ impl Default for SchedulerConfig {
 /// turn 完成钩子：`(session_key, 用户消息内容)`。测试/观测用。
 pub type TurnHook = dyn Fn(&str, &str) + Send + Sync;
 
+/// turn 完成且成功的回调：`(&InboundMessage, 回复文本)`。
+///
+/// Stage 4：cron turn 经共享调度核心执行后，投递层（transcript 落库 + hub 推送 +
+/// `record_run`）由此钩子拿到消息与回复文本；chat 并入 bus（Stage 5）后同样复用。
+pub type CompletedHook = dyn Fn(&InboundMessage, &str) + Send + Sync;
+
 /// 心跳钩子：消费超时（空闲）时调用。
 pub type HeartbeatHook = dyn Fn() + Send + Sync;
 
@@ -64,6 +70,7 @@ pub struct AgentLoopScheduler {
     state: Arc<AsyncMutex<SchedulerState>>,
     config: SchedulerConfig,
     on_turn: Option<Arc<TurnHook>>,
+    on_completed: Option<Arc<CompletedHook>>,
     heartbeat: Option<Arc<HeartbeatHook>>,
 }
 
@@ -74,6 +81,7 @@ impl AgentLoopScheduler {
             agent,
             config: SchedulerConfig::default(),
             on_turn: None,
+            on_completed: None,
             heartbeat: None,
         }
     }
@@ -135,6 +143,7 @@ impl AgentLoopScheduler {
         let agent = self.agent.clone();
         let state = self.state.clone();
         let on_turn = self.on_turn.clone();
+        let on_completed = self.on_completed.clone();
         let task_key = key.clone();
         let handle = tokio::spawn(async move {
             let mut current = Some(msg);
@@ -143,9 +152,12 @@ impl AgentLoopScheduler {
                     let mut agent = agent.lock().await;
                     agent.process(&msg).await
                 };
-                if outcome.is_ok() {
+                if let Ok(turn) = &outcome {
                     if let Some(hook) = &on_turn {
                         hook(&msg.session_key(), &msg.content);
+                    }
+                    if let Some(hook) = &on_completed {
+                        hook(&msg, &turn.final_content);
                     }
                 }
                 // Stage 1：turn 错误仅丢弃（Stage 2 接错误传播/重试策略）。
@@ -177,6 +189,7 @@ pub struct SchedulerBuilder {
     agent: AgentLoop,
     config: SchedulerConfig,
     on_turn: Option<Arc<TurnHook>>,
+    on_completed: Option<Arc<CompletedHook>>,
     heartbeat: Option<Arc<HeartbeatHook>>,
 }
 
@@ -202,6 +215,15 @@ impl SchedulerBuilder {
         self
     }
 
+    /// turn 完成且成功钩子：`(&InboundMessage, 回复文本)`。
+    pub fn on_completed<F>(mut self, hook: F) -> Self
+    where
+        F: Fn(&InboundMessage, &str) + Send + Sync + 'static,
+    {
+        self.on_completed = Some(Arc::new(hook));
+        self
+    }
+
     /// 心跳钩子：空闲（消费超时）时调用。
     pub fn heartbeat<F>(mut self, hook: F) -> Self
     where
@@ -218,6 +240,7 @@ impl SchedulerBuilder {
             state: Arc::new(AsyncMutex::new(SchedulerState::default())),
             config: self.config,
             on_turn: self.on_turn,
+            on_completed: self.on_completed,
             heartbeat: self.heartbeat,
         }
     }

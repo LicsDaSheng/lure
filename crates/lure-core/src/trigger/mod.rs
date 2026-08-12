@@ -5,4 +5,4 @@
 
 mod queue;
 
-pub use queue::{never_busy, LocalTriggerQueue, TriggerDelivery};
+pub use queue::{never_busy, run_delivery_once, LocalTriggerQueue, TriggerDelivery};

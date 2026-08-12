@@ -5,6 +5,7 @@
 
 use serde_json::{Map, Value};
 
+use crate::bus::InboundMessage;
 use crate::cron::types::CronJob;
 
 /// origin delivery 缺失字段错误。
@@ -41,4 +42,19 @@ pub fn origin_delivery_context(
             job_id: job.id.clone(),
         }),
     }
+}
+
+/// 把到期 cron job 构建为投递进 bus 的 [`InboundMessage`]（submit 语义，Stage 4）。
+///
+/// 对齐上游 `submit_cron_turn`：job 的消息以来源 session 为会话上下文入队。
+/// - channel/chat_id 来自 origin delivery 上下文；
+/// - `session_key` 覆盖取 `payload.session_key`（未设时回落 `channel:chat_id`，
+///   即 [`InboundMessage::session_key`](crate::bus::InboundMessage::session_key) 的默认派生）。
+pub fn cron_submit_message(job: &CronJob) -> Result<InboundMessage, MissingOriginError> {
+    let (channel, chat_id, _metadata) = origin_delivery_context(job)?;
+    let mut msg = InboundMessage::new(channel, chat_id, &job.payload.message);
+    if let Some(session_key) = job.payload.session_key.as_ref().filter(|s| !s.is_empty()) {
+        msg.session_key_override = Some(session_key.clone());
+    }
+    Ok(msg)
 }

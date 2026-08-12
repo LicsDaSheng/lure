@@ -12,9 +12,9 @@ mod service;
 mod store;
 mod types;
 
-pub use delivery::{origin_delivery_context, MissingOriginError};
+pub use delivery::{cron_submit_message, origin_delivery_context, MissingOriginError};
 pub use schedule::compute_next_run;
-pub use service::{CronJobRunner, CronScheduler, CronService};
+pub use service::{AsyncCronScheduler, CronJobRunner, CronScheduler, CronService};
 pub use store::{is_heartbeat, CronError, CronStore, HEARTBEAT_JOB_NAME};
 pub use types::{
     CronJob, CronJobState, CronPayload, CronSchedule, CronStoreData, RunStatus, ScheduleKind,

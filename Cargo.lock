@@ -2078,6 +2078,7 @@ dependencies = [
 name = "lure-desktop"
 version = "0.0.0"
 dependencies = [
+ "async-trait",
  "lure-cli",
  "lure-core",
  "rust-embed",

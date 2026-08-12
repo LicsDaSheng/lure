@@ -6,6 +6,7 @@
 //! turn 追加 `history.jsonl`、可用 `DreamRunner` 触发整合）。streaming、并行/goal/subagent、
 //! channel/gateway 投递留待后续 phase。
 
+mod active;
 mod context;
 mod loop_run;
 mod runner;
@@ -13,6 +14,7 @@ pub mod scheduler;
 pub mod skills;
 pub mod subagent;
 
+pub use active::SessionBusy;
 pub use context::ContextBuilder;
 pub use loop_run::{
     AgentError, AgentLoop, ProgressEvent, TurnOutcome, EMPTY_FINAL_RESPONSE_MESSAGE,

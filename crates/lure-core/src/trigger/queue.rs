@@ -96,6 +96,11 @@ impl LocalTriggerQueue {
         count
     }
 
+    /// 把一条投递放回 pending（deliver 失败重试，at-least-once）。不经过 processing。
+    pub fn reenqueue(&mut self, delivery: TriggerDelivery) {
+        self.pending.push_back(delivery);
+    }
+
     /// 待投递数量。
     pub fn pending_len(&self) -> usize {
         self.pending.len()
@@ -110,4 +115,39 @@ impl LocalTriggerQueue {
 /// 便捷断言：无 session 为忙。
 pub fn never_busy(_session_key: &str) -> bool {
     false
+}
+
+/// 异步投递一批（Stage 4）：claim（跳过忙 session）→ 逐条 await `deliver` → complete。
+///
+/// `deliver` 返回 `true` 计成功并从 processing 移除；返回 `false` 表示执行失败，
+/// 该投递放回 pending（at-least-once，下次再投）。返回成功条数。调用方通常把本函数
+/// 放入循环/interval task 持续 drain；processing 中遗留（进程中断）由
+/// [`LocalTriggerQueue::recover`] 兜底。
+pub async fn run_delivery_once<F, Fut>(
+    queue: &tokio::sync::Mutex<LocalTriggerQueue>,
+    limit: usize,
+    is_busy: impl Fn(&str) -> bool,
+    mut deliver: F,
+) -> usize
+where
+    F: FnMut(TriggerDelivery) -> Fut,
+    Fut: std::future::Future<Output = bool>,
+{
+    let claimed = {
+        let mut q = queue.lock().await;
+        q.claim(limit, is_busy)
+    };
+    let mut ok_count = 0;
+    for delivery in claimed {
+        let ok = deliver(delivery.clone()).await;
+        let mut q = queue.lock().await;
+        if ok {
+            q.complete(delivery.id);
+            ok_count += 1;
+        } else {
+            q.complete(delivery.id);
+            q.reenqueue(delivery);
+        }
+    }
+    ok_count
 }

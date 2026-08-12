@@ -12,7 +12,7 @@ fn store(dir: &TempDir) -> TranscripStore {
 #[tokio::test]
 async fn write_turn_and_read_thread_returns_ui_messages() {
     let dir = TempDir::new().unwrap();
-    let mut store = store(&dir);
+    let store = store(&dir);
 
     store
         .append_turn("websocket:c1", "你好", "echo: 你好")
@@ -40,7 +40,7 @@ async fn read_thread_missing_returns_none() {
 #[tokio::test]
 async fn multiple_turns_accumulate_in_order() {
     let dir = TempDir::new().unwrap();
-    let mut store = store(&dir);
+    let store = store(&dir);
 
     store.append_turn("websocket:c1", "Q1", "A1").unwrap();
     store.append_turn("websocket:c1", "Q2", "A2").unwrap();
@@ -56,7 +56,7 @@ async fn multiple_turns_accumulate_in_order() {
 #[tokio::test]
 async fn multiple_sessions_independent() {
     let dir = TempDir::new().unwrap();
-    let mut store = store(&dir);
+    let store = store(&dir);
 
     store.append_turn("websocket:a", "pa", "ra").unwrap();
     store.append_turn("websocket:b", "pb", "rb").unwrap();
@@ -72,7 +72,7 @@ async fn multiple_sessions_independent() {
 #[tokio::test]
 async fn delete_clears_transcript_and_returns_false_afterwards() {
     let dir = TempDir::new().unwrap();
-    let mut store = store(&dir);
+    let store = store(&dir);
     store.append_turn("websocket:d", "x", "y").unwrap();
     assert!(store.read_thread("websocket:d").unwrap().is_some());
 

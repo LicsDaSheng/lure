@@ -50,7 +50,7 @@ impl TranscripStore {
 
     /// 追加一轮对话（一条 user + 一条 assistant）。
     pub fn append_turn(
-        &mut self,
+        &self,
         session_key: &str,
         user_content: &str,
         assistant_content: &str,
