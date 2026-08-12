@@ -52,6 +52,23 @@ run():
 gateway 是**独立子进程**（`process_runtime.py` ManagedProcessRuntime + `gateway/runtime.py` GatewayRuntime，multiprocessing）。
 channel 平台同样可独立进程托管（ChannelManager，39.4KB）。
 
+### 1.4 WebUI 后端即 websocket channel
+
+上游 WebUI 的后端**本身就是 channel**：`channels/websocket/runtime.py`（67.8KB / 1779 行）的
+`WebSocketChannel(BaseChannel)`，docstring 原话："Run a local WebSocket server; forward
+text/JSON messages to the message bus."。
+
+- 消息流：浏览器 WS → `WebSocketChannel` → `MessageBus`(InboundMessage) → `AgentLoop` 单实例消费调度。
+- WebUI 的 HTTP 路由（`/webui/bootstrap`、sessions、settings、skills、media、mcp presets、
+  cli_apps、forking、channel 配置热加载）全部由该 channel 借助 `GatewayServices` 提供。
+- 订阅簿记：`_subs`（chat_id → connections fan-out）/`_conn_chats`/`_webui_connections`
+  （bootstrap token 认证）——与 lure 现有 `WsHub` 同构。
+- 契约测试规模：websocket 相关测试 9000+ 行（test_websocket_channel.py 5074 行 +
+  test_websocket_http_routes.py 3598 行），即上游 WebUI 全部契约。
+
+结论：上游「多入口共享一个 agent」的形态是**所有入口（浏览器/Telegram/Discord）都是
+BaseChannel 子类，统一进 bus，单实例 AgentLoop 常驻调度**。
+
 ## 2. lure 现状（同步架构）
 
 | 域 | 现状 | 与上游差距 |
@@ -59,7 +76,7 @@ channel 平台同样可独立进程托管（ChannelManager，39.4KB）。
 | AgentLoop | `process()` 一次性同步调用（loop_run.rs），无常驻循环 | 无 run() 循环、无任务表/取消、无 mid-turn 注入、无 automation 协调 |
 | bus | 同步 FIFO 队列 | 无 async 消费 |
 | provider | `LlmProvider` 同步 trait，UreqTransport（阻塞） | 无异步客户端 |
-| webui | tiny_http + 每连接一线程（WS） | 无异步 server |
+| webui | tiny_http + 每连接一线程（WS），**直连模式**：每连接新建独立 AgentLoop 实例，不走 bus；cron 另起独立实例；`WsHub` 订阅簿记与上游 `_subs` 同构但未 channel 化 | 无异步 server；WebUI 未纳入 channel/bus 体系 |
 | cron | 轮询线程（30s interval） | 无 submit_cron_turn 语义 |
 | gateway | 最小同步编排 | 无 async 调度、无真实 channel |
 | subagent/MCP | 状态簿记 / schema 纯变换 | 被同步模型卡住 |
@@ -118,10 +135,23 @@ channel 平台同样可独立进程托管（ChannelManager，39.4KB）。
 - **改动**：cron/service.rs 线程轮询 → interval task；trigger 队列异步化；desktop 装配改 runtime 内 task。
 - **验证**：cron 相关既有测试（含实时推送端到端）+ 新增 defer 契约测试。
 
-### Stage 5：channel 异步化 + 第一个真实 channel
-- **契约**：`Channel` trait async（send/progress）；Telegram channel（reqwest polling + getUpdates/offset 语义对齐上游 telegram 模块）；gateway async 编排。
-- **改动**：channel trait async-trait；新增 `channel/telegram.rs`；Gateway 改 async。
-- **验证**：channel 契约测试（mock 传输）+ gateway async 编排测试。
+### Stage 5：channel 异步化 + WebUI channel 化 + 第一个真实 channel
+- **契约**：
+  - `Channel` trait async（send/progress/deliver）；gateway async 编排。
+  - **WebUI channel 化**（对齐 1.4 上游形态）：现有 webui 直连模式重构为
+    `WebSocketChannel` 等价物——浏览器 WS 消息经 `MessageBus` 进单实例 AgentLoop；
+    `WsHub` 订阅簿记平移为 channel 内订阅表；`/webui/bootstrap` 与 `/api/*` 路由
+    语义保持字面不变（E2E 守护）；每连接独立 AgentLoop 的隔离语义由「单实例 +
+    按 session 调度」替代（隔离性不变、资源复用）。
+  - Telegram channel（reqwest polling + getUpdates/offset 语义对齐上游 telegram 模块）。
+- **改动**：channel trait async-trait；webui 模块拆分出 `channel/websocket.rs`
+  （复用现有 WsHub/transcript/token/静态资源逻辑）；新增 `channel/telegram.rs`；
+  Gateway 改 async 编排；desktop 装配从「每连接 factory + cron 独立实例」改为
+  「单实例 AgentLoop.run() + 各 channel 注册进 bus」。
+- **依赖**：本阶段以 Stage 1 的 bus 消费 + 单实例调度为前提——channel 化的落点
+  就是异步 AgentLoop 的 run() 循环；若 Stage 1/3 已先行，此处仅剩 trait 化与接线。
+- **验证**：channel 契约测试（mock 传输）+ gateway async 编排测试 + 既有 E2E 7 用例全绿
+  （WebUI 契约不变的守护网）。
 
 ### Stage 6：subagent 后台执行 + MCP 异步客户端
 - **契约**：subagent spawn 起后台 agent turn（async task）、announce 经 bus 回灌、exec 级联终止（对齐 test_subagent.py 语义）；MCP stdio/HTTP/SSE 客户端 + enabled-tools 过滤 + 重连/重试（对齐 test_mcp_*）。
