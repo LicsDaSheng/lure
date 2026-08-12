@@ -1,5 +1,8 @@
 # Phase Roadmap
 
+> 异步运行时对齐（tokio 迁移）是横切多阶段的架构工程，执行计划见
+> [async-runtime-plan.md](async-runtime-plan.md)。
+
 | 阶段 | 状态 | 核心已完成 | 主要缺口 |
 |---|---|---|---|
 | Phase 0 骨架 | done | Cargo workspace、CLI/core crate、台账格式 | — |

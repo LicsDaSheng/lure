@@ -77,8 +77,9 @@ method、WS、bootstrap）。典型：前端 `encodeURIComponent` 把 session ke
 [../e2e/README.md](../e2e/README.md)。
 
 **本地统一门禁入口**（见根目录 `Makefile`）：`make rust`（fmt+clippy+test）、
-`make e2e`（浏览器契约）、`make check`（两者全跑，提交前用）。本项目不接远程 CI，
-门禁靠本地 `make check` 把关。
+`make e2e`（浏览器契约）、`make check`（两者全跑，提交前用）。远程 CI 由
+GitHub Actions 承担（`.github/workflows/ci.yml`：push main / PR 触发 Rust 门禁 +
+前端构建 + E2E；`.github/workflows/release.yml`：v* tag 触发三平台安装包 + Release）。
 
 ## Git 卫生
 
