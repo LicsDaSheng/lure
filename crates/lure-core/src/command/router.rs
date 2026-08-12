@@ -100,7 +100,7 @@ impl CommandRouter {
     /// 注册 prefix 命令（保持按前缀长度降序，最长优先）。
     pub fn prefix(&mut self, pfx: &str, handler: CommandHandler) {
         self.prefix.push((pfx.to_lowercase(), handler));
-        self.prefix.sort_by(|a, b| b.0.len().cmp(&a.0.len()));
+        self.prefix.sort_by_key(|k| std::cmp::Reverse(k.0.len()));
     }
 
     /// 归一后是否命中 priority 层。

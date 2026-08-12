@@ -157,9 +157,13 @@ fn serve_connection<R: TurnRunner>(
     hub: WsHub,
     conn_id: u64,
 ) {
-    let mut ws = match accept_hdr(stream, |req: &Request, resp: Response| {
-        handshake_auth(req, resp, &issuer)
-    }) {
+    let mut ws = match accept_hdr(
+        stream,
+        // tungstenite 的 accept_hdr 回调契约固定 Err 为完整 Response（拒绝握手时原样写回），
+        // 无法用 Box 瘦身；错误路径为冷路径，故显式放行 result_large_err。
+        #[allow(clippy::result_large_err)]
+        |req: &Request, resp: Response| handshake_auth(req, resp, &issuer),
+    ) {
         Ok(ws) => ws,
         Err(_) => return,
     };

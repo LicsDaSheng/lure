@@ -101,6 +101,12 @@ jobs:
       - name: 安装 Bun
         uses: oven-sh/setup-bun@v2
 
+      - name: 安装前端依赖
+        # webServer 会执行 frontend/app 的 bun run build（tsc + vite），
+        # 必须预装依赖使 tsc 锁定在 bun.lock 版本，避免 bun 自动拉取新版。
+        working-directory: frontend/app
+        run: bun install --frozen-lockfile
+
       - name: 安装 E2E 依赖（bun + Chromium）
         working-directory: e2e
         run: |
