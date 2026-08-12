@@ -14,6 +14,8 @@
 - [phase-roadmap.md](./phase-roadmap.md)：各阶段状态、已完成项与缺口（一张表）。
 - [phase-plans.md](./phase-plans.md)：每阶段 plan、验收标准与**下一步目标**（优先级排序）。
 - [phase-execution.md](./phase-execution.md)：每个 phase 的固定推进流程、门禁与验证。
+- [async-runtime-plan.md](./async-runtime-plan.md)：异步运行时对齐（tokio 迁移）跨阶段执行计划（Stage 0-7 已全部完成）。
+- [release-checklist.md](./release-checklist.md)：发布前验收清单。
 - [upstream-test-ledger.md](./upstream-test-ledger.md)：上游测试覆盖台账（逐文件记录覆盖/暂缓/缺口）。
 
 ## 推进守则

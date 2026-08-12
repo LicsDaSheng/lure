@@ -15,25 +15,38 @@ lure/
 └── crates/
     ├── lure-core/              # 核心领域库
     │   └── src/
-    │       ├── agent/          # agent loop / runner / context
-    │       ├── api/            # OpenAI-compatible API 表面
-    │       ├── bus/            # InboundMessage / OutboundMessage / 消息总线
-    │       ├── channel/        # channel 契约
+    │       ├── agent/          # agent loop / runner / context / 异步调度核心 / subagent 执行
+    │       ├── api/            # OpenAI-compatible API 表面（传输无关）
+    │       ├── bus/            # InboundMessage / OutboundMessage / 同步与异步消息总线
+    │       ├── channel/        # channel 契约（access/contract）+ websocket 渠道（turn 事件路由）
     │       ├── config/         # 配置 schema / 路径 / 读写 / preset
-    │       ├── cron/           # cron 调度 / 持久化
+    │       ├── cron/           # cron 调度（tokio interval task）/ 持久化 / submit 语义
     │       ├── gateway/        # gateway 编排
+    │       ├── mcp/            # MCP 异步客户端（JSON-RPC / stdio 传输 / 瞬时重试）
     │       ├── memory/         # 长期记忆 / history / dream consolidation
-    │       ├── provider/       # LLM provider 契约 / OpenAI-compatible
+    │       ├── provider/       # LLM provider 契约 / OpenAI-compatible（全异步，reqwest）
     │       ├── security/       # workspace 路径边界
     │       ├── session/        # session 存储 / 缓存 / goal 状态
-    │       ├── tool/           # tool trait / registry / 文件与 shell 工具
-    │       ├── trigger/        # trigger at-least-once 队列
-    │       └── webui/          # WebUI 后端协议 / HTTP server / WS multiplex
+    │       ├── tool/           # tool trait / registry / 文件与 shell 工具 / MCP 纯变换
+    │       ├── trigger/        # trigger at-least-once 队列 / 异步投递循环
+    │       └── webui/          # WebUI 后端（axum HTTP + WS）/ 复用协议 / transcript / hub
     ├── lure-cli/               # CLI（二进制 `lure`）
     └── lure-desktop/           # 桌面应用（Tauri V2 外壳，二进制 `lure-desktop`）
 ```
 
 设计原则：优先类型化 API、枚举、trait 与结构化错误；保持解析、领域逻辑、运行时执行、存储与传输之间的清晰边界。
+
+### 异步运行时架构
+
+lure 采用单一 tokio 异步运行时（multi-thread），全 IO 面异步化：
+
+- **单实例调度核心**：`AgentLoopScheduler` 常驻消费 `AsyncBus`，按 session 串行调度（pending 队列、`/stop` 取消、cron 让位）；WS 渠道与 cron 经同一 bus 进单实例 AgentLoop。
+- **WebUI**：axum 统一 HTTP + WebSocket（`/webui/bootstrap`、`/api/*`、WS 复用协议）；浏览器消息经 `BusTurnRunner` 进 bus，turn 事件按 `turn_id` 流式回推。
+- **cron**：`AsyncCronScheduler` 为 tokio interval task，到期 job 经 submit 语义投递进 bus。
+- **subagent**：`SubagentRunner` 后台执行 + announce 经 bus 回灌 + exec 级联终止。
+- **MCP**：`McpClient` 传输无关 JSON-RPC 客户端（stdio 传输、enabled-tools 过滤、瞬时重试）。
+
+同步路径仅剩少数桥接点（`runtime::block_on`，mux/gateway 同步 handle_frame 使用）。
 
 ## 构建与测试
 

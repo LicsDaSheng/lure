@@ -1,6 +1,7 @@
 # 发布前验收清单
 
-用于 Phase 11 及后续每次发布前的完整核对。以当前仓库验证结果为准，不基于推测。
+用于每次发布前的完整核对。以当前仓库验证结果为准，不基于推测。
+异步运行时对齐（Stage 0-7，见 `async-runtime-plan.md`）已全部完成。
 
 ## 构建与质量门禁
 
@@ -9,6 +10,14 @@
 - [ ] `rtk cargo test --all-targets --all-features` 全量通过，并记录通过数。
 - [ ] `rtk cargo build --release` 生成 `target/release/lure`。
 - [ ] `target/release/lure --version` 输出与包版本一致。
+
+## 异步运行时架构（Stage 0-7 收尾后）
+
+- [ ] 全量 Rust 测试（含 `channel`/`cron_async`/`subagent_run`/`mcp_client` 契约测试）通过。
+- [ ] `make e2e`（Playwright 7 用例）通过——真实浏览器驱动 headless 后端，守护 WebUI 契约不变。
+- [ ] `cargo test -p lure-desktop --test headless` 通过——守护 cron → transcript → 在线 WS 推送。
+- [ ] 单实例调度核心：WS 渠道与 cron 共用 bus，`/stop` 按 session 取消（`agent_loop_async.rs`）。
+- [ ] 同步死代码已清理：无 `tiny_http`、无线程版 cron 调度器（`cargo tree`/grep 复核）。
 
 ## 发布产物
 
@@ -33,11 +42,14 @@
 
 ## 文档
 
-- [ ] `README.md` 阶段状态表与当前进度一致。
-- [ ] `handbook/phase-roadmap.md` 各阶段状态准确。
-- [ ] `handbook/upstream-test-ledger.md` 覆盖状态更新到位。
+- [ ] `README.md` 架构树（含 `mcp/`）与异步运行时说明与当前进度一致。
+- [ ] `handbook/phase-roadmap.md` 各阶段状态准确（MCP/subagent 缺口已随 Stage 6 勾销）。
+- [ ] `handbook/upstream-test-ledger.md` 覆盖状态更新到位（Stage 7 删除项已记最终状态）。
 
 ## 暂缓项（发布说明中显式列出）
 
-- 真实 provider 网络调用（Phase 4 opt-in）、真实 HTTP/WebSocket 服务（Phase 7/9/10）、
-  cron 表达式调度（Phase 8）、前端资源构建（Phase 10）等按台账记录，发布说明需说明其状态。
+- 真实 provider 网络调用（Phase 4 opt-in，需真实 API key；`provider_deepseek_smoke` 为显式 opt-in）。
+- MCP HTTP/SSE 传输（Stage 6 已落地 stdio；HTTP/SSE 需真实协议服务器，按台账记 partial）。
+- 前端资源构建与前端行为测试（Phase 10，属外部构建资产，`frontend/dist` 构建前需 `bun run build`）。
+- legacy 全局 sessions 目录迁移、run history、精确睡到 next_wake 等按台账记录。
+- SDK facade（`lure_core::sdk`）：范围决定不做（消费面为 CLI + desktop WebUI）。
