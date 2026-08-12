@@ -62,7 +62,7 @@ pub fn build_provider(
     config_path: Option<&str>,
     preset: Option<&str>,
     model: Option<&str>,
-) -> Result<Box<dyn LlmProvider>, String> {
+) -> Result<Box<dyn LlmProvider + Send>, String> {
     if preset.is_some() && model.is_some() {
         return Err("--preset 与 --model 互斥，只能二选一".to_string());
     }
@@ -114,7 +114,7 @@ pub fn resolve_runtime(
 pub fn build_provider_from_runtime(
     config: &Config,
     runtime: &LlmRuntime,
-) -> Result<Box<dyn LlmProvider>, String> {
+) -> Result<Box<dyn LlmProvider + Send>, String> {
     let provider_name = &runtime.provider.provider_name;
     let env_key = format!("{}_API_KEY", provider_name.to_uppercase());
     let api_key = config

@@ -44,7 +44,7 @@ impl LlmProvider for ProbeProvider {
     }
 }
 
-fn loop_with(provider: Box<dyn LlmProvider>) -> (tempfile::TempDir, AgentLoop) {
+fn loop_with(provider: Box<dyn LlmProvider + Send>) -> (tempfile::TempDir, AgentLoop) {
     let dir = tempfile::tempdir().unwrap();
     let sessions = SessionManager::new(dir.path()).unwrap();
     let agent_loop = AgentLoop::new(provider, sessions, ContextBuilder::new(None));

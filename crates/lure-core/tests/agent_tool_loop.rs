@@ -4,8 +4,7 @@
 //! 映射上游 `tests/agent/` 的 tool 执行循环最小切片：用脚本化 fake provider + 内存
 //! echo tool 驱动，不触网。streaming、并行 tool、subagent 属后续。
 
-use std::cell::RefCell;
-use std::rc::Rc;
+use std::sync::{Arc, Mutex};
 
 use lure_core::agent::{
     AgentLoop, ContextBuilder, ProgressEvent, EMPTY_FINAL_RESPONSE_MESSAGE,
@@ -20,14 +19,14 @@ use tempfile::TempDir;
 
 /// 按序返回预置 `LlmResponse` 的 fake provider；记录每次收到的 messages。
 struct ScriptedToolProvider {
-    responses: RefCell<Vec<LlmResponse>>,
-    seen: Rc<RefCell<Vec<Vec<Value>>>>,
+    responses: Mutex<Vec<LlmResponse>>,
+    seen: Arc<Mutex<Vec<Vec<Value>>>>,
 }
 
 impl ScriptedToolProvider {
-    fn new(responses: Vec<LlmResponse>, seen: Rc<RefCell<Vec<Vec<Value>>>>) -> Self {
+    fn new(responses: Vec<LlmResponse>, seen: Arc<Mutex<Vec<Vec<Value>>>>) -> Self {
         Self {
-            responses: RefCell::new(responses.into_iter().rev().collect()),
+            responses: Mutex::new(responses.into_iter().rev().collect()),
             seen,
         }
     }
@@ -39,10 +38,11 @@ impl LlmProvider for ScriptedToolProvider {
     }
 
     fn complete(&self, request: &CompletionRequest) -> Result<LlmResponse, ProviderError> {
-        self.seen.borrow_mut().push(request.messages.clone());
+        self.seen.lock().unwrap().push(request.messages.clone());
         Ok(self
             .responses
-            .borrow_mut()
+            .lock()
+            .unwrap()
             .pop()
             .unwrap_or_else(|| LlmResponse::text("")))
     }
@@ -50,7 +50,7 @@ impl LlmProvider for ScriptedToolProvider {
 
 /// 始终返回一个 tool_call 的 provider（用于验证迭代上限）。
 struct AlwaysToolProvider {
-    calls: Rc<RefCell<usize>>,
+    calls: Arc<Mutex<usize>>,
 }
 
 impl LlmProvider for AlwaysToolProvider {
@@ -59,14 +59,14 @@ impl LlmProvider for AlwaysToolProvider {
     }
 
     fn complete(&self, _request: &CompletionRequest) -> Result<LlmResponse, ProviderError> {
-        *self.calls.borrow_mut() += 1;
+        *self.calls.lock().unwrap() += 1;
         Ok(tool_call_response("call_x", "echo", r#"{"text":"loop"}"#))
     }
 }
 
 /// 记录调用参数的内存 echo tool。
 struct EchoTool {
-    calls: Rc<RefCell<Vec<Value>>>,
+    calls: Arc<Mutex<Vec<Value>>>,
 }
 
 impl Tool for EchoTool {
@@ -84,7 +84,7 @@ impl Tool for EchoTool {
         })
     }
     fn execute(&self, args: &Value) -> ToolResult {
-        self.calls.borrow_mut().push(args.clone());
+        self.calls.lock().unwrap().push(args.clone());
         let text = args.get("text").and_then(Value::as_str).unwrap_or("");
         ToolResult::ok(format!("tool-echo: {text}"))
     }
@@ -128,20 +128,20 @@ fn tool_call_response(id: &str, name: &str, arguments: &str) -> LlmResponse {
 type ToolLoopFixture = (
     TempDir,
     AgentLoop,
-    Rc<RefCell<Vec<Value>>>,
-    Rc<RefCell<Vec<Vec<Value>>>>,
+    Arc<Mutex<Vec<Value>>>,
+    Arc<Mutex<Vec<Vec<Value>>>>,
 );
 
 fn setup(responses: Vec<LlmResponse>) -> ToolLoopFixture {
     let dir = tempfile::tempdir().unwrap();
     let sessions = SessionManager::new(dir.path()).unwrap();
-    let seen = Rc::new(RefCell::new(Vec::new()));
-    let provider = ScriptedToolProvider::new(responses, Rc::clone(&seen));
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    let provider = ScriptedToolProvider::new(responses, Arc::clone(&seen));
 
-    let calls = Rc::new(RefCell::new(Vec::new()));
+    let calls = Arc::new(Mutex::new(Vec::new()));
     let mut registry = ToolRegistry::new();
     registry.register(Box::new(EchoTool {
-        calls: Rc::clone(&calls),
+        calls: Arc::clone(&calls),
     }));
 
     let agent_loop = AgentLoop::new(Box::new(provider), sessions, ContextBuilder::new(None))
@@ -164,11 +164,11 @@ fn single_tool_round_executes_and_returns_final_reply() {
     assert_eq!(outcome.final_content, "done");
 
     // echo tool 被调用一次，参数解析自 tool_call.arguments。
-    assert_eq!(calls.borrow().len(), 1);
-    assert_eq!(calls.borrow()[0], json!({"text": "hi"}));
+    assert_eq!(calls.lock().unwrap().len(), 1);
+    assert_eq!(calls.lock().unwrap()[0], json!({"text": "hi"}));
 
     // 第二次调用的上下文应含 assistant(tool_calls) 与 tool 结果。
-    let second_call = &seen.borrow()[1];
+    let second_call = &seen.lock().unwrap()[1];
     let has_tool_result = second_call.iter().any(|m| {
         m.get("role").and_then(Value::as_str) == Some("tool")
             && m.get("content").and_then(Value::as_str) == Some("tool-echo: hi")
@@ -247,14 +247,14 @@ fn process_streaming_emits_progress_events_live() {
 fn tool_loop_stops_at_max_iterations() {
     let dir = tempfile::tempdir().unwrap();
     let sessions = SessionManager::new(dir.path()).unwrap();
-    let call_count = Rc::new(RefCell::new(0usize));
+    let call_count = Arc::new(Mutex::new(0usize));
     let provider = AlwaysToolProvider {
-        calls: Rc::clone(&call_count),
+        calls: Arc::clone(&call_count),
     };
-    let echo_calls = Rc::new(RefCell::new(Vec::new()));
+    let echo_calls = Arc::new(Mutex::new(Vec::new()));
     let mut registry = ToolRegistry::new();
     registry.register(Box::new(EchoTool {
-        calls: Rc::clone(&echo_calls),
+        calls: Arc::clone(&echo_calls),
     }));
     let mut agent_loop = AgentLoop::new(Box::new(provider), sessions, ContextBuilder::new(None))
         .with_tools(registry);
@@ -265,8 +265,8 @@ fn tool_loop_stops_at_max_iterations() {
         .unwrap();
 
     // provider 调用次数 = 上限；tool 执行次数 = 上限。
-    assert_eq!(*call_count.borrow(), MAX_TOOL_ITERATIONS);
-    assert_eq!(echo_calls.borrow().len(), MAX_TOOL_ITERATIONS);
+    assert_eq!(*call_count.lock().unwrap(), MAX_TOOL_ITERATIONS);
+    assert_eq!(echo_calls.lock().unwrap().len(), MAX_TOOL_ITERATIONS);
     // 有结构化 progress，不 panic。
     assert!(!outcome.progress.is_empty());
 }
@@ -284,7 +284,7 @@ fn unknown_tool_yields_error_result_and_loop_recovers() {
 
     assert_eq!(outcome.final_content, "recovered");
     // echo 未被调用（请求的是未知工具）。
-    assert!(calls.borrow().is_empty());
+    assert!(calls.lock().unwrap().is_empty());
 }
 
 /// 返回空/纯空白内容的内存工具（验证空结果被替换为标记）。
@@ -312,13 +312,13 @@ fn empty_tool_result_is_replaced_with_marker() {
     // `(<tool> completed with no output)`，避免模型看到空白 tool turn。
     let dir = tempfile::tempdir().unwrap();
     let sessions = SessionManager::new(dir.path()).unwrap();
-    let seen = Rc::new(RefCell::new(Vec::new()));
+    let seen = Arc::new(Mutex::new(Vec::new()));
     let provider = ScriptedToolProvider::new(
         vec![
             tool_call_response("call_1", "blank", "{}"),
             LlmResponse::text("done"),
         ],
-        Rc::clone(&seen),
+        Arc::clone(&seen),
     );
     let mut registry = ToolRegistry::new();
     registry.register(Box::new(BlankTool));
@@ -331,7 +331,7 @@ fn empty_tool_result_is_replaced_with_marker() {
     assert_eq!(outcome.final_content, "done");
 
     // 第二次上下文里 tool 结果应为标记，而非空串。
-    let second_call = &seen.borrow()[1];
+    let second_call = &seen.lock().unwrap()[1];
     let tool_msg = second_call
         .iter()
         .find(|m| m.get("role").and_then(Value::as_str) == Some("tool"))
@@ -411,10 +411,10 @@ fn empty_final_response_retries_then_finalizes_to_content() {
     assert_eq!(outcome.final_content, "final answer");
     assert_eq!(outcome.stop_reason, "completed");
     // provider 调用 3 次：主 + 1 次静默重试 + 1 次 finalization。
-    assert_eq!(seen.borrow().len(), 3);
+    assert_eq!(seen.lock().unwrap().len(), 3);
 
     // 第 3 次（finalization）上下文含 finalization 提示。
-    let third = &seen.borrow()[2];
+    let third = &seen.lock().unwrap()[2];
     let has_prompt = third.iter().any(|m| {
         m.get("role").and_then(Value::as_str) == Some("user")
             && m.get("content").and_then(Value::as_str) == Some(FINALIZATION_RETRY_PROMPT)
@@ -472,7 +472,7 @@ fn all_empty_yields_empty_final_response_message() {
 
     assert_eq!(outcome.final_content, EMPTY_FINAL_RESPONSE_MESSAGE);
     assert_eq!(outcome.stop_reason, "empty_final_response");
-    assert_eq!(seen.borrow().len(), 3);
+    assert_eq!(seen.lock().unwrap().len(), 3);
 }
 
 #[test]
@@ -480,10 +480,10 @@ fn without_registry_tool_calls_are_treated_as_final() {
     // 未注册 tool registry 时，即便 provider 返回 tool_calls 也直接作为终态。
     let dir = tempfile::tempdir().unwrap();
     let sessions = SessionManager::new(dir.path()).unwrap();
-    let seen = Rc::new(RefCell::new(Vec::new()));
+    let seen = Arc::new(Mutex::new(Vec::new()));
     let mut response = tool_call_response("call_1", "echo", r#"{"text":"hi"}"#);
     response.content = Some("partial".to_string());
-    let provider = ScriptedToolProvider::new(vec![response], Rc::clone(&seen));
+    let provider = ScriptedToolProvider::new(vec![response], Arc::clone(&seen));
     let mut agent_loop = AgentLoop::new(Box::new(provider), sessions, ContextBuilder::new(None));
 
     let outcome = agent_loop
@@ -492,7 +492,7 @@ fn without_registry_tool_calls_are_treated_as_final() {
 
     assert_eq!(outcome.final_content, "partial");
     // 只调用一次 provider，历史仅 user + assistant。
-    assert_eq!(seen.borrow().len(), 1);
+    assert_eq!(seen.lock().unwrap().len(), 1);
     let history = agent_loop
         .sessions_mut()
         .get_or_create("cli:direct")

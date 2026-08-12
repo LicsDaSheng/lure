@@ -5,8 +5,7 @@
 //!
 //! 暂未映射：streaming、tool 执行循环、goal/subagent、consolidation —— 属后续 phase。
 
-use std::cell::RefCell;
-use std::rc::Rc;
+use std::sync::{Arc, Mutex};
 
 use lure_core::agent::{AgentError, AgentLoop, ContextBuilder, ProgressEvent};
 use lure_core::bus::InboundMessage;
@@ -20,13 +19,13 @@ use tempfile::TempDir;
 
 /// 按序返回预置回复的 fake provider。
 struct ScriptedProvider {
-    replies: RefCell<Vec<String>>,
+    replies: Mutex<Vec<String>>,
 }
 
 impl ScriptedProvider {
     fn new(replies: Vec<&str>) -> Self {
         Self {
-            replies: RefCell::new(replies.into_iter().rev().map(String::from).collect()),
+            replies: Mutex::new(replies.into_iter().rev().map(String::from).collect()),
         }
     }
 }
@@ -37,7 +36,7 @@ impl LlmProvider for ScriptedProvider {
     }
 
     fn complete(&self, _request: &CompletionRequest) -> Result<LlmResponse, ProviderError> {
-        let reply = self.replies.borrow_mut().pop().unwrap_or_default();
+        let reply = self.replies.lock().unwrap().pop().unwrap_or_default();
         Ok(LlmResponse::text(reply))
     }
 }
@@ -75,8 +74,9 @@ impl LlmProvider for ReasoningProvider {
 }
 
 /// 记录最近一次 `CompletionRequest`（用于断言 model/settings 来自 runtime）。
+/// 用 `Arc<Mutex>` 满足 `LlmProvider + Send`（异步调度跨线程共享）。
 struct CapturingProvider {
-    last: Rc<RefCell<Option<CompletionRequest>>>,
+    last: Arc<Mutex<Option<CompletionRequest>>>,
 }
 
 impl LlmProvider for CapturingProvider {
@@ -85,7 +85,7 @@ impl LlmProvider for CapturingProvider {
     }
 
     fn complete(&self, request: &CompletionRequest) -> Result<LlmResponse, ProviderError> {
-        *self.last.borrow_mut() = Some(request.clone());
+        *self.last.lock().unwrap() = Some(request.clone());
         Ok(LlmResponse::text("ok"))
     }
 }
@@ -99,9 +99,9 @@ fn with_runtime_drives_model_and_settings_for_provider_call() {
     config.agents.defaults.temperature = 0.42;
     let runtime = ModelRuntimeResolver::new(config).admit(None).unwrap();
 
-    let captured = Rc::new(RefCell::new(None));
+    let captured = Arc::new(Mutex::new(None));
     let provider = CapturingProvider {
-        last: Rc::clone(&captured),
+        last: Arc::clone(&captured),
     };
 
     let dir = tempfile::tempdir().unwrap();
@@ -112,7 +112,11 @@ fn with_runtime_drives_model_and_settings_for_provider_call() {
     let input = InboundMessage::new("cli", "direct", "hi".to_string());
     agent_loop.process(&input).unwrap();
 
-    let request = captured.borrow().clone().expect("provider 应被调用一次");
+    let request = captured
+        .lock()
+        .unwrap()
+        .clone()
+        .expect("provider 应被调用一次");
     assert_eq!(request.model, "deepseek-chat");
     assert_eq!(
         request.settings,
@@ -124,7 +128,7 @@ fn with_runtime_drives_model_and_settings_for_provider_call() {
     );
 }
 
-fn loop_with(provider: Box<dyn LlmProvider>) -> (TempDir, AgentLoop) {
+fn loop_with(provider: Box<dyn LlmProvider + Send>) -> (TempDir, AgentLoop) {
     let dir = tempfile::tempdir().unwrap();
     let sessions = SessionManager::new(dir.path()).unwrap();
     let agent_loop = AgentLoop::new(provider, sessions, ContextBuilder::new(None));

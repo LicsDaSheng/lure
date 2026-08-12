@@ -3,8 +3,7 @@
 //!
 //! 用 capturing fake provider + 临时 workspace 驱动，不接真实 LLM/网络。
 
-use std::cell::RefCell;
-use std::rc::Rc;
+use std::sync::{Arc, Mutex};
 
 use lure_core::agent::{AgentLoop, ContextBuilder};
 use lure_core::bus::InboundMessage;
@@ -16,7 +15,7 @@ use tempfile::TempDir;
 
 /// 记录最近一次请求、返回固定回复的 fake provider。
 struct CapturingProvider {
-    last: Rc<RefCell<Option<CompletionRequest>>>,
+    last: Arc<Mutex<Option<CompletionRequest>>>,
     reply: String,
 }
 
@@ -26,7 +25,7 @@ impl LlmProvider for CapturingProvider {
     }
 
     fn complete(&self, request: &CompletionRequest) -> Result<LlmResponse, ProviderError> {
-        *self.last.borrow_mut() = Some(request.clone());
+        *self.last.lock().unwrap() = Some(request.clone());
         Ok(LlmResponse::text(&self.reply))
     }
 }
@@ -40,11 +39,11 @@ impl DreamRunner for CountingDream {
     }
 }
 
-fn capturing(reply: &str) -> (CapturingProvider, Rc<RefCell<Option<CompletionRequest>>>) {
-    let last = Rc::new(RefCell::new(None));
+fn capturing(reply: &str) -> (CapturingProvider, Arc<Mutex<Option<CompletionRequest>>>) {
+    let last = Arc::new(Mutex::new(None));
     (
         CapturingProvider {
-            last: Rc::clone(&last),
+            last: Arc::clone(&last),
             reply: reply.to_string(),
         },
         last,
@@ -77,7 +76,7 @@ fn memory_context_is_injected_into_provider_messages() {
         .process(&InboundMessage::new("cli", "direct", "hi"))
         .unwrap();
 
-    let request = captured.borrow().clone().unwrap();
+    let request = captured.lock().unwrap().clone().unwrap();
     let has_memory = request.messages.iter().any(|m| {
         m.get("role").and_then(Value::as_str) == Some("system")
             && m.get("content").and_then(Value::as_str).is_some_and(|c| {

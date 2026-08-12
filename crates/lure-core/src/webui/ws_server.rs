@@ -4,7 +4,7 @@
 //! `ws_url` 报告）。握手时校验 `?token=`（共享 [`TokenIssuer`]）；每条连接一个线程，
 //! 连接内创建 [`MuxSession`]：先发 `ready`，随后文本帧进 `handle_frame`、出站事件帧写回。
 //!
-//! runner 由工厂在连接线程内创建（`AgentLoop` 因 `Box<dyn LlmProvider>` 无 `Send`
+//! runner 由工厂在连接线程内创建（`AgentLoop` 经 `Send` provider/tool 后已可跨线程，
 //! 约束不能跨线程移动）。
 
 use std::io;

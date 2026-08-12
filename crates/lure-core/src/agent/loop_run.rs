@@ -134,7 +134,7 @@ impl From<SessionError> for AgentError {
 
 /// 最小 agent loop。
 pub struct AgentLoop {
-    provider: Box<dyn LlmProvider>,
+    provider: Box<dyn LlmProvider + Send>,
     sessions: SessionManager,
     context: ContextBuilder,
     settings: GenerationSettings,
@@ -148,7 +148,7 @@ pub struct AgentLoop {
 impl AgentLoop {
     /// 绑定 provider、session 管理器与 context builder。
     pub fn new(
-        provider: Box<dyn LlmProvider>,
+        provider: Box<dyn LlmProvider + Send>,
         sessions: SessionManager,
         context: ContextBuilder,
     ) -> Self {
@@ -176,7 +176,7 @@ impl AgentLoop {
     /// 追加注册单个工具（构造后动态挂载，如按会话绑定的 cron 工具）。
     ///
     /// 未挂载 registry 时自动创建；同名覆盖，保持首次注册顺序（见 [`ToolRegistry::register`]）。
-    pub fn register_tool(&mut self, tool: Box<dyn crate::tool::Tool>) {
+    pub fn register_tool(&mut self, tool: Box<dyn crate::tool::Tool + Send>) {
         self.tools
             .get_or_insert_with(ToolRegistry::new)
             .register(tool);

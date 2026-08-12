@@ -63,11 +63,11 @@ impl MemoryStore {
 /// 构建 prompt：把当前 MEMORY.md 与新 history 条目拼成一条系统提示，
 /// 交给 provider 生成更新后的 MEMORY.md 全文。
 pub struct ProviderDreamRunner {
-    provider: Box<dyn LlmProvider>,
+    provider: Box<dyn LlmProvider + Send>,
 }
 
 impl ProviderDreamRunner {
-    pub fn new(provider: Box<dyn LlmProvider>) -> Self {
+    pub fn new(provider: Box<dyn LlmProvider + Send>) -> Self {
         Self { provider }
     }
 }

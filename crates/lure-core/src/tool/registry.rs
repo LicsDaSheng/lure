@@ -67,7 +67,7 @@ impl std::error::Error for ToolError {}
 /// 工具注册表。
 #[derive(Default)]
 pub struct ToolRegistry {
-    tools: BTreeMap<String, Box<dyn Tool>>,
+    tools: BTreeMap<String, Box<dyn Tool + Send>>,
     order: Vec<String>,
 }
 
@@ -78,7 +78,7 @@ impl ToolRegistry {
     }
 
     /// 注册工具（同名覆盖，保持首次注册顺序）。
-    pub fn register(&mut self, tool: Box<dyn Tool>) {
+    pub fn register(&mut self, tool: Box<dyn Tool + Send>) {
         let name = tool.name().to_string();
         if !self.tools.contains_key(&name) {
             self.order.push(name.clone());

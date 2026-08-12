@@ -9,6 +9,7 @@
 mod context;
 mod loop_run;
 mod runner;
+pub mod scheduler;
 pub mod skills;
 pub mod subagent;
 
@@ -18,3 +19,4 @@ pub use loop_run::{
     FINALIZATION_RETRY_PROMPT, MAX_EMPTY_RETRIES, MAX_TOOL_ITERATIONS,
 };
 pub use runner::AgentRunner;
+pub use scheduler::{AgentLoopScheduler, SchedulerBuilder, SchedulerConfig};
