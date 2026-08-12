@@ -7,7 +7,7 @@
 //! HTTP 客户端跑在子线程；主线程按请求数调用 `handle_next` 逐条应答。
 
 use std::net::SocketAddr;
-use std::sync::{Arc, Mutex};
+use std::sync::Mutex;
 use std::thread;
 
 use lure_core::agent::{AgentLoop, ContextBuilder};

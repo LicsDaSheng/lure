@@ -9,10 +9,10 @@ mod status;
 mod thread;
 mod ws;
 
+/// WebUI server（axum，Stage 3）：统一 HTTP + WS。
+pub mod axum_server;
 /// WebUI HTTP 面的传输无关载荷构造。
 pub mod http_api;
-/// WebUI HTTP server 接线（tiny_http）。
-pub mod http_server;
 /// 在线 WS 连接注册表（服务端主动推送路由）。
 pub mod hub;
 /// WebUI 复用协议会话 handler（传输无关）。
@@ -25,8 +25,6 @@ pub mod settings_write;
 pub mod tokens;
 /// WebUI transcript 存储。
 pub mod transcript;
-/// WebUI WS transport：真实 WebSocket 接线 mux。
-pub mod ws_server;
 
 pub use session_index::{list_webui_sessions, SessionRow};
 pub use status::webui_status;

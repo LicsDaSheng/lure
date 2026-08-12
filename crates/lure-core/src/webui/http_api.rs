@@ -1,7 +1,7 @@
 //! WebUI HTTP 面的传输无关载荷构造。
 //!
 //! 对齐上游 `ws_http.py::_handle_bootstrap` 与 `session_list_index.py::_public_row`
-//! 的响应形状；HTTP 传输接线（tiny_http 路由）在 `webui::http_server`。
+//! 的响应形状；HTTP 传输接线（axum 路由）在 `webui::axum_server`。
 
 use serde_json::{json, Value};
 

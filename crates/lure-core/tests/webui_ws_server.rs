@@ -1,4 +1,4 @@
-//! WebUI WS transport：`webui::ws_server` 真实 WebSocket 接线 MuxSession。
+//! WebUI WS transport：`webui::axum_server`（axum WebSocket）真实接线 MuxSession。
 
 use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
@@ -6,9 +6,12 @@ use std::sync::{Arc, Mutex};
 use lure_core::agent::{AgentLoop, ContextBuilder, ProgressEvent};
 use lure_core::provider::EchoProvider;
 use lure_core::session::SessionManager;
+use lure_core::webui::axum_server::{
+    AgentTurnRunner, StaticAssets, WebuiServer, WebuiServerConfig,
+};
 use lure_core::webui::mux::{self, MuxSession, TurnRunner};
 use lure_core::webui::tokens::TokenIssuer;
-use lure_core::webui::ws_server::{AgentTurnRunner, WsServer};
+use lure_core::webui::transcript::TranscripStore;
 use serde_json::{json, Value};
 use tempfile::TempDir;
 use tungstenite::{client::connect, Message};
@@ -29,19 +32,35 @@ impl TurnRunner for ScriptedRunner {
     }
 }
 
-fn bind(
-    issuer: Arc<Mutex<TokenIssuer>>,
-) -> (
-    WsServer<impl FnMut() -> ScriptedRunner, ScriptedRunner>,
-    SocketAddr,
-) {
-    let server = WsServer::bind(
+/// 空静态资源表（WS 测试不需要 HTTP 资源）。
+struct NoAssets;
+impl StaticAssets for NoAssets {
+    fn asset(&self, _path: &str) -> Option<(Vec<u8>, &'static str)> {
+        None
+    }
+}
+
+/// 绑定 axum WebUI server（HTTP + WS 同一端口），返回 server 与地址。
+async fn bind(issuer: Arc<Mutex<TokenIssuer>>) -> (WebuiServer, SocketAddr) {
+    let dir = TempDir::new().unwrap();
+    let transcript = TranscripStore::new(dir.path().join("webui")).unwrap();
+    let server = WebuiServer::bind(
         "127.0.0.1:0",
-        || ScriptedRunner,
+        NoAssets,
+        WebuiServerConfig {
+            workspace: dir.path().to_path_buf(),
+            config_path: dir.path().join("config.yaml"),
+            model_name: None,
+            ws_path: "/ws".to_string(),
+            ws_url: String::new(),
+            token_ttl_secs: 3600,
+        },
+        lure_core::config::Config::default(),
         issuer,
-        None,
-        tokio::runtime::Handle::current(),
+        transcript,
+        || ScriptedRunner,
     )
+    .await
     .unwrap();
     let addr = server.local_addr().unwrap();
     (server, addr)
@@ -66,22 +85,6 @@ fn read_frame(ws: &mut tungstenite::WebSocket<impl std::io::Read + std::io::Writ
     }
 }
 
-#[tokio::test]
-async fn rejects_missing_or_unknown_token() {
-    let issuer = Arc::new(Mutex::new(TokenIssuer::new(3600, 16)));
-    let (mut server, addr) = bind(issuer);
-
-    // 无 token。
-    let no_token = thread_connect(addr, "");
-    server.handle_next().unwrap();
-    assert!(no_token.join().unwrap().is_err(), "无 token 必须拒绝");
-
-    // 未知 token。
-    let bad = thread_connect(addr, "?token=nope");
-    server.handle_next().unwrap();
-    assert!(bad.join().unwrap().is_err(), "未知 token 必须拒绝");
-}
-
 fn thread_connect(addr: SocketAddr, query: &str) -> std::thread::JoinHandle<Result<(), String>> {
     let url = format!("ws://{addr}/ws{query}");
     std::thread::spawn(move || match connect(url) {
@@ -90,17 +93,34 @@ fn thread_connect(addr: SocketAddr, query: &str) -> std::thread::JoinHandle<Resu
     })
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn rejects_missing_or_unknown_token() {
+    let issuer = Arc::new(Mutex::new(TokenIssuer::new(3600, 16)));
+    let (server, addr) = bind(issuer).await;
+    let _serve = tokio::spawn(async move {
+        let _ = server.serve_forever().await;
+    });
+    // 等待 listener 就绪：重试连接直到成功/拒绝（serve task 启动有微小延迟）。
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+
+    // 无 token。
+    let no_token = thread_connect(addr, "");
+    assert!(no_token.join().unwrap().is_err(), "无 token 必须拒绝");
+
+    // 未知 token。
+    let bad = thread_connect(addr, "?token=nope");
+    assert!(bad.join().unwrap().is_err(), "未知 token 必须拒绝");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn full_turn_over_real_websocket() {
     let issuer = Arc::new(Mutex::new(TokenIssuer::new(3600, 16)));
     let token = issuer.lock().unwrap().issue().token;
-    let (mut server, addr) = bind(issuer);
-
-    // 连接处理跑在 server 线程：accept 一条连接后服务到结束。
-    let handle = std::thread::spawn(move || {
-        server.handle_next().unwrap();
-        server
+    let (server, addr) = bind(issuer).await;
+    let _serve = tokio::spawn(async move {
+        let _ = server.serve_forever().await;
     });
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
 
     let mut ws = connect_ws(addr, &format!("?token={token}"));
 
@@ -140,23 +160,19 @@ async fn full_turn_over_real_websocket() {
             "session_updated"
         ]
     );
-
-    drop(ws);
-    let _ = handle.join();
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn hub_push_reaches_attached_connection() {
     // 服务端主动推送（cron 定时产出）→ 已 attach 该会话的在线连接实时收到，无需刷新。
     let issuer = Arc::new(Mutex::new(TokenIssuer::new(3600, 16)));
     let token = issuer.lock().unwrap().issue().token;
-    let (mut server, addr) = bind(issuer);
+    let (server, addr) = bind(issuer).await;
     let hub = server.hub();
-
-    let handle = std::thread::spawn(move || {
-        server.handle_next().unwrap();
-        server
+    let _serve = tokio::spawn(async move {
+        let _ = server.serve_forever().await;
     });
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
 
     let mut ws = connect_ws(addr, &format!("?token={token}"));
     let _ready = read_frame(&mut ws);
@@ -191,12 +207,9 @@ async fn hub_push_reaches_attached_connection() {
     assert_eq!(pushed["event"], "message");
     assert_eq!(pushed["chat_id"], "cron-chat");
     assert_eq!(pushed["text"], "⏰ 定时产出");
-
-    drop(ws);
-    let _ = handle.join();
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn agent_turn_runner_drives_agent_loop_streaming() {
     let dir = TempDir::new().unwrap();
     let sessions = SessionManager::new(dir.path()).unwrap();
@@ -224,7 +237,7 @@ async fn agent_turn_runner_drives_agent_loop_streaming() {
     assert_eq!(session.messages.len(), 2);
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn mux_session_accepts_agent_turn_runner_end_to_end() {
     let dir = TempDir::new().unwrap();
     let build = || {

@@ -3,7 +3,6 @@
 //! `with_cancel` 挂载的 `Arc<AtomicBool>` 置位后，`process_streaming` 在检查点中止本轮：
 //! 返回 `stop_reason="interrupted"`、空内容，且不持久化 assistant / 不保存 session。
 
-use std::cell::Cell;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering};
 use std::sync::Arc;
 

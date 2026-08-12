@@ -26,6 +26,9 @@ futures = "0.3"
 # 异步 trait 与 HTTP 客户端（Stage 2）：provider/turn 异步化。
 async-trait = "0.1"
 reqwest = { version = "0.12", features = ["json", "stream"] }
+# WebUI server（Stage 3）：axum 统一 HTTP + WS。
+axum = { version = "0.8", features = ["ws", "json", "macros"] }
+tower = { version = "0.5", features = ["util"] }
 
 [dev-dependencies]
 tempfile = "3"

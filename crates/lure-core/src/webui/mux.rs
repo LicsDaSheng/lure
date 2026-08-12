@@ -28,6 +28,19 @@ pub trait TurnRunner {
     ) -> Result<String, String>;
 }
 
+/// `Box<dyn TurnRunner + Send>` 转发到 vtable（axum server 用 trait object 去泛型）。
+#[async_trait::async_trait]
+impl TurnRunner for Box<dyn TurnRunner + Send> {
+    async fn run_turn(
+        &mut self,
+        chat_id: &str,
+        content: &str,
+        on_progress: &mut (dyn FnMut(ProgressEvent) + Send),
+    ) -> Result<String, String> {
+        (**self).run_turn(chat_id, content, on_progress).await
+    }
+}
+
 /// 单条 WebUI 复用连接的生命周期状态。
 pub struct MuxSession<R: TurnRunner> {
     runner: R,

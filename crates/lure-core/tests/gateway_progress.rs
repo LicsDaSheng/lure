@@ -3,7 +3,7 @@
 //! 覆盖：echo 单轮的 Started/Final 转发、tool 轮的 ToolInvoked 转发、路由信息带出、
 //! 最终 outbound 仍投递。用 fake provider + RecordingChannel，不触网。
 
-use std::sync::{Arc, Mutex};
+use std::sync::Mutex;
 
 use lure_core::agent::{AgentLoop, ContextBuilder};
 use lure_core::bus::{InboundMessage, ProgressKind};
