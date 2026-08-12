@@ -1,6 +1,6 @@
 # Lure
 
-用 Rust 实现的轻量 AI agent 框架，后端行为对齐 [`nanobot`](https://github.com/)。提供 CLI 命令行与 desktop 桌面应用两种入口。桌面前端为自有重写（React + shadcn/ui + Tailwind v4），桌面外壳为 Tauri V2（仅外壳，能力仍由进程内 HTTP/WS 提供）。
+用 Rust 实现的轻量 AI agent 框架，后端行为对齐 [`nanobot`](https://github.com/HKUDS/nanobot)。提供 CLI 命令行与 desktop 桌面应用两种入口。桌面前端为自有重写（React + shadcn/ui + Tailwind v4），桌面外壳为 Tauri V2（仅外壳，能力仍由进程内 HTTP/WS 提供）。
 
 ## 架构
 
