@@ -1,0 +1,96 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  docker:
+    name: 推送 Docker 镜像到 ghcr.io
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 设置 Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: 登录 GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 构建并推送镜像
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository }}:${{ github.ref_name }}
+            ghcr.io/${{ github.repository }}:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  build:
+    name: 构建 ${{ matrix.name }} 二进制
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux-x86_64
+            os: ubuntu-latest
+            artifact: lure-linux-x86_64
+          - name: macos-arm64
+            os: macos-latest
+            artifact: lure-macos-arm64
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 安装 Rust 工具链
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: 缓存 cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: 构建 release 二进制
+        run: cargo build --release --bin lure
+
+      - name: 上传产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: target/release/lure
+          if-no-files-found: error
+
+  release:
+    name: 创建 GitHub Release
+    needs: [docker, build]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: 重命名产物并生成校验和
+        run: |
+          mv artifacts/lure-linux-x86_64/lure artifacts/lure-linux-x86_64
+          mv artifacts/lure-macos-arm64/lure artifacts/lure-macos-arm64
+          cd artifacts && sha256sum lure-linux-x86_64 lure-macos-arm64 > checksums.txt
+
+      - name: 创建 Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            artifacts/lure-linux-x86_64 \
+            artifacts/lure-macos-arm64 \
+            artifacts/checksums.txt \
+            --generate-notes
