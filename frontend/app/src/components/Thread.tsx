@@ -13,10 +13,25 @@ export function Thread({
 }) {
   const viewportRef = React.useRef<HTMLDivElement>(null);
 
-  // 新消息 / 流式增量时贴底。
+  // 智能贴底：新消息、流式增量与打字机揭示导致内容增长时跟随底部；
+  // 用户主动上滚（离开底部 >60px）时尊重滚动位置，不强制拉回。
   React.useEffect(() => {
     const el = viewportRef.current;
-    if (el) el.scrollTop = el.scrollHeight;
+    if (!el) return;
+    const content = el.firstElementChild;
+    if (!content) return;
+    const nearBottom = () => el.scrollHeight - el.scrollTop - el.clientHeight < 60;
+    const stick = () => {
+      if (nearBottom()) el.scrollTop = el.scrollHeight;
+    };
+    stick();
+    const obs = new MutationObserver(stick);
+    obs.observe(content, {
+      childList: true,
+      subtree: true,
+      characterData: true,
+    });
+    return () => obs.disconnect();
   }, [messages]);
 
   if (messages.length === 0) {

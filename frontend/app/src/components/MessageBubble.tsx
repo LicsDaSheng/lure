@@ -2,6 +2,7 @@ import * as React from "react";
 import { Sparkles, User, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Markdown } from "./Markdown";
+import { useTypewriter } from "@/hooks/useTypewriter";
 import type { UiMessage } from "@/hooks/useChat";
 
 export function MessageBubble({ message }: { message: UiMessage }) {
@@ -43,12 +44,31 @@ export function MessageBubble({ message }: { message: UiMessage }) {
               {message.content}
             </span>
           ) : (
-            <Markdown>
-              {message.content || (message.streaming ? "…" : "")}
-            </Markdown>
+            <StreamingMarkdown
+              content={message.content}
+              typewriter={message.typewriter}
+            />
           )}
         </div>
       </div>
+    </div>
+  );
+}
+
+/** assistant 消息渲染：新生成回答用打字机逐字揭示 + 尾部光标；历史消息（无 typewriter 标记）全文直显。 */
+function StreamingMarkdown({
+  content,
+  typewriter,
+}: {
+  content: string;
+  typewriter?: boolean;
+}) {
+  const revealed = useTypewriter(content, !!typewriter);
+  const typing = !!typewriter && revealed.length < content.length;
+  return (
+    <div>
+      <Markdown>{revealed}</Markdown>
+      {typing ? <span className="typewriter-cursor" aria-hidden /> : null}
     </div>
   );
 }

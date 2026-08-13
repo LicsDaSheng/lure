@@ -98,6 +98,29 @@
   }
 }
 
+/* 打字机光标：流式揭示期间在文本尾部闪烁，增强「正在输入」观感。 */
+@layer components {
+  .typewriter-cursor {
+    display: inline-block;
+    width: 2px;
+    height: 1em;
+    margin-left: 2px;
+    vertical-align: -0.15em;
+    border-radius: 1px;
+    background: var(--accent);
+    animation: tw-blink 0.9s steps(1) infinite;
+  }
+  @keyframes tw-blink {
+    0%,
+    100% {
+      opacity: 1;
+    }
+    50% {
+      opacity: 0;
+    }
+  }
+}
+
 /* assistant markdown 正文排版：紧凑、留白克制、与气泡节奏一致。 */
 @layer components {
   .prose-chat {

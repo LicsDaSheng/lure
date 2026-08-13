@@ -17,6 +17,8 @@ export interface UiMessage {
   content: string;
   reasoning?: string;
   streaming?: boolean;
+  /** 新生成回答的打字机揭示标记：流式结束后仍揭示至全文（历史消息无此标记，立即全显）。 */
+  typewriter?: boolean;
 }
 
 export type ConnState = "connecting" | "ready" | "error";
@@ -214,7 +216,13 @@ function appendAssistant(
     }
     return [
       ...prev,
-      { id: nextId(), role: "assistant", content: text, streaming: true },
+      {
+        id: nextId(),
+        role: "assistant",
+        content: text,
+        streaming: true,
+        typewriter: true,
+      },
     ];
   });
 }
@@ -264,7 +272,12 @@ function finalizeAssistant(
     if (fullText != null) {
       return [
         ...prev,
-        { id: nextId(), role: "assistant", content: fullText },
+        {
+          id: nextId(),
+          role: "assistant",
+          content: fullText,
+          typewriter: true,
+        },
       ];
     }
     return prev;
