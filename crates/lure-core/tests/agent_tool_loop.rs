@@ -54,6 +54,22 @@ struct AlwaysToolProvider {
     calls: Arc<Mutex<usize>>,
 }
 
+struct RequestCapturingProvider {
+    request: Arc<Mutex<Option<CompletionRequest>>>,
+}
+
+#[async_trait::async_trait]
+impl LlmProvider for RequestCapturingProvider {
+    fn default_model(&self) -> &str {
+        "capture-tool-definitions"
+    }
+
+    async fn complete(&self, request: &CompletionRequest) -> Result<LlmResponse, ProviderError> {
+        *self.request.lock().unwrap() = Some(request.clone());
+        Ok(LlmResponse::text("done"))
+    }
+}
+
 #[async_trait::async_trait]
 impl LlmProvider for AlwaysToolProvider {
     fn default_model(&self) -> &str {
@@ -149,6 +165,31 @@ fn setup(responses: Vec<LlmResponse>) -> ToolLoopFixture {
     let agent_loop = AgentLoop::new(Box::new(provider), sessions, ContextBuilder::new(None))
         .with_tools(registry);
     (dir, agent_loop, calls, seen)
+}
+
+#[tokio::test]
+async fn registered_tool_definitions_are_sent_to_provider() {
+    let dir = tempfile::tempdir().unwrap();
+    let sessions = SessionManager::new(dir.path()).unwrap();
+    let captured = Arc::new(Mutex::new(None));
+    let provider = RequestCapturingProvider {
+        request: Arc::clone(&captured),
+    };
+    let calls = Arc::new(Mutex::new(Vec::new()));
+    let mut registry = ToolRegistry::new();
+    registry.register(Box::new(EchoTool { calls }));
+    let mut agent = AgentLoop::new(Box::new(provider), sessions, ContextBuilder::new(None))
+        .with_tools(registry);
+
+    agent
+        .process(&InboundMessage::new("cli", "direct", "hello"))
+        .await
+        .unwrap();
+
+    let request = captured.lock().unwrap().clone().unwrap();
+    assert_eq!(request.tools.len(), 1);
+    assert_eq!(request.tools[0]["type"], "function");
+    assert_eq!(request.tools[0]["function"]["name"], "echo");
 }
 
 #[tokio::test]

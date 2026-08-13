@@ -97,6 +97,7 @@ impl DreamRunner for ProviderDreamRunner {
             messages: vec![serde_json::json!({"role": "user", "content": prompt})],
             model: String::new(),
             settings: Default::default(),
+            tools: Vec::new(),
         };
 
         match self.provider.complete(&request).await {

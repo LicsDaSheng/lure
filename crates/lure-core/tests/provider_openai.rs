@@ -62,6 +62,7 @@ fn request(messages: Vec<serde_json::Value>) -> CompletionRequest {
         model: "gpt-4o".to_string(),
         messages,
         settings: GenerationSettings::default(),
+        tools: Vec::new(),
     }
 }
 
@@ -130,6 +131,77 @@ async fn complete_targets_chat_completions_with_auth_header() {
         .any(|(k, v)| k == "authorization" && v == "Bearer sk-secret"));
     assert_eq!(request.body["model"], "gpt-4o");
     assert_eq!(request.body["messages"][0]["content"], "hi");
+}
+
+#[tokio::test]
+async fn complete_sends_tool_definitions_as_top_level_tools() {
+    let body = json!({"choices": [{"message": {"content": "ok"}}]}).to_string();
+    let captured: Capture = Arc::new(Mutex::new(None));
+    let transport = FakeTransport::with_capture(200, &body, Arc::clone(&captured));
+    let provider =
+        OpenAiCompatProvider::new("https://api.example.test/v1", None, "gpt-4o", transport);
+    let mut completion = request(vec![json!({"role": "user", "content": "hi"})]);
+    completion.tools = vec![json!({
+        "type": "function",
+        "function": {
+            "name": "read_file",
+            "description": "read",
+            "parameters": {"type": "object"}
+        }
+    })];
+
+    provider.complete(&completion).await.unwrap();
+
+    let request = captured.lock().unwrap().clone().expect("应捕获到请求");
+    assert_eq!(request.body["tools"], json!(completion.tools));
+}
+
+#[tokio::test]
+async fn deepseek_reasoning_none_explicitly_disables_thinking() {
+    let body = json!({"choices": [{"message": {"content": "ok"}}]}).to_string();
+    let captured: Capture = Arc::new(Mutex::new(None));
+    let transport = FakeTransport::with_capture(200, &body, Arc::clone(&captured));
+    let provider = OpenAiCompatProvider::new(
+        "https://api.deepseek.com",
+        None,
+        "deepseek-v4-pro",
+        transport,
+    )
+    .with_provider_name("deepseek");
+    let mut completion = request(vec![json!({"role": "user", "content": "hi"})]);
+    completion.model = "deepseek-v4-pro".to_string();
+    completion.settings.reasoning_effort = Some("none".to_string());
+
+    provider.complete(&completion).await.unwrap();
+
+    let request = captured.lock().unwrap().clone().expect("应捕获到请求");
+    assert_eq!(request.body["thinking"], json!({"type": "disabled"}));
+    assert!(
+        request.body.get("reasoning_effort").is_none(),
+        "关闭思考时不能再发送 reasoning_effort"
+    );
+}
+
+#[tokio::test]
+async fn deepseek_omitted_reasoning_preserves_provider_default() {
+    let body = json!({"choices": [{"message": {"content": "ok"}}]}).to_string();
+    let captured: Capture = Arc::new(Mutex::new(None));
+    let transport = FakeTransport::with_capture(200, &body, Arc::clone(&captured));
+    let provider = OpenAiCompatProvider::new(
+        "https://api.deepseek.com",
+        None,
+        "deepseek-v4-pro",
+        transport,
+    )
+    .with_provider_name("deepseek");
+    let mut completion = request(vec![json!({"role": "user", "content": "hi"})]);
+    completion.model = "deepseek-v4-pro".to_string();
+
+    provider.complete(&completion).await.unwrap();
+
+    let request = captured.lock().unwrap().clone().expect("应捕获到请求");
+    assert!(request.body.get("thinking").is_none());
+    assert!(request.body.get("reasoning_effort").is_none());
 }
 
 #[tokio::test]

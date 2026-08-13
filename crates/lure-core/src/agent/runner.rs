@@ -1,8 +1,8 @@
-//! 最小 `AgentRunner`。
+//! 单次 provider 调用的 `AgentRunner`。
 //!
 //! 对齐上游 `nanobot/agent/runner.py` 的职责边界：把构建好的消息交给 provider
-//! 执行一次补全。Phase 3 只做单次调用，无 tool 执行循环、无 streaming、无重试
-//! 策略——这些属 Phase 4/5。
+//! 执行一次补全，并把当前工具 function schemas 随请求发送；tool 执行循环由 `AgentLoop`
+//! 负责。
 
 use serde_json::Value;
 
@@ -14,12 +14,23 @@ use crate::provider::{
 pub struct AgentRunner<'a> {
     provider: &'a dyn LlmProvider,
     settings: GenerationSettings,
+    tools: Vec<Value>,
 }
 
 impl<'a> AgentRunner<'a> {
     /// 绑定 provider 与生成参数。
     pub fn new(provider: &'a dyn LlmProvider, settings: GenerationSettings) -> Self {
-        Self { provider, settings }
+        Self {
+            provider,
+            settings,
+            tools: Vec::new(),
+        }
+    }
+
+    /// 为本次 provider 请求挂载 function-calling schema。
+    pub fn with_tools(mut self, tools: Vec<Value>) -> Self {
+        self.tools = tools;
+        self
     }
 
     /// 用给定 model 与消息执行一次补全。
@@ -32,6 +43,7 @@ impl<'a> AgentRunner<'a> {
             model: model.to_string(),
             messages,
             settings: self.settings.clone(),
+            tools: self.tools.clone(),
         };
         self.provider.complete(&request).await
     }
@@ -49,6 +61,7 @@ impl<'a> AgentRunner<'a> {
             model: model.to_string(),
             messages,
             settings: self.settings.clone(),
+            tools: self.tools.clone(),
         };
         self.provider.complete_streaming(&request, on_delta).await
     }

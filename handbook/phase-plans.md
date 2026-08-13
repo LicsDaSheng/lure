@@ -20,26 +20,26 @@
 ## Phase 3: Agent Loop 最小纵向闭环
 
 - **状态**：partial
-- **完成**：`AgentLoop`/`AgentRunner`/`ContextBuilder` 纵向闭环、`LlmProvider` trait + `EchoProvider`（`--model echo` 显式离线脚手架）、turn 保存与历史可读、结构化 `AgentError`、`ProgressEvent` 事件（含 `Finalizing` 阶段信号）、CLI one-shot + interactive REPL、`--session`/`--show-reasoning`。**完整交互 UX**：实时流式渲染 + tool/progress 行 + reasoning delta 句级缓冲流 + spinner 后台定时动画 + 阶段语义标签（Thinking / Calling `<tool>` / Finalizing）+ Ctrl-C 中断当前 turn + 单轮 provider 错误不退出会话。
-- **待补**：slash commands。
+- **完成**：`AgentLoop`/`AgentRunner` 纵向闭环；**workspace-aware `ContextBuilder`** 按 nanobot 顺序生成单条 system message（identity/runtime/workspace、bootstrap、tool contract、memory、active/summary skills、recent history、archived summary），并在每轮冻结快照后供全部 tool 迭代复用；CLI/Desktop 生产构建路径已接线。其余已有 CLI one-shot/REPL、流式/tool/reasoning UX、Ctrl-C 与 provider 单轮容错保持不变。
+- **待补**：media、runtime context block、独立 project workspace、富历史 token/工具边界治理；运行时 slash handlers。
 
 ## Phase 4: Provider 与模型运行时
 
 - **状态**：partial
-- **完成**：preset 解析顺序、OpenAI-compatible 请求/响应/错误分类、SSE 流式消费（`StreamAssembler` 增量组装含 tool_calls 跨块拼装）、provider registry 选择顺序、`UreqTransport`、stateful `ModelRuntimeResolver`（admit/refresh/invalidate + 不可变快照）接入 AgentLoop/CLI、config 驱动 `ProvidersConfig`（api_base 覆盖/enabled 过滤/api_key 解析）、usage 归一与流式捕获。
+- **完成**：preset 解析顺序、OpenAI-compatible 请求/响应/错误分类、SSE 流式消费（`StreamAssembler` 增量组装含 tool_calls 跨块拼装）、**`CompletionRequest.tools` → `/chat/completions` 顶层 `tools` 透传**、**DeepSeek `reasoningEffort: "none"` → `thinking.type: "disabled"` provider 原生映射**、provider registry 选择顺序、`ReqwestTransport`、stateful `ModelRuntimeResolver` 接入 AgentLoop/CLI、config 驱动 provider、usage 归一与流式捕获。
 - **待补**：OAuth、重试策略。
 
 ## Phase 5: Tool Runtime 与安全边界
 
 - **状态**：partial
-- **完成**：`Tool` trait / `ToolRegistry` / JSON Schema 子集校验 / 结果截断、`ReadFileTool`/`WriteFileTool`/`EditFileTool`（workspace 越界拒绝）、`GrepTool`+`ListDirTool`（regex + 分页 + mtime 排序）、`ExecPolicy`+`ExecTool`（allow/deny/分段）、workspace 路径边界、AgentLoop tool-call 循环（至多 8 轮）、config 驱动 `registry_from_config` + CLI 工具注册（文件工具默认，exec opt-in）。
+- **完成**：`Tool` trait / `ToolRegistry` / JSON Schema 子集校验 / 结果截断、文件/搜索/exec 工具与 workspace 边界、AgentLoop tool-call 循环、config 驱动注册；**每次 provider 调用（含 finalization）都从当前注册表生成 function definitions 并发送，动态注册的 cron 同样可发现**。
 - **待补**：apply_patch、web/mcp、并行 tool。
 
 ## Phase 6: Memory、Dream 与长期上下文
 
 - **状态**：partial
-- **完成**：`MemoryStore`（MEMORY/SOUL/USER 读写、`history.jsonl` append + cursor + 截断标记、session 过滤、legacy `HISTORY.md` 迁移）、`strip_think`、`DreamRunner` + `consolidate`（fake runner）、`ContextBuilder::with_memory` 注入顺序、AgentLoop 记忆接入（记忆块注入 + history 记录 + `consolidate` 接口）、CLI 常驻挂载 memory、`compact_history` 容量管理。
-- **待补**：真实 LLM dream、触发策略（阈值/定时）、SOUL/USER 整合。
+- **完成**：`MemoryStore`（MEMORY/SOUL/USER、history/cursor/迁移）、Dream 与阈值触发；**SOUL/USER 已与项目 AGENTS、MEMORY、recent history 一起接入生产 system prompt**，未定制 AGENTS/USER 和空 MEMORY 模板自动跳过；recent history 按 dream cursor/session 过滤、最近 50 条和保守 UTF-8 预算截断，且不会重复本轮 user message。
+- **待补**：GitStore、autocompact/context governance、tiktoken 等价精确预算、unified-session history 策略。
 
 ## Phase 7: Bus、Channels 与 Gateway
 
@@ -103,6 +103,12 @@ CLI 交互体验已成体系并暂告段落：实时流式 → tool/progress 行
 
 ### 下一步优先级（按「用户可感知价值 × 与上游差距」排序）
 
-1. **命令路由补全 + subagent 基座**（P1）：把 `/status /history /new /goal /stop` 等无需外部依赖的 slash 命令按 `command/builtin.py` 契约补齐；`/stop` 需要 subagent/turn 生命周期，作为 subagent 建模的切入点。
-2. **MCP 最小接入**（P1）：MCP client + tool 注册，打通 `/skill` 与外部工具生态（对照 `webui/mcp_presets_api.py` 与 MCP tool 契约）。
-3. **E2E 扩面 / channels 真实平台 / cron run history**（P2）：既有外围收尾——跨会话切换与 new-chat 的 Playwright 覆盖、Gateway 接真实 channel、cron 执行历史与 jobs.json 并发加锁。
+1. **系统提示词与真实工具发现闭环（P0，2026-08-13 已完成）**：富 system prompt、skills/recent history、生产接线和 provider `tools` schema 已按 TDD 落地；剩余 media/runtime-context/project-scope 单列为后续，不阻塞当前真实工具调用。
+2. **命令路由运行时接线 + subagent 工具注册**（P1）：把已实现核心接到 CLI/Desktop 常驻 AgentLoop。
+3. **MCP 会话能力补齐**（P1）：在既有 stdio client 上补 HTTP/SSE、重连与 provider 工具注册。
+4. **E2E 扩面 / cron run history**（P2）：跨会话/new-chat 浏览器覆盖、cron 执行历史与 jobs.json 并发加锁。
+
+P0 验收证据：`system_prompt.rs`、`agent_memory.rs`、`agent_tool_loop.rs`、
+`provider_openai.rs` 定向测试通过；`cargo fmt --check`、全目标/全 feature Clippy（warnings deny）
+与移除 `DEEPSEEK_API_KEY` 后的全量 Cargo tests 通过。仓库当前未配置 Rust coverage 工具，
+本轮未生成覆盖率百分比。

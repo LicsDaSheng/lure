@@ -137,8 +137,9 @@ Phase 0 已完成，确定 phase 1-4 关键上游测试的 Rust 测试落点（�
 |---|---:|---|---|---|
 | `tests/agent/test_memory_store.py` | 6 | `crates/lure-core/tests/memory_store.rs` | partial | memory/soul/user 读写、history cursor、strip、session 过滤、reopen、legacy `HISTORY.md` 迁移、compact_history（`max_history_entries` 保留最新 N、保留 session_key）、硬上限截断带 `... (truncated)` 标记已覆盖；per-call `max_chars`、并发游标锁、compact 接入 autocompact 待补 |
 | `tests/agent/test_dream.py` | 6 | `crates/lure-core/tests/memory_dream.rs` | partial | dream 触发/写回/幂等/cursor 推进用 fake runner 覆盖；真实 LLM dream、SOUL/USER 整合、批次策略暂缓 |
-| `tests/agent/test_context_builder.py` | 6 | `crates/lure-core/tests/memory_context.rs` | partial | memory 注入顺序（system→memory→历史）已覆盖；runtime context 块、富历史处理待补 |
-| `tests/agent/` (memory 接入 loop) | 6 | `crates/lure-core/tests/agent_memory.rs` | partial | `AgentLoop::with_memory`（记忆块注入、user/assistant 追加 history.jsonl）+ `consolidate`（fake runner）已覆盖；CLI 已挂载 memory（`cli_one_shot.rs` 验证 history 记录）；dream 触发策略、真实 LLM dream 待后续 |
+| `tests/agent/test_context_builder.py` | 3,6 | `crates/lure-core/tests/system_prompt.rs` `memory_context.rs` | partial | identity/runtime/workspace、channel format hint、AGENTS/SOUL/USER 与默认模板跳过、固定 tool contract、MEMORY、always + 显式 `$skill` 内容/摘要排除、session summary、段落顺序与单 system message 已覆盖；media、runtime context block、独立 project workspace 待补 |
+| `tests/agent/test_context_prompt_cache.py` | 6 | `crates/lure-core/tests/system_prompt.rs` | partial | Recent History 按 dream cursor/session 过滤并仅取最近 50 条；单轮 prompt 冻结供多次 tool 迭代复用；当前采用 8000-byte 保守回退预算，精确 tiktoken 与跨轮 prompt cache 统计待补 |
+| `tests/agent/` (memory 接入 loop) | 6 | `crates/lure-core/tests/agent_memory.rs` | partial | workspace-aware 生产 loop 的单 system message（identity+AGENTS+tool contract+MEMORY）、user/assistant history 追加和 consolidate 已覆盖；autocompact/context governance 待后续 |
 
 > 注：Phase 6 dream 把 LLM 抽象为可替换 `DreamRunner`，测试不接真实 LLM；GitStore 版本化、
 > autocompact、unified session 内部会话过滤留待后续。
@@ -165,7 +166,7 @@ Phase 0 已完成，确定 phase 1-4 关键上游测试的 Rust 测试落点（�
 |---|---:|---|---|---|
 | `tests/config/test_model_presets.py` | 4 | `crates/lure-core/tests/config_model_presets.rs` | partial | config 层 preset 解析/校验/序列化已覆盖；`get_provider_name` 的 OAuth/local fallback 暂缓 |
 | `tests/config/` (ProvidersConfig) | 4 | `crates/lure-core/tests/config_providers.rs` | partial | config 驱动 `resolve_provider`（api_base 覆盖、auto 跳过禁用、forced 显式、api_key 解析）已覆盖；OAuth/local fallback 暂缓 |
-| `tests/providers/` (OpenAI-compatible) | 4 | `crates/lure-core/tests/provider_openai.rs` `provider_stream.rs` `provider_usage.rs` | partial | 请求 golden + 响应解析 + 错误分类、SSE 流式（增量回调/内容+tool_calls 组装/错误分类）、流式 usage 捕获（`stream_options.include_usage` + 末帧折入）、usage 归一（cached_tokens 按 `prompt_tokens_details.cached_tokens`→`cached_tokens`→`prompt_cache_hit_tokens` 优先级链提取，对齐 upstream `_extract_usage`/`_get_nested_int`）已覆盖；`max_completion_tokens`/重试暂缓 |
+| `tests/providers/` (OpenAI-compatible) | 4 | `crates/lure-core/tests/provider_openai.rs` `provider_stream.rs` `provider_usage.rs` | partial | 请求 golden + **顶层 `tools` function schema** + **DeepSeek `reasoning_effort="none"` 映射为 `thinking.type="disabled"` 且缺省不注入** + 响应/错误、SSE 内容/tool_calls/usage 组装与 usage 归一已覆盖；其余 provider thinking style、`max_completion_tokens`/重试暂缓 |
 | `tests/providers/` (selection order) | 4 | `crates/lure-core/tests/provider_registry.rs` | partial | forced/前缀/关键字选择顺序已覆盖；config 驱动 api_base/enabled/api_key 已由 `config_providers.rs` 覆盖，OAuth/local fallback 暂缓 |
 | `tests/agent/test_model_runtime_resolver.py` | 4 | `crates/lure-core/tests/model_runtime_resolver.rs` | partial | stateful resolver 生命周期（admit/refresh/invalidate + preset tracking + 不可变 `LlmRuntime`/`ProviderSnapshot`）已覆盖；上游源码未 vendored，按本 ledger 记录语义建立事实来源，真实 runtime 探活/降级仍待补 |
 
@@ -205,7 +206,7 @@ Phase 0 已完成，确定 phase 1-4 关键上游测试的 Rust 测试落点（�
 
 | 上游测试 | 归属 phase | Rust 测试 | 状态 | 说明 |
 |---|---:|---|---|---|
-| `tests/agent/test_skills_loader.py` | 3 | `crates/lure-core/tests/skills_loader.rs` | partial | 两源枚举/遮蔽/合并/跳过、bins/env 需求过滤（探针注入替代 monkeypatch）、openclaw 别名、disabled（list/summary/always）、`build_skills_summary` 按根分组相对路径、YAML frontmatter（flow mapping / 折叠 `>` / 字面 `|` / 原生 bool）、`load_skills_for_context` 剥离 frontmatter——21 例覆盖 |
+| `tests/agent/test_skills_loader.py` | 3 | `crates/lure-core/tests/skills_loader.rs` `system_prompt.rs` | partial | 两源枚举/需求过滤/frontmatter/摘要/always 已覆盖，并新增 `$skill-name` 去重识别、active 完整内容和 summary 排除的生产提示词接线；bundled assets 与 skill alias 待补 |
 | `test_bundled_*`（update-setup/memory 描述与 agent-owned 路径） | 3 | 待定 | deferred | 依赖 nanobot 内置 `nanobot/skills/` vendored 资产，lure 未随包携带；后续决定是否 vendor |
 
 > 注：frontmatter 用 serde_yaml 解析为 `serde_json::Value` 统一消费；需求探针 which/env 以注入闭包

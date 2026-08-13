@@ -1,11 +1,7 @@
-//! 最小 `AgentLoop`：CLI one-shot 到 provider 再到 session 保存的纵向闭环。
+//! `AgentLoop`：CLI/Desktop 到 provider、tool runtime 与 session 保存的纵向闭环。
 //!
-//! 对齐上游 `nanobot/agent/loop.py` 的职责边界，但只保留最小闭环：
-//! 追加 user turn → 构建 context → 调 runner/provider → 追加 assistant turn →
-//! 保存 session → 返回最终输出与结构化 progress。
-//!
-//! Phase 3 不做：async/streaming、tool 执行、goal/subagent、consolidation、
-//! channel/gateway 投递。progress 先做结构化枚举，不急于完整事件流。
+//! 主链：追加 user turn → 冻结 workspace system prompt → 调 runner/provider → 执行并回灌
+//! tool calls → 追加 assistant turn → 保存 session → 返回最终输出与结构化 progress。
 
 use std::fmt;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -13,7 +9,7 @@ use std::sync::Arc;
 
 use serde_json::{json, Map, Value};
 
-use crate::agent::context::ContextBuilder;
+use crate::agent::context::{ContextBuilder, PromptBuildOptions};
 use crate::agent::runner::AgentRunner;
 use crate::bus::InboundMessage;
 use crate::memory::{ConsolidationOutcome, DreamRunner, MemoryStore};
@@ -284,19 +280,34 @@ impl AgentLoop {
             },
         );
 
-        // 追加 user turn，并把 user 内容记入 history.jsonl（供 dream consolidation）。
+        // 先追加 session user turn；memory history 要在冻结本轮 system prompt 后再追加，
+        // 避免当前问题同时出现在 Recent History 与当前 user message 中。
         self.sessions
             .get_or_create(&key)?
             .add_message("user", &input.content);
-        append_memory_history(self.memory.as_ref(), &key, &input.content)?;
-
-        // 注入长期记忆块（本轮内稳定）：system → memory → 历史。
-        let context = match self.memory.as_ref().map(MemoryStore::get_memory_context) {
-            Some(memory_context) if !memory_context.is_empty() => {
-                self.context.clone().with_memory(Some(memory_context))
+        let session_summary = self
+            .sessions
+            .get_or_create(&key)?
+            .metadata
+            .get("_last_summary")
+            .and_then(Value::as_str)
+            .map(str::to_string);
+        let context = if self.context.is_workspace_aware() {
+            self.context.prepare_turn(PromptBuildOptions {
+                current_message: &input.content,
+                channel: Some(&input.channel),
+                session_key: Some(&key),
+                session_summary: session_summary.as_deref(),
+            })
+        } else {
+            match self.memory.as_ref().map(MemoryStore::get_memory_context) {
+                Some(memory_context) if !memory_context.is_empty() => {
+                    self.context.clone().with_memory(Some(memory_context))
+                }
+                _ => self.context.clone(),
             }
-            _ => self.context.clone(),
         };
+        append_memory_history(self.memory.as_ref(), &key, &input.content)?;
 
         let mut final_content = String::new();
         let mut final_reasoning = None;
@@ -312,7 +323,8 @@ impl AgentLoop {
             let history = self.sessions.get_or_create(&key)?.get_history(0);
             let messages = context.build(&history);
             let response = {
-                let runner = AgentRunner::new(self.provider.as_ref(), self.settings.clone());
+                let runner = AgentRunner::new(self.provider.as_ref(), self.settings.clone())
+                    .with_tools(self.tool_definitions());
                 // 流式驱动：每个内容增量转成细粒度 ContentDelta progress。
                 runner
                     .run_streaming(&self.model, messages, &mut |chunk| {
@@ -479,7 +491,8 @@ impl AgentLoop {
         let mut messages = context.build(&history);
         messages.push(json!({"role": "user", "content": FINALIZATION_RETRY_PROMPT}));
 
-        let runner = AgentRunner::new(self.provider.as_ref(), self.settings.clone());
+        let runner = AgentRunner::new(self.provider.as_ref(), self.settings.clone())
+            .with_tools(self.tool_definitions());
         let response = runner
             .run_streaming(&self.model, messages, &mut |chunk| {
                 if let Some(text) = chunk.reasoning_delta.as_ref().filter(|t| !t.is_empty()) {
@@ -502,6 +515,13 @@ impl AgentLoop {
         let content = response.content.clone().unwrap_or_default();
         let reasoning = response.reasoning_content.clone().filter(|r| !r.is_empty());
         Ok((content, reasoning))
+    }
+
+    fn tool_definitions(&self) -> Vec<Value> {
+        self.tools
+            .as_ref()
+            .map(ToolRegistry::get_definitions)
+            .unwrap_or_default()
     }
 }
 

@@ -26,6 +26,7 @@ pub struct OpenAiCompatProvider<T: HttpTransport> {
     base_url: String,
     api_key: Option<String>,
     model: String,
+    provider_name: Option<String>,
     transport: T,
 }
 
@@ -41,13 +42,24 @@ impl<T: HttpTransport> OpenAiCompatProvider<T> {
             base_url: base_url.into(),
             api_key,
             model: model.into(),
+            provider_name: None,
             transport,
         }
+    }
+
+    /// 绑定 registry provider 名，用于应用 provider 专属请求参数。
+    pub fn with_provider_name(mut self, provider_name: impl Into<String>) -> Self {
+        self.provider_name = Some(provider_name.into());
+        self
     }
 
     /// 构建 `/chat/completions` 请求（`stream` 控制是否要求 SSE）。
     fn http_request(&self, request: &CompletionRequest, stream: bool) -> HttpRequest {
         let mut body = build_chat_request(&request.model, &request.messages, &request.settings);
+        apply_provider_reasoning(&mut body, self.provider_name.as_deref(), &request.settings);
+        if !request.tools.is_empty() {
+            body["tools"] = Value::Array(request.tools.clone());
+        }
         if stream {
             body["stream"] = Value::Bool(true);
             // 请求末帧回传 usage（对齐上游 openai_compat_provider）。
@@ -140,6 +152,28 @@ pub fn build_chat_request(model: &str, messages: &[Value], settings: &Generation
         "temperature": settings.temperature,
         "max_tokens": settings.max_tokens.max(1),
     })
+}
+
+/// 把通用 reasoning 设置映射为 provider 原生的请求形状。
+///
+/// DeepSeek V4 默认开启思考；`reasoning_effort = "none"` 必须显式发送
+/// `thinking.type = "disabled"` 才能切换到非思考模式。关闭时不发送
+/// `reasoning_effort`，因为 DeepSeek 只在思考模式接受该力度参数。
+fn apply_provider_reasoning(
+    body: &mut Value,
+    provider_name: Option<&str>,
+    settings: &GenerationSettings,
+) {
+    if !provider_name.is_some_and(|name| name.eq_ignore_ascii_case("deepseek")) {
+        return;
+    }
+    if settings
+        .reasoning_effort
+        .as_deref()
+        .is_some_and(|effort| effort.eq_ignore_ascii_case("none"))
+    {
+        body["thinking"] = json!({"type": "disabled"});
+    }
 }
 
 /// 按状态码分类并解析 chat completions 响应。

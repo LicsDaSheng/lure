@@ -42,6 +42,7 @@ fn request() -> CompletionRequest {
         model: "gpt-4o".to_string(),
         messages: vec![json!({"role": "user", "content": "hi"})],
         settings: GenerationSettings::default(),
+        tools: Vec::new(),
     }
 }
 

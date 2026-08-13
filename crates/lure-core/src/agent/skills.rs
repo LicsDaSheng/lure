@@ -122,6 +122,28 @@ impl SkillsLoader {
         parts.join("\n\n---\n\n")
     }
 
+    /// 从当前用户文本解析 `$skill-name`，只返回已启用且依赖满足的 skill，保持首次出现顺序。
+    pub fn get_explicitly_invoked_skills(&self, text: &str) -> Vec<String> {
+        if text.is_empty() {
+            return Vec::new();
+        }
+        let available: BTreeSet<String> = self
+            .list_skills(true)
+            .into_iter()
+            .map(|entry| entry.name)
+            .collect();
+        let mut invoked = Vec::new();
+        for captures in skill_reference_regex().captures_iter(text) {
+            let Some(name) = captures.get(1).map(|value| value.as_str()) else {
+                continue;
+            };
+            if available.contains(name) && !invoked.iter().any(|item| item == name) {
+                invoked.push(name.to_string());
+            }
+        }
+        invoked
+    }
+
     /// 构建全部 skills 的摘要（名称、描述、可用性、相对路径），用于渐进式加载。
     pub fn build_skills_summary(&self, exclude: Option<&BTreeSet<String>>) -> String {
         let all = self.list_skills(false);
@@ -268,6 +290,13 @@ impl SkillsLoader {
         );
         parts.join(", ")
     }
+}
+
+/// `$skill-name` 引用；避免把 `$HOME` 等普通 shell 变量激活为不存在的 skill。
+fn skill_reference_regex() -> &'static Regex {
+    use std::sync::OnceLock;
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| Regex::new(r"\$([A-Za-z0-9][A-Za-z0-9_-]*)").unwrap())
 }
 
 /// 枚举目录下每个含 `SKILL.md` 的子目录。`skip_names` 用于 builtin 跳过 workspace 已有名。

@@ -25,7 +25,7 @@ pub fn build_agent_loop(
     workspace: &Path,
     sessions: SessionManager,
 ) -> Result<AgentLoop, String> {
-    let context = ContextBuilder::new(None);
+    let context = ContextBuilder::for_workspace(workspace);
     // 长期记忆是核心能力，两个分支都挂载：注入记忆块 + 记录 history.jsonl。
     let memory = MemoryStore::new(workspace).map_err(|e| format!("初始化 memory 失败: {e}"))?;
 
@@ -124,10 +124,13 @@ pub fn build_provider_from_runtime(
             format!("缺少 API key：config.providers.{provider_name}.apiKey 或环境变量 {env_key}")
         })?;
 
-    Ok(Box::new(OpenAiCompatProvider::new(
-        &runtime.provider.api_base,
-        Some(api_key),
-        &runtime.provider.model,
-        ReqwestTransport::new(),
-    )))
+    Ok(Box::new(
+        OpenAiCompatProvider::new(
+            &runtime.provider.api_base,
+            Some(api_key),
+            &runtime.provider.model,
+            ReqwestTransport::new(),
+        )
+        .with_provider_name(provider_name),
+    ))
 }

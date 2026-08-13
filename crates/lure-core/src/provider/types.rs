@@ -3,9 +3,7 @@
 //! 对齐上游 `nanobot/providers/base.py` 的核心形状（`LLMResponse`、
 //! `GenerationSettings`、`LLMProvider`）。
 //!
-//! Phase 3 采用**同步** trait 且不含 tool call / streaming：上游 provider 为
-//! async 且支持 streaming 与 tool call，这些留待 Phase 4/5/7 落地时收敛
-//! （见 upstream-test-ledger）。
+//! 当前 provider trait 为 async，支持 streaming、tool-call 响应与 function schema 请求。
 
 use std::fmt;
 
@@ -41,6 +39,8 @@ pub struct CompletionRequest {
     pub messages: Vec<Value>,
     /// 生成参数。
     pub settings: GenerationSettings,
+    /// OpenAI function-calling 工具定义；空数组表示本次不暴露工具。
+    pub tools: Vec<Value>,
 }
 
 /// provider 请求的一次工具调用（OpenAI function-calling 形状）。

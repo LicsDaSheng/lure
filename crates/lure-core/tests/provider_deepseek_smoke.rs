@@ -41,6 +41,7 @@ async fn deepseek_chat_completion_round_trip() {
             max_tokens: 512,
             reasoning_effort: None,
         },
+        tools: Vec::new(),
     };
 
     match provider.complete(&request).await {

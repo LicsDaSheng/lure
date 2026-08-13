@@ -94,6 +94,40 @@ async fn memory_context_is_injected_into_provider_messages() {
 }
 
 #[tokio::test]
+async fn workspace_context_is_one_complete_system_message_in_production_loop() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("AGENTS.md"), "只使用中文回答").unwrap();
+    let store = MemoryStore::new(dir.path()).unwrap();
+    store.write_memory("用户偏好简洁答案");
+    let sessions = SessionManager::new(dir.path()).unwrap();
+    let (provider, captured) = capturing("好的");
+    let mut agent = AgentLoop::new(
+        Box::new(provider),
+        sessions,
+        ContextBuilder::for_workspace(dir.path()),
+    )
+    .with_memory(store);
+
+    agent
+        .process(&InboundMessage::new("cli", "direct", "你好"))
+        .await
+        .unwrap();
+
+    let request = captured.lock().unwrap().clone().unwrap();
+    let systems: Vec<&Value> = request
+        .messages
+        .iter()
+        .filter(|message| message["role"] == "system")
+        .collect();
+    assert_eq!(systems.len(), 1);
+    let prompt = systems[0]["content"].as_str().unwrap();
+    assert!(prompt.contains("## Runtime"));
+    assert!(prompt.contains("只使用中文回答"));
+    assert!(prompt.contains("# Tool Usage Notes"));
+    assert!(prompt.contains("用户偏好简洁答案"));
+}
+
+#[tokio::test]
 async fn process_appends_user_and_assistant_to_history_jsonl() {
     let dir = tempfile::tempdir().unwrap();
     let (provider, _captured) = capturing("回答内容");
