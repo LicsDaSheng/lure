@@ -8,18 +8,16 @@ import {
   type SessionRow,
 } from "@/lib/api";
 import { ChatSocket, type ServerEvent } from "@/lib/ws";
+import {
+  appendAssistantContent,
+  appendAssistantReasoning,
+  finalizeAssistant,
+  type UiMessage,
+} from "./streamingMessages";
+
+export type { UiMessage } from "./streamingMessages";
 
 const WS_PREFIX = "websocket:";
-
-export interface UiMessage {
-  id: string;
-  role: "user" | "assistant";
-  content: string;
-  reasoning?: string;
-  streaming?: boolean;
-  /** 新生成回答的打字机揭示标记：流式结束后仍揭示至全文（历史消息无此标记，立即全显）。 */
-  typewriter?: boolean;
-}
 
 export type ConnState = "connecting" | "ready" | "error";
 
@@ -66,17 +64,23 @@ export function useChat() {
           break;
         case "delta": {
           if (ev.chat_id !== activeChatIdRef.current) return;
-          appendAssistant(setMessages, ev.text as string);
+          setMessages((prev) =>
+            appendAssistantContent(prev, ev.text as string, nextId),
+          );
           break;
         }
         case "reasoning_delta": {
           if (ev.chat_id !== activeChatIdRef.current) return;
-          appendReasoning(setMessages, ev.text as string);
+          setMessages((prev) =>
+            appendAssistantReasoning(prev, ev.text as string, nextId),
+          );
           break;
         }
         case "message": {
           if (ev.chat_id !== activeChatIdRef.current) return;
-          finalizeAssistant(setMessages, ev.text as string);
+          setMessages((prev) =>
+            finalizeAssistant(prev, ev.text as string, nextId),
+          );
           break;
         }
         case "turn_end":
@@ -85,11 +89,17 @@ export function useChat() {
           break;
         case "error":
           setStreaming(false);
-          appendAssistant(
-            setMessages,
-            `⚠️ ${String((ev as { detail?: string }).detail ?? "unknown error")}`,
+          setMessages((prev) =>
+            finalizeAssistant(
+              appendAssistantContent(
+                prev,
+                `⚠️ ${String((ev as { detail?: string }).detail ?? "unknown error")}`,
+                nextId,
+              ),
+              undefined,
+              nextId,
+            ),
           );
-          finalizeAssistant(setMessages, undefined);
           break;
       }
     },
@@ -198,88 +208,4 @@ export function useChat() {
     newChat,
     send,
   };
-}
-
-// —— 流式消息不可变更新辅助 ——
-
-function appendAssistant(
-  set: React.Dispatch<React.SetStateAction<UiMessage[]>>,
-  text: string,
-) {
-  set((prev) => {
-    const last = prev[prev.length - 1];
-    if (last?.role === "assistant" && last.streaming) {
-      return [
-        ...prev.slice(0, -1),
-        { ...last, content: last.content + text },
-      ];
-    }
-    return [
-      ...prev,
-      {
-        id: nextId(),
-        role: "assistant",
-        content: text,
-        streaming: true,
-        typewriter: true,
-      },
-    ];
-  });
-}
-
-function appendReasoning(
-  set: React.Dispatch<React.SetStateAction<UiMessage[]>>,
-  text: string,
-) {
-  set((prev) => {
-    const last = prev[prev.length - 1];
-    if (last?.role === "assistant" && last.streaming) {
-      return [
-        ...prev.slice(0, -1),
-        { ...last, reasoning: (last.reasoning ?? "") + text },
-      ];
-    }
-    return [
-      ...prev,
-      {
-        id: nextId(),
-        role: "assistant",
-        content: "",
-        reasoning: text,
-        streaming: true,
-      },
-    ];
-  });
-}
-
-// message 事件为权威全文：存在流式占位则替换其 content，否则新增。
-function finalizeAssistant(
-  set: React.Dispatch<React.SetStateAction<UiMessage[]>>,
-  fullText: string | undefined,
-) {
-  set((prev) => {
-    const last = prev[prev.length - 1];
-    if (last?.role === "assistant" && last.streaming) {
-      return [
-        ...prev.slice(0, -1),
-        {
-          ...last,
-          content: fullText ?? last.content,
-          streaming: false,
-        },
-      ];
-    }
-    if (fullText != null) {
-      return [
-        ...prev,
-        {
-          id: nextId(),
-          role: "assistant",
-          content: fullText,
-          typewriter: true,
-        },
-      ];
-    }
-    return prev;
-  });
 }

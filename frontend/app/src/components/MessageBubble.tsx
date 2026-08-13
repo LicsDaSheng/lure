@@ -7,6 +7,20 @@ import type { UiMessage } from "@/hooks/useChat";
 
 export function MessageBubble({ message }: { message: UiMessage }) {
   const isUser = message.role === "user";
+  const typewriter = !isUser && !!message.typewriter;
+  const reasoning = message.reasoning ?? "";
+  const revealedReasoning = useTypewriter(reasoning, typewriter);
+  const reasoningTyping =
+    typewriter && revealedReasoning.length < reasoning.length;
+  const revealedContent = useTypewriter(
+    message.content,
+    typewriter,
+    2,
+    24,
+    !reasoningTyping,
+  );
+  const contentTyping =
+    typewriter && revealedContent.length < message.content.length;
   return (
     <div
       className={cn(
@@ -30,7 +44,14 @@ export function MessageBubble({ message }: { message: UiMessage }) {
           isUser ? "items-end" : "items-start",
         )}
       >
-        {message.reasoning ? <ReasoningBlock text={message.reasoning} /> : null}
+        {reasoning ? (
+          <ReasoningBlock
+            text={revealedReasoning}
+            streaming={message.streaming}
+            typewriter={message.typewriter}
+            typing={reasoningTyping}
+          />
+        ) : null}
         <div
           className={cn(
             "rounded-2xl px-4 py-2.5 text-[0.925rem] leading-relaxed",
@@ -45,8 +66,8 @@ export function MessageBubble({ message }: { message: UiMessage }) {
             </span>
           ) : (
             <StreamingMarkdown
-              content={message.content}
-              typewriter={message.typewriter}
+              content={revealedContent}
+              typing={contentTyping}
             />
           )}
         </div>
@@ -58,23 +79,33 @@ export function MessageBubble({ message }: { message: UiMessage }) {
 /** assistant 消息渲染：新生成回答用打字机逐字揭示 + 尾部光标；历史消息（无 typewriter 标记）全文直显。 */
 function StreamingMarkdown({
   content,
-  typewriter,
+  typing,
 }: {
   content: string;
-  typewriter?: boolean;
+  typing: boolean;
 }) {
-  const revealed = useTypewriter(content, !!typewriter);
-  const typing = !!typewriter && revealed.length < content.length;
   return (
-    <div>
-      <Markdown>{revealed}</Markdown>
+    <div data-testid="assistant-message-content">
+      <Markdown>{content}</Markdown>
       {typing ? <span className="typewriter-cursor" aria-hidden /> : null}
     </div>
   );
 }
 
-function ReasoningBlock({ text }: { text: string }) {
-  const [open, setOpen] = React.useState(false);
+function ReasoningBlock({
+  text,
+  streaming,
+  typewriter,
+  typing,
+}: {
+  text: string;
+  streaming?: boolean;
+  typewriter?: boolean;
+  typing: boolean;
+}) {
+  const [open, setOpen] = React.useState(
+    () => !!typewriter && !!streaming,
+  );
   return (
     <div className="w-full">
       <button
@@ -87,8 +118,12 @@ function ReasoningBlock({ text }: { text: string }) {
         思维链
       </button>
       {open ? (
-        <div className="mt-1 whitespace-pre-wrap rounded-lg border border-dashed bg-muted/40 px-3 py-2 font-mono text-xs leading-relaxed text-muted-foreground">
+        <div
+          data-testid="assistant-reasoning-content"
+          className="mt-1 whitespace-pre-wrap rounded-lg border border-dashed bg-muted/40 px-3 py-2 font-mono text-xs leading-relaxed text-muted-foreground"
+        >
           {text}
+          {typing ? <span className="typewriter-cursor" aria-hidden /> : null}
         </div>
       ) : null}
     </div>

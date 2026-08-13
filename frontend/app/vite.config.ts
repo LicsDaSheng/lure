@@ -22,4 +22,19 @@ export default defineConfig({
     outDir: "../dist",
     emptyOutDir: true,
   },
+  test: {
+    coverage: {
+      include: [
+        "src/components/MessageBubble.tsx",
+        "src/hooks/streamingMessages.ts",
+        "src/hooks/useTypewriter.ts",
+      ],
+      thresholds: {
+        branches: 80,
+        functions: 80,
+        lines: 80,
+        statements: 80,
+      },
+    },
+  },
 });

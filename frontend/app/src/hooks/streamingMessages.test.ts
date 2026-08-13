@@ -1,0 +1,92 @@
+import { describe, expect, it } from "vitest";
+import {
+  appendAssistantContent,
+  appendAssistantReasoning,
+  finalizeAssistant,
+  type UiMessage,
+} from "./streamingMessages";
+
+const nextId = () => "assistant-1";
+
+describe("流式 assistant 消息归并", () => {
+  it("reasoning-first 消息在正文和终帧到达后仍启用打字机", () => {
+    let messages: UiMessage[] = [
+      { id: "user-1", role: "user", content: "你好" },
+    ];
+
+    messages = appendAssistantReasoning(messages, "思考", nextId);
+    messages = appendAssistantContent(messages, "答", nextId);
+    messages = finalizeAssistant(messages, "答案", nextId);
+
+    expect(messages.at(-1)).toMatchObject({
+      id: "assistant-1",
+      role: "assistant",
+      content: "答案",
+      reasoning: "思考",
+      streaming: false,
+      typewriter: true,
+    });
+  });
+
+  it("content-first 消息持续合并 delta 并保留打字机标记", () => {
+    let messages: UiMessage[] = [];
+
+    messages = appendAssistantContent(messages, "你", nextId);
+    messages = appendAssistantContent(messages, "好", nextId);
+
+    expect(messages).toEqual([
+      {
+        id: "assistant-1",
+        role: "assistant",
+        content: "你好",
+        streaming: true,
+        typewriter: true,
+      },
+    ]);
+  });
+
+  it("连续 reasoning delta 合并到同一消息", () => {
+    let messages: UiMessage[] = [];
+
+    messages = appendAssistantReasoning(messages, "先", nextId);
+    messages = appendAssistantReasoning(messages, "想", nextId);
+
+    expect(messages.at(-1)).toMatchObject({
+      content: "",
+      reasoning: "先想",
+      streaming: true,
+      typewriter: true,
+    });
+  });
+
+  it("缺少权威全文时以已累积正文完成消息", () => {
+    const streaming: UiMessage[] = [
+      {
+        id: "assistant-1",
+        role: "assistant",
+        content: "已有正文",
+        streaming: true,
+        typewriter: true,
+      },
+    ];
+
+    expect(finalizeAssistant(streaming, undefined, nextId).at(-1)).toMatchObject(
+      {
+        content: "已有正文",
+        streaming: false,
+        typewriter: true,
+      },
+    );
+  });
+
+  it("没有流式占位时以终帧创建消息，空终帧则保持原列表", () => {
+    const messages: UiMessage[] = [];
+    const finalized = finalizeAssistant(messages, "完整回答", nextId);
+
+    expect(finalized.at(-1)).toMatchObject({
+      content: "完整回答",
+      typewriter: true,
+    });
+    expect(finalizeAssistant(messages, undefined, nextId)).toBe(messages);
+  });
+});

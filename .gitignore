@@ -16,6 +16,7 @@ frontend/dist
 # Frontend (自有 shadcn/Tailwind v4 WebUI，构建产物输出到 frontend/dist)
 frontend/app/node_modules/
 frontend/app/*.tsbuildinfo
+frontend/app/coverage/
 
 # Tauri build 生成物（tauri-build 编译期生成 schema/context）
 crates/lure-desktop/gen/

@@ -1,7 +1,7 @@
 import { test, expect } from "@playwright/test";
 
 // 真实浏览器契约 smoke：加载 → bootstrap → echo 往返（WS）→ 删除真实 key（复现 URL 编码 bug）。
-// 串行：test 2 创建的会话供 test 3 删除（后端状态跨用例持久）。
+// 串行：test 2 创建的会话供 test 3 读取、test 4 删除（后端状态跨用例持久）。
 test.describe.serial("webui smoke (headless backend + echo)", () => {
   test("加载并完成 bootstrap，应用外壳渲染", async ({ page }) => {
     await page.goto("/");
@@ -75,6 +75,24 @@ test.describe.serial("webui smoke (headless backend + echo)", () => {
     expect(result.status).toBe(200);
     expect(result.deleted).toBe(true);
     expect(result.stillPresent, "删除后应从列表消失").toBe(false);
+  });
+
+  test("新回答在浏览器中逐步揭示，而不是一次显示全文", async ({ page }) => {
+    await page.goto("/");
+    const input = page.getByRole("textbox").first();
+    const prompt = "逐字输出".repeat(40);
+    const fullText = `echo: ${prompt}`;
+
+    await input.fill(prompt);
+    await input.press("Enter");
+
+    const answer = page.getByTestId("assistant-message-content").last();
+    await expect
+      .poll(async () => (await answer.textContent())?.length ?? 0)
+      .toBeGreaterThan(0);
+    const partialLength = (await answer.textContent())?.length ?? 0;
+    expect(partialLength).toBeLessThan(fullText.length);
+    await expect(answer).toHaveText(fullText, { timeout: 20_000 });
   });
 });
 

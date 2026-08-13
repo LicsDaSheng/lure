@@ -12,33 +12,28 @@ export function useTypewriter(
   enabled: boolean,
   charsPerTick = 2,
   tickMs = 24,
+  active = enabled,
 ): string {
   const [shown, setShown] = React.useState(0);
   const textRef = React.useRef(text);
   textRef.current = text;
+  const hasPendingText = shown < text.length;
 
   React.useEffect(() => {
-    if (!enabled) {
-      setShown(text.length);
-      return;
-    }
+    if (!enabled || !active || !hasPendingText) return;
     const timer = setInterval(() => {
       setShown((s) => {
         const full = textRef.current.length;
-        const next = Math.min(s + charsPerTick, full);
-        if (next >= full) {
-          clearInterval(timer);
-        }
-        return next;
+        return Math.min(s + charsPerTick, full);
       });
     }, tickMs);
     return () => clearInterval(timer);
-  }, [enabled, charsPerTick, tickMs]);
+  }, [enabled, active, hasPendingText, charsPerTick, tickMs]);
 
   // 文本回缩（理论上不发生）时钳制显示进度。
   React.useEffect(() => {
     setShown((s) => Math.min(s, text.length));
   }, [text.length]);
 
-  return text.slice(0, shown);
+  return enabled ? text.slice(0, shown) : text;
 }
