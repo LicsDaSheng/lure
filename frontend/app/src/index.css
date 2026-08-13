@@ -16,39 +16,23 @@
 :root {
   --radius: 0.75rem;
 
-  --background: oklch(98.5% 0.002 250);
-  --foreground: oklch(20% 0.01 260);
-  --muted: oklch(96% 0.004 255);
-  --muted-foreground: oklch(50% 0.012 260);
-  --card: oklch(100% 0 0);
+  /* 羊皮纸浅色主题（产品唯一主题，不做暗色）：
+     暖象牙纸底 + 焦褐墨色文字 + 琥珀/赭石点缀，营造旧纸质感。 */
+  --background: oklch(95.8% 0.014 85);
+  --foreground: oklch(30% 0.035 60);
+  --muted: oklch(92.5% 0.018 80);
+  --muted-foreground: oklch(55% 0.03 65);
+  --card: oklch(97.6% 0.009 90);
   --card-foreground: var(--foreground);
-  --border: oklch(91% 0.006 260);
-  --input: oklch(94% 0.005 260);
-  --ring: oklch(62% 0.17 262);
-  --accent: oklch(62% 0.17 262);
-  --accent-foreground: oklch(99% 0 0);
-  --sidebar: oklch(96.5% 0.004 258);
+  --border: oklch(84% 0.03 75);
+  --input: oklch(92% 0.018 85);
+  --ring: oklch(64% 0.09 70);
+  --accent: oklch(56% 0.115 62);
+  --accent-foreground: oklch(98.5% 0.008 90);
+  --sidebar: oklch(93% 0.02 80);
   --sidebar-foreground: var(--foreground);
-  --user-bubble: oklch(62% 0.17 262);
-  --user-bubble-foreground: oklch(99% 0 0);
-}
-
-.dark {
-  --background: oklch(17% 0.012 265);
-  --foreground: oklch(93% 0.006 260);
-  --muted: oklch(23% 0.012 265);
-  --muted-foreground: oklch(66% 0.014 262);
-  --card: oklch(20.5% 0.013 265);
-  --card-foreground: var(--foreground);
-  --border: oklch(28% 0.014 265);
-  --input: oklch(26% 0.014 265);
-  --ring: oklch(70% 0.15 262);
-  --accent: oklch(66% 0.16 262);
-  --accent-foreground: oklch(16% 0.02 265);
-  --sidebar: oklch(15% 0.012 265);
-  --sidebar-foreground: var(--foreground);
-  --user-bubble: oklch(66% 0.16 262);
-  --user-bubble-foreground: oklch(16% 0.02 265);
+  --user-bubble: oklch(52% 0.13 58);
+  --user-bubble-foreground: oklch(98.5% 0.008 90);
 }
 
 /* 语义色映射为 Tailwind 颜色工具类（bg-background / text-foreground …）。 */
@@ -82,6 +66,13 @@
   body {
     margin: 0;
     background-color: var(--background);
+    /* 羊皮纸质感：顶部柔和光晕，仿纸面受光，避免平板纯色。 */
+    background-image: radial-gradient(
+      130% 100% at 50% -15%,
+      color-mix(in oklch, var(--card) 70%, transparent),
+      transparent 60%
+    );
+    background-attachment: fixed;
     color: var(--foreground);
     font-family: var(--font-sans);
     -webkit-font-smoothing: antialiased;
