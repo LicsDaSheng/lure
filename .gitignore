@@ -1,27 +1,32 @@
-/target/
-**/*.rs.bk
+# 依赖
+node_modules/
 
-# Local editor and OS files
+# 构建产物
+dist/
+*.tsbuildinfo
+coverage/
+
+# 前端（desktop/ui，Vite 产物由 desktop/shell 内嵌）
+desktop/ui/dist/
+
+# Tauri 壳（desktop/shell，Rust）
+desktop/shell/target/
+desktop/shell/gen/
+
+# 后端 sidecar 打包产物（Node SEA）
+desktop/backend/bin/
+
+# 本地环境
+.env
+.env.*
+!.env.example
+
+# 编辑器 / 系统
 .DS_Store
 .idea/
 .vscode/
 
-# Local environment files
-.env
-.env.*
-!.env.example
-# Frontend build product (embedded by lure-desktop)
-frontend/dist
-
-# Frontend (自有 shadcn/Tailwind v4 WebUI，构建产物输出到 frontend/dist)
-frontend/app/node_modules/
-frontend/app/*.tsbuildinfo
-frontend/app/coverage/
-
-# Tauri build 生成物（tauri-build 编译期生成 schema/context）
-crates/lure-desktop/gen/
-
-# E2E (Playwright 契约测试)
+# E2E（Playwright）
 e2e/node_modules/
 e2e/.workspace/
 e2e/test-results/
