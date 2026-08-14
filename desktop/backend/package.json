@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "typecheck": "tsc -p tsconfig.json",
-    "test": "vitest run"
+    "test": "vitest run",
+    "start": "tsx src/bin.ts"
   },
   "dependencies": {
     "@hono/node-server": "^1.13.0",

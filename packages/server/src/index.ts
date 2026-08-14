@@ -27,6 +27,12 @@ export function createApp(issuer: TokenIssuer, onChat: ChatHandler): LureApp {
   const app = new Hono();
   const { injectWebSocket, upgradeWebSocket } = createNodeWebSocket({ app });
 
+  // bootstrap 签发 WS token + REST api token（desktop 场景由前端首屏拉取）。
+  app.get("/webui/bootstrap", (c) => {
+    const issued = issuer.issue();
+    return c.json({ token: issued.token, api_token: issued.apiToken });
+  });
+
   // token 校验必须在 upgradeWebSocket 之前：@hono/node-ws 回调返回 Response
   // 不会中止升级，须由中间件在握手前拒绝。
   app.get(

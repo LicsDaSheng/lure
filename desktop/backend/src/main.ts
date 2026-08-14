@@ -61,3 +61,28 @@ export async function runBackend(opts: BackendOptions): Promise<RunningBackend> 
 
   return { url, server, issuer, close: () => server.close() };
 }
+
+export function parseArgs(argv: string[]): BackendOptions {
+  const opts: BackendOptions = {};
+  for (let i = 0; i < argv.length; i++) {
+    const flag = argv[i]!;
+    if (flag === "--" || flag === "--headless") continue;
+    const value = argv[++i];
+    if (value === undefined) throw new Error(`${flag} 缺参数值`);
+    if (flag === "--config") opts.config = value;
+    else if (flag === "--model") opts.model = value;
+    else if (flag === "--workspace") opts.workspace = value;
+    else if (flag === "--root") opts.root = value;
+    else if (flag === "--http-port") opts.httpPort = Number(value);
+    else throw new Error(`未知参数: ${flag}`);
+  }
+  return opts;
+}
+
+export async function main(argv: string[]): Promise<void> {
+  const backend = await runBackend(parseArgs(argv));
+  console.log(`LURE_HTTP_URL=${backend.url}`);
+  console.log(`LURE_WS_URL=${backend.url.replace("http", "ws")}/ws`);
+  // headless server 常驻：保持进程存活。
+  await new Promise(() => {});
+}
