@@ -5,3 +5,4 @@ export * from "./agent/index.js";
 export * from "./session/index.js";
 export * from "./security/index.js";
 export * from "./tool/index.js";
+export * from "./memory/index.js";
