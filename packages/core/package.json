@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@lure/schema": "workspace:*",
+    "@modelcontextprotocol/sdk": "^1.30.0",
     "neverthrow": "^7.0.0"
   }
 }
