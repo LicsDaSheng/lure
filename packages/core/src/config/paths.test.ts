@@ -9,15 +9,15 @@ import {
 } from "./paths.js";
 
 describe("config paths", () => {
-  it("config path defaults to nanobot home", () => {
+  it("config path defaults to lure home", () => {
     expect(defaultConfigPath()).toBe(
-      path.join(homedir(), ".nanobot", "config.json"),
+      path.join(homedir(), ".lure", "config.json"),
     );
   });
 
-  it("workspace defaults to nanobot home", () => {
+  it("workspace defaults to lure home", () => {
     expect(resolveWorkspace()).toBe(
-      path.join(homedir(), ".nanobot", "workspace"),
+      path.join(homedir(), ".lure", "workspace"),
     );
   });
 

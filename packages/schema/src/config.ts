@@ -9,7 +9,7 @@ import { z } from "zod";
 
 // ---- 默认值常量（对齐 crates/lure-core/src/config/schema.rs）----
 export const DEFAULT_MODEL = "anthropic/claude-opus-4-5";
-export const DEFAULT_WORKSPACE = "~/.nanobot/workspace";
+export const DEFAULT_WORKSPACE = "~/.lure/workspace";
 export const DEFAULT_PROVIDER = "auto";
 export const DEFAULT_MAX_TOKENS = 8192;
 export const DEFAULT_CONTEXT_WINDOW_TOKENS = 200_000;

@@ -3,7 +3,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { defaultConfig } from "@lure/schema";
-import { homeDir } from "../config/paths.js";
+import { defaultLureRoot } from "../config/paths.js";
 import { saveConfig } from "../config/loader.js";
 import { DEFAULT_AGENTS, DEFAULT_GITIGNORE, DEFAULT_HEARTBEAT, DEFAULT_SOUL, DEFAULT_USER } from "./templates.js";
 
@@ -11,10 +11,6 @@ export interface OnboardSummary {
   root: string;
   configPath: string;
   workspace: string;
-}
-
-export function defaultLureRoot(): string {
-  return path.join(homeDir(), ".lure");
 }
 
 /// 幂等初始化 Lure 数据目录与 workspace 模板；不覆盖已有用户文件。
