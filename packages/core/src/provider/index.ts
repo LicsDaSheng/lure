@@ -3,3 +3,7 @@ export * from "./stream.js";
 export * from "./usage.js";
 export * from "./http.js";
 export * from "./openai.js";
+export * from "./transport.js";
+export * from "./echo.js";
+export * from "./runtime.js";
+export * from "./build.js";

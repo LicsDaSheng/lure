@@ -93,3 +93,13 @@ function providerErrorMessage(kind: ProviderErrorKind, message: string, status?:
       return `provider 响应失败: ${message}`;
   }
 }
+
+/// LLM provider 契约（对应 Rust `LlmProvider` trait）。
+export interface LlmProvider {
+  defaultModel(): string;
+  complete(request: CompletionRequest): Promise<LlmResponse>;
+  completeStreaming(
+    request: CompletionRequest,
+    onDelta: (chunk: StreamChunk) => void,
+  ): Promise<LlmResponse>;
+}
