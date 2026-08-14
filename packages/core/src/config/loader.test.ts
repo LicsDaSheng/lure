@@ -44,15 +44,6 @@ describe("load_config", () => {
     if (r.isErr()) expect(r.error.kind).toBe("parse");
   });
 
-  it("applies migration and ignores legacy", () => {
-    const dir = tempDir();
-    const p = path.join(dir, "config.json");
-    fs.writeFileSync(p, `{"agents":{"defaults":{"maxMessages":25}}}`);
-
-    const config = unwrap(loadConfig(p));
-    expect(config.agents.defaults.model).toBe(DEFAULT_MODEL);
-  });
-
   it("rejects invalid preset", () => {
     const dir = tempDir();
     const p = path.join(dir, "config.json");

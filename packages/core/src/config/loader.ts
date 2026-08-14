@@ -4,7 +4,6 @@ import fs from "node:fs";
 import path from "node:path";
 import { err, ok, type Result } from "neverthrow";
 import { parseConfigObject, serializeConfig, type Config } from "@lure/schema";
-import { migrateConfig } from "./migration.js";
 import { validateConfig } from "./resolve.js";
 
 export type ConfigErrorKind = "read" | "parse" | "serialize" | "write" | "validation";
@@ -59,8 +58,6 @@ export function loadConfig(p: string): Result<Config, ConfigError> {
   } catch (e) {
     return err(new ConfigError("parse", p, String(e)));
   }
-
-  migrateConfig(raw as Record<string, unknown>);
 
   let config: Config;
   try {
