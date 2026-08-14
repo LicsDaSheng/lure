@@ -22,6 +22,12 @@ export class ContextBuilder {
     return new ContextBuilder(undefined, undefined, workspace);
   }
 
+  /// 注入长期记忆 context（空串视为无注入）。
+  withMemory(memoryContext?: string): ContextBuilder {
+    const mem = memoryContext !== undefined && memoryContext !== "" ? memoryContext : undefined;
+    return new ContextBuilder(this.systemPrompt, mem, this.workspace);
+  }
+
   /// 由历史构建 provider 输入消息：system → memory → 历史的 `{role, content}` 投影。
   build(history: Json[]): Json[] {
     const out: Json[] = [];

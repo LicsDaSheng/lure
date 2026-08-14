@@ -11,7 +11,10 @@ import {
   deltaEvent,
   ensureWorkspace,
   loadConfig,
+  MemoryStore,
   messageEvent,
+  registryFromConfig,
+  SessionManager,
   TokenIssuer,
 } from "@lure/core";
 import { createApp, type ChatHandler } from "@lure/server";
@@ -42,8 +45,12 @@ export async function runBackend(opts: BackendOptions): Promise<RunningBackend> 
   const provider = buildProvider(config.value, undefined, opts.model);
   if (provider.isErr()) throw provider.error;
 
+  const sessions = SessionManager.forWorkspace(workspace);
+  const tools = registryFromConfig(config.value, workspace);
+  if (tools.isErr()) throw tools.error;
+  const memory = new MemoryStore(workspace);
   const context = ContextBuilder.forWorkspace(workspace);
-  const loop = new AgentLoop(provider.value, context);
+  const loop = new AgentLoop(provider.value, sessions, context).withTools(tools.value).withMemory(memory);
 
   const issuer = new TokenIssuer(3600, 16);
   const onChat: ChatHandler = async (chatId, content, send) => {
