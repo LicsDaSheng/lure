@@ -17,6 +17,8 @@ pub enum TurnEvent {
     Delta(String),
     /// 推理增量（reasoning_delta 帧）。
     Reasoning(String),
+    /// 调用了工具（仅展示工具名，不改变工具执行契约）。
+    Tool(String),
     /// 最终回复文本。
     Final(String),
     /// turn 失败。

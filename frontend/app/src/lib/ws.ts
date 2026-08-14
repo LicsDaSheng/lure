@@ -12,6 +12,7 @@ export type ServerEvent =
   | { event: "goal_status"; chat_id: string; [k: string]: unknown }
   | { event: "delta"; chat_id: string; text: string }
   | { event: "reasoning_delta"; chat_id: string; text: string }
+  | { event: "tool_invoked"; chat_id: string; name: string }
   | { event: "message"; chat_id: string; text: string }
   | { event: "turn_end"; chat_id: string }
   | { event: "error"; detail: string }

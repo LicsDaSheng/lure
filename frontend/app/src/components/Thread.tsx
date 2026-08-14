@@ -52,7 +52,7 @@ export function Thread({
 
   return (
     <ScrollArea className="flex-1" viewportRef={viewportRef}>
-      <div className="mx-auto flex max-w-[820px] flex-col py-4">
+      <div className="mx-auto flex w-full max-w-[760px] flex-col gap-1 py-5">
         {messages.map((m) => (
           <MessageBubble key={m.id} message={m} />
         ))}

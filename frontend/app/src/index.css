@@ -119,6 +119,30 @@
       opacity: 0;
     }
   }
+
+  /* 思考中标签微光：文字颜色渐变扫过，传达「正在思考」。 */
+  .shimmer {
+    background: linear-gradient(
+      90deg,
+      var(--muted-foreground) 0%,
+      var(--foreground) 50%,
+      var(--muted-foreground) 100%
+    );
+    background-size: 200% 100%;
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    color: transparent;
+    animation: shimmer-slide 1.6s linear infinite;
+  }
+  @keyframes shimmer-slide {
+    0% {
+      background-position: 200% 0;
+    }
+    100% {
+      background-position: -200% 0;
+    }
+  }
 }
 
 /* assistant markdown 正文排版：紧凑、留白克制、与气泡节奏一致。 */

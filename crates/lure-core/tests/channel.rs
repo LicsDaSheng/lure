@@ -51,6 +51,12 @@ async fn turn_event_registry_routes_by_turn_id() {
         Some(TurnEvent::Delta("你".into())),
         "route 应投递到对应 receiver"
     );
+    assert!(registry.route("turn-1", TurnEvent::Tool("read_file".into())));
+    assert_eq!(
+        rx.recv().await,
+        Some(TurnEvent::Tool("read_file".into())),
+        "tool 事件也应投递到对应 receiver"
+    );
 
     registry.unregister("turn-1");
     assert!(

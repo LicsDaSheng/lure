@@ -55,6 +55,9 @@ impl TurnRunner for BusTurnRunner {
                 Some(TurnEvent::Reasoning(text)) => {
                     on_progress(ProgressEvent::ReasoningDelta { text });
                 }
+                Some(TurnEvent::Tool(name)) => {
+                    on_progress(ProgressEvent::ToolInvoked { name });
+                }
                 Some(TurnEvent::Final(text)) => final_text = Some(text),
                 Some(TurnEvent::Error(detail)) => break Err(detail),
                 Some(TurnEvent::Done) => {

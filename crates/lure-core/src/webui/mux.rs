@@ -5,10 +5,11 @@
 //! - 入站信封 `{"type": "attach" | "new_chat" | "message", ...}` 分发为出站事件帧。
 //! - 每帧即时经 `on_outbound` 回调发出（支持流式 delta 实时推送）。
 //! - `message` 驱动一次 agent turn：`goal_status(running)` → 流式 `delta`/`reasoning_delta`
-//!   → `message`（最终回复）→ `turn_end` → `session_updated`；失败 → `error` → `turn_end`。
+//!   → `tool_invoked`（存在工具时）→ `message`（最终回复）→ `turn_end` →
+//!   `session_updated`；失败 → `error` → `turn_end`。
 //!
 //! 本模块不做：真实 WebSocket 连接管理、workspace scope、fork_chat、
-//! 媒体附件、transcript 落盘、ToolInvoked 的 tool_events 表面。
+//! 媒体附件、完整工具参数/结果与确认逻辑。
 
 use regex::Regex;
 use serde_json::{json, Value};
@@ -169,6 +170,8 @@ impl<R: TurnRunner> MuxSession<R> {
 
         // 流式 delta 经 progress 回调即时发出（不缓冲到 turn 结束）。
         // 连接线程非 runtime worker，经 Handle::block_on 驱动 async turn。
+        let mut reasoning_content = String::new();
+        let mut invoked_tools = Vec::new();
         let result = crate::runtime::block_on(
             &self.runtime,
             self.runner.run_turn(&chat_id, content, &mut |event| {
@@ -176,11 +179,22 @@ impl<R: TurnRunner> MuxSession<R> {
                     ProgressEvent::ContentDelta { text } => {
                         Some(json!({"event": "delta", "chat_id": chat_id, "text": text}))
                     }
-                    ProgressEvent::ReasoningDelta { text } => Some(json!({
-                        "event": "reasoning_delta",
-                        "chat_id": chat_id,
-                        "text": text
-                    })),
+                    ProgressEvent::ReasoningDelta { text } => {
+                        reasoning_content.push_str(&text);
+                        Some(json!({
+                            "event": "reasoning_delta",
+                            "chat_id": chat_id,
+                            "text": text
+                        }))
+                    }
+                    ProgressEvent::ToolInvoked { name } => {
+                        invoked_tools.push(name.clone());
+                        Some(json!({
+                            "event": "tool_invoked",
+                            "chat_id": chat_id,
+                            "name": name
+                        }))
+                    }
                     _ => None,
                 };
                 if let Some(frame) = mapped {
@@ -193,7 +207,13 @@ impl<R: TurnRunner> MuxSession<R> {
             Ok(text) => {
                 if let Some(ref mut t) = self.transcript {
                     let session_key = format!("websocket:{chat_id}");
-                    let _ = t.append_turn(&session_key, content, &text);
+                    let _ = t.append_turn_with_display(
+                        &session_key,
+                        content,
+                        &text,
+                        (!reasoning_content.is_empty()).then_some(reasoning_content.as_str()),
+                        &invoked_tools,
+                    );
                 }
                 on_outbound(&json!({"event": "message", "chat_id": chat_id, "text": text}));
                 on_outbound(&json!({"event": "turn_end", "chat_id": chat_id}));

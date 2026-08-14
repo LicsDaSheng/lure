@@ -11,6 +11,7 @@ import { ChatSocket, type ServerEvent } from "@/lib/ws";
 import {
   appendAssistantContent,
   appendAssistantReasoning,
+  appendAssistantTool,
   finalizeAssistant,
   type UiMessage,
 } from "./streamingMessages";
@@ -73,6 +74,13 @@ export function useChat() {
           if (ev.chat_id !== activeChatIdRef.current) return;
           setMessages((prev) =>
             appendAssistantReasoning(prev, ev.text as string, nextId),
+          );
+          break;
+        }
+        case "tool_invoked": {
+          if (ev.chat_id !== activeChatIdRef.current) return;
+          setMessages((prev) =>
+            appendAssistantTool(prev, ev.name as string, nextId),
           );
           break;
         }
@@ -147,12 +155,23 @@ export function useChat() {
       setMessages(
         thread.messages
           .filter((m) => m.role === "user" || m.role === "assistant")
-          .map((m) => ({
-            id: nextId(),
-            role: m.role as "user" | "assistant",
-            content: messageText(m.content),
-            reasoning: m.reasoning_content,
-          })),
+          .map((m) => {
+            const id = nextId();
+            return {
+              id,
+              role: m.role as "user" | "assistant",
+              content: messageText(m.content),
+              reasoning: m.reasoning_content,
+              reasoningDone: true,
+              tools: m.tools
+                ?.filter((tool) => typeof tool.name === "string" && tool.name)
+                .map((tool, index) => ({
+                  id: `${id}-tool-${index + 1}`,
+                  name: tool.name,
+                  status: "complete" as const,
+                })),
+            };
+          }),
       );
     } catch (e) {
       console.error("加载会话消息失败", e);

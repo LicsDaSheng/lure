@@ -55,6 +55,18 @@ impl TranscripStore {
         user_content: &str,
         assistant_content: &str,
     ) -> io::Result<()> {
+        self.append_turn_with_display(session_key, user_content, assistant_content, None, &[])
+    }
+
+    /// 追加带展示元数据的一轮对话；只保存已存在的 reasoning 与工具名。
+    pub fn append_turn_with_display(
+        &self,
+        session_key: &str,
+        user_content: &str,
+        assistant_content: &str,
+        reasoning_content: Option<&str>,
+        tools: &[String],
+    ) -> io::Result<()> {
         let path = transcript_path(&self.webui_dir, session_key);
         let mut file = OpenOptions::new().create(true).append(true).open(&path)?;
         let now = Utc::now().to_rfc3339();
@@ -62,10 +74,23 @@ impl TranscripStore {
             &mut file,
             &json!({"role": "user", "content": user_content, "timestamp": now}),
         )?;
-        write_jsonl_line(
-            &mut file,
-            &json!({"role": "assistant", "content": assistant_content, "timestamp": now}),
-        )?;
+        let mut assistant = json!({
+            "role": "assistant",
+            "content": assistant_content,
+            "timestamp": now,
+        });
+        if let Some(reasoning) = reasoning_content.filter(|text| !text.is_empty()) {
+            assistant["reasoning_content"] = json!(reasoning);
+        }
+        if !tools.is_empty() {
+            assistant["tools"] = Value::Array(
+                tools
+                    .iter()
+                    .map(|name| json!({"name": name, "status": "complete"}))
+                    .collect(),
+            );
+        }
+        write_jsonl_line(&mut file, &assistant)?;
         Ok(())
     }
 
@@ -88,13 +113,20 @@ impl TranscripStore {
             let Ok(mut record) = serde_json::from_str::<Value>(&line) else {
                 continue; // 损坏行跳过
             };
-            // 对外只暴露 role + content，丢弃内部字段（timestamp 等）。
+            // 对外暴露展示字段，丢弃内部字段（timestamp 等）。
             let role = record["role"].take();
             let content = record["content"].take();
             if role.is_null() || content.is_null() {
                 continue;
             }
-            messages.push(json!({"role": role, "content": content}));
+            let mut message = json!({"role": role, "content": content});
+            if let Some(reasoning) = record.get("reasoning_content").and_then(Value::as_str) {
+                message["reasoning_content"] = json!(reasoning);
+            }
+            if let Some(tools) = record.get("tools").and_then(Value::as_array) {
+                message["tools"] = Value::Array(tools.clone());
+            }
+            messages.push(message);
         }
         if messages.is_empty() {
             return Ok(None);

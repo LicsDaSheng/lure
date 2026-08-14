@@ -284,6 +284,36 @@ async fn message_maps_reasoning_delta_events() {
 }
 
 #[tokio::test]
+async fn message_maps_tool_invoked_to_display_event() {
+    let runner = ScriptedRunner::ok(
+        vec![ProgressEvent::ToolInvoked {
+            name: "read_file".into(),
+        }],
+        "读取完成",
+    );
+    let mut session = MuxSession::new(runner, tokio::runtime::Handle::current());
+    let out = mux::collect_frames(
+        &mut session,
+        &json!({"type": "message", "chat_id": "c1", "content": "读取文件"}),
+    );
+
+    assert_eq!(
+        events(&out),
+        vec![
+            "goal_status",
+            "tool_invoked",
+            "message",
+            "turn_end",
+            "session_updated"
+        ]
+    );
+    assert_eq!(
+        out[1],
+        json!({"event": "tool_invoked", "chat_id": "c1", "name": "read_file"})
+    );
+}
+
+#[tokio::test]
 async fn message_runner_failure_emits_error_then_turn_end() {
     let mut session = MuxSession::new(
         ScriptedRunner::failing("provider down"),

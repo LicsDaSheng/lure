@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   appendAssistantContent,
   appendAssistantReasoning,
+  appendAssistantTool,
   finalizeAssistant,
   type UiMessage,
 } from "./streamingMessages";
@@ -41,6 +42,7 @@ describe("流式 assistant 消息归并", () => {
         content: "你好",
         streaming: true,
         typewriter: true,
+        reasoningDone: true,
       },
     ]);
   });
@@ -56,6 +58,32 @@ describe("流式 assistant 消息归并", () => {
       reasoning: "先想",
       streaming: true,
       typewriter: true,
+    });
+  });
+
+  it("content delta 到达后 reasoning 标记为完成", () => {
+    let messages: UiMessage[] = [];
+    messages = appendAssistantReasoning(messages, "思考", nextId);
+    messages = appendAssistantContent(messages, "答", nextId);
+
+    expect(messages.at(-1)).toMatchObject({
+      reasoning: "思考",
+      content: "答",
+      streaming: true,
+      reasoningDone: true,
+    });
+  });
+
+  it("终帧到达后 reasoning 标记为完成", () => {
+    let messages: UiMessage[] = [];
+    messages = appendAssistantReasoning(messages, "思考", nextId);
+    messages = finalizeAssistant(messages, "答案", nextId);
+
+    expect(messages.at(-1)).toMatchObject({
+      reasoning: "思考",
+      content: "答案",
+      streaming: false,
+      reasoningDone: true,
     });
   });
 
@@ -88,5 +116,38 @@ describe("流式 assistant 消息归并", () => {
       typewriter: true,
     });
     expect(finalizeAssistant(messages, undefined, nextId)).toBe(messages);
+  });
+
+  it("工具事件追加到当前 assistant，并在终帧到达后标记完成", () => {
+    let messages: UiMessage[] = [
+      { id: "user-1", role: "user", content: "读取文件" },
+    ];
+
+    messages = appendAssistantTool(messages, "read_file", nextId);
+    expect(messages.at(-1)).toMatchObject({
+      role: "assistant",
+      content: "",
+      streaming: true,
+      tools: [
+        { id: "assistant-1-tool-1", name: "read_file", status: "running" },
+      ],
+    });
+
+    messages = finalizeAssistant(messages, "读取完成", nextId);
+    expect(messages.at(-1)).toMatchObject({
+      content: "读取完成",
+      tools: [
+        { id: "assistant-1-tool-1", name: "read_file", status: "complete" },
+      ],
+    });
+  });
+
+  it("历史工具可以直接以完成态附着到 assistant 消息", () => {
+    const messages = appendAssistantTool([], "web_search", nextId, false);
+
+    expect(messages.at(-1)?.tools).toEqual([
+      { id: "assistant-1-tool-1", name: "web_search", status: "complete" },
+    ]);
+    expect(messages.at(-1)?.streaming).toBeUndefined();
   });
 });

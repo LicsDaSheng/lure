@@ -324,6 +324,9 @@ fn forward_turn_progress(registry: &TurnEventRegistry, turn_id: &str, progress: 
         ProgressEvent::ReasoningDelta { text } => {
             registry.route(turn_id, TurnEvent::Reasoning(text.clone()));
         }
+        ProgressEvent::ToolInvoked { name } => {
+            registry.route(turn_id, TurnEvent::Tool(name.clone()));
+        }
         _ => {}
     }
 }

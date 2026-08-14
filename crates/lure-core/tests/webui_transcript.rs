@@ -31,6 +31,32 @@ async fn write_turn_and_read_thread_returns_ui_messages() {
 }
 
 #[tokio::test]
+async fn detailed_turn_persists_reasoning_and_completed_tools_for_replay() {
+    let dir = TempDir::new().unwrap();
+    let store = store(&dir);
+
+    store
+        .append_turn_with_display(
+            "websocket:c1",
+            "读取文件",
+            "读取完成",
+            Some("先确定文件路径"),
+            &["read_file".to_string()],
+        )
+        .unwrap();
+
+    let payload = store.read_thread("websocket:c1").unwrap().unwrap();
+    assert_eq!(
+        payload["messages"][1]["reasoning_content"],
+        "先确定文件路径"
+    );
+    assert_eq!(
+        payload["messages"][1]["tools"],
+        json!([{"name": "read_file", "status": "complete"}])
+    );
+}
+
+#[tokio::test]
 async fn read_thread_missing_returns_none() {
     let dir = TempDir::new().unwrap();
     let store = store(&dir);

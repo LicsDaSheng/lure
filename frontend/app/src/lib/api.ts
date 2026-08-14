@@ -21,6 +21,7 @@ export interface ThreadMessage {
   role: string;
   content: unknown;
   reasoning_content?: string;
+  tools?: Array<{ name: string; status?: string }>;
 }
 
 export interface Thread {
