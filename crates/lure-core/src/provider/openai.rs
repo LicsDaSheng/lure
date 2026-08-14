@@ -88,7 +88,9 @@ impl<T: HttpTransport> LlmProvider for OpenAiCompatProvider<T> {
             .await
             .map_err(ProviderError::Transport)?;
 
-        parse_chat_response(&response)
+        let llm = parse_chat_response(&response)?;
+        log_llm_response(&llm);
+        Ok(llm)
     }
 
     async fn complete_streaming(
@@ -117,7 +119,9 @@ impl<T: HttpTransport> LlmProvider for OpenAiCompatProvider<T> {
         if let Some(error) = status_error(status, &raw) {
             return Err(error);
         }
-        Ok(assembler.finish())
+        let llm = assembler.finish();
+        log_llm_response(&llm);
+        Ok(llm)
     }
 }
 
@@ -286,4 +290,28 @@ fn snippet(body: &str) -> String {
     }
     let head: String = body.chars().take(MAX).collect();
     format!("{head}…")
+}
+
+/// 调试打印 provider 返回的完整结果：think（reasoning_content）、content、tool_call。
+///
+/// 打印到 stderr，便于在流式/非流式两条路径上观察大模型原始产出，
+/// 验证 reasoning 与正文的拆分、tool_call 参数是否完整。
+fn log_llm_response(response: &LlmResponse) {
+    if let Some(reasoning) = response
+        .reasoning_content
+        .as_deref()
+        .filter(|s| !s.is_empty())
+    {
+        eprintln!("[llm] think:\n{reasoning}");
+    }
+    if let Some(content) = response.content.as_deref().filter(|s| !s.is_empty()) {
+        eprintln!("[llm] content:\n{content}");
+    }
+    for (i, tool) in response.tool_calls.iter().enumerate() {
+        eprintln!(
+            "[llm] tool_call[{i}] id={} name={}\n  args: {}",
+            tool.id, tool.name, tool.arguments
+        );
+    }
+    eprintln!("[llm] finish_reason={}", response.finish_reason);
 }
