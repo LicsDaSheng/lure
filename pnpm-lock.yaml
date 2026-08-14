@@ -18,6 +18,25 @@ importers:
         specifier: ^3.0.0
         version: 3.2.7(@types/node@22.20.1)(jsdom@25.0.1)
 
+  desktop/backend:
+    dependencies:
+      '@hono/node-server':
+        specifier: ^1.13.0
+        version: 1.19.17(hono@4.13.2)
+      '@lure/core':
+        specifier: workspace:*
+        version: link:../../packages/core
+      '@lure/server':
+        specifier: workspace:*
+        version: link:../../packages/server
+    devDependencies:
+      '@types/ws':
+        specifier: ^8.5.0
+        version: 8.18.1
+      ws:
+        specifier: ^8.18.0
+        version: 8.21.3
+
   desktop/ui:
     dependencies:
       '@assistant-ui/react':

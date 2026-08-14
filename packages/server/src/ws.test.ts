@@ -3,12 +3,15 @@ import { serve } from "@hono/node-server";
 import type { AddressInfo } from "node:net";
 import type { Server } from "node:http";
 import { WebSocket } from "ws";
-import { TokenIssuer } from "@lure/core";
+import { deltaEvent, messageEvent, TokenIssuer } from "@lure/core";
 import { createApp } from "./index.js";
 
 function startServer(): { url: string; server: Server; issuer: TokenIssuer } {
   const issuer = new TokenIssuer(3600, 16);
-  const { app, injectWebSocket } = createApp(issuer);
+  const { app, injectWebSocket } = createApp(issuer, (chatId, content, send) => {
+    send(deltaEvent(chatId, content));
+    send(messageEvent(chatId, content));
+  });
   const server = serve({ fetch: app.fetch, port: 0 });
   injectWebSocket(server);
   const address = server.address() as AddressInfo;

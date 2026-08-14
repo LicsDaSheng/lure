@@ -1,0 +1,19 @@
+{
+  "name": "@lure/backend",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@hono/node-server": "^1.13.0",
+    "@lure/core": "workspace:*",
+    "@lure/server": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/ws": "^8.5.0",
+    "ws": "^8.18.0"
+  }
+}

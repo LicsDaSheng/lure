@@ -1,24 +1,29 @@
-//! WebUI 传输层（Hono HTTP + WS）。spike：验证 token 握手 + 复用协议。
+//! WebUI 传输层（Hono HTTP + WS）：token 握手 + 把入站消息路由给聊天处理器。
 
 import { Hono } from "hono";
 import { createNodeWebSocket } from "@hono/node-ws";
 import type { Server } from "node:http";
 import {
-  deltaEvent,
   errorEvent,
-  messageEvent,
   parseWsInbound,
   statusEvent,
+  type Json,
   type TokenIssuer,
 } from "@lure/core";
+
+/// 聊天处理器：收到一条入站消息，处理并把出站事件经 `send` 回传。
+export type ChatHandler = (
+  chatId: string,
+  content: string,
+  send: (event: Json) => void,
+) => void | Promise<void>;
 
 export interface LureApp {
   app: Hono;
   injectWebSocket: (server: Server) => void;
 }
 
-/// 构建 Hono 应用：`/ws` 带 token 握手（中间件校验）与复用协议事件回送。
-export function createApp(issuer: TokenIssuer): LureApp {
+export function createApp(issuer: TokenIssuer, onChat: ChatHandler): LureApp {
   const app = new Hono();
   const { injectWebSocket, upgradeWebSocket } = createNodeWebSocket({ app });
 
@@ -44,8 +49,11 @@ export function createApp(issuer: TokenIssuer): LureApp {
             ws.send(JSON.stringify(errorEvent(parsed.detail)));
             return;
           }
-          ws.send(JSON.stringify(deltaEvent(parsed.chatId, parsed.content)));
-          ws.send(JSON.stringify(messageEvent(parsed.chatId, parsed.content)));
+          Promise.resolve(
+            onChat(parsed.chatId, parsed.content, (event) => ws.send(JSON.stringify(event))),
+          ).catch((e) => {
+            ws.send(JSON.stringify(errorEvent(String(e))));
+          });
         },
       };
     }),
