@@ -1,0 +1,22 @@
+[package]
+name = "lure-desktop"
+description = "Lure 的 Tauri 桌面应用入口"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lib]
+name = "lure_desktop_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build.workspace = true
+
+[dependencies]
+lure-core = { path = "../crates/lure-core" }
+lure-rpc = { path = "../crates/lure-rpc" }
+tauri.workspace = true
+
+[lints]
+workspace = true

@@ -1,0 +1,10 @@
+[package]
+name = "lure-core"
+description = "Lure 的应用领域模型与用例边界"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
