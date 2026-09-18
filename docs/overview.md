@@ -28,16 +28,19 @@ lure/
 ├── tsconfig.json              # 前端 TypeScript 配置
 ├── tsconfig.node.json         # 构建工具 TypeScript 配置
 ├── crates/
-│   ├── lure-core/             # 与 GUI/进程实现无关的领域模型和应用用例
-│   │   └── src/lib.rs
+│   ├── lure-core/             # 与 GUI/进程实现无关的领域模型和规范化事件
+│   │   ├── src/               # 连接状态、会话事件和稳定错误类型
+│   │   └── tests/             # 领域序列化契约测试
 │   └── lure-rpc/              # Pi RPC 子进程、JSONL 编解码与协议适配
-│       └── src/lib.rs
+│       ├── src/               # actor、进程、协议和事件规范化
+│       └── tests/             # JSONL、模拟 Pi 与真实 Pi 冒烟测试
 ├── src/                       # React 前端
 │   ├── App.tsx                # 当前应用壳与前端组合入口
 │   ├── App.test.tsx           # 前端可观察行为测试
 │   ├── components/
 │   │   ├── ai-elements/       # 流式对话、消息、推理与工具展示组件
 │   │   └── ui/                # 纳入源码管理的 shadcn/ui 基础组件
+│   ├── features/pi-connection/# Tauri API、事件 reducer 与连接会话 Hook
 │   ├── lib/utils.ts           # className 合并工具
 │   ├── index.css              # Tailwind CSS 与设计令牌
 │   ├── main.tsx               # React 挂载入口
@@ -48,6 +51,9 @@ lure/
 │   ├── capabilities/          # Tauri 窗口权限声明
 │   ├── icons/                 # 应用打包图标
 │   ├── src/
+│   │   ├── commands.rs        # 连接、断开、提示词和中止命令
+│   │   ├── events.rs          # lure://pi-event 转发
+│   │   ├── state.rs           # 单 Pi 会话状态与操作约束
 │   │   ├── lib.rs             # Tauri Builder 组合根
 │   │   └── main.rs            # 桌面进程入口
 │   └── tauri.conf.json        # 窗口、开发服务与打包配置
@@ -86,6 +92,17 @@ React UI ⇄ Tauri command/event ⇄ lure-desktop
 ```
 
 `lure-core` 位于依赖关系中心，不反向依赖 `lure-rpc` 或 `lure-desktop`。
+
+### Pi RPC MVP 流程
+
+1. React 通过原生目录选择器取得工作目录，并调用 `connect_pi`。
+2. Rust 优先使用 `LURE_PI_PATH`，否则从当前 `PATH` 启动 `pi --mode rpc`。
+3. `lure-rpc` 只按 LF 切分 stdout JSONL，以请求 ID 关联 `get_state`、`prompt` 和 `abort` 响应。
+4. Tauri 通过统一的 `lure://pi-event` 推送带序号的规范化事件。
+5. 前端 reducer 将文本、thinking 和工具事件映射到 AI Elements；只有 `agent_settled` 才恢复可输入状态。
+6. 断开连接或应用退出时，中止活动任务并回收 Pi 子进程。
+
+当前桌面边界只暴露 `connect_pi`、`disconnect_pi`、`send_prompt`、`abort_pi` 四个命令。MVP 不支持图片、消息排队、模型切换和历史会话管理；交互式 extension UI 请求会被安全取消，避免 Pi 持续等待。
 
 ## 4. 前端组织约定
 

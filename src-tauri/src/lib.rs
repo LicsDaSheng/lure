@@ -1,11 +1,37 @@
 //! Lure 桌面应用的 Tauri 组合根。
 
+mod commands;
+mod events;
+mod state;
+
+use std::sync::Arc;
+
+use state::AppState;
+use tauri::{Manager, RunEvent};
+
 /// 创建并运行 Lure 桌面应用。
 ///
 /// # Errors
 ///
-/// 当 Tauri 上下文初始化或事件循环启动失败时返回错误。
+/// 当 Tauri 上下文初始化失败时返回错误。
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() -> tauri::Result<()> {
-    tauri::Builder::default().run(tauri::generate_context!())
+    let app = tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
+        .manage(Arc::new(AppState::default()))
+        .invoke_handler(tauri::generate_handler![
+            commands::connect_pi,
+            commands::disconnect_pi,
+            commands::send_prompt,
+            commands::abort_pi,
+        ])
+        .build(tauri::generate_context!())?;
+
+    app.run(|app_handle, event| {
+        if matches!(event, RunEvent::ExitRequested { .. }) {
+            let state = app_handle.state::<Arc<AppState>>().inner().clone();
+            let _ = tauri::async_runtime::block_on(commands::disconnect_inner(app_handle, state));
+        }
+    });
+    Ok(())
 }

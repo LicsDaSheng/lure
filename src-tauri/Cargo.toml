@@ -16,7 +16,10 @@ tauri-build.workspace = true
 [dependencies]
 lure-core = { path = "../crates/lure-core" }
 lure-rpc = { path = "../crates/lure-rpc" }
+serde.workspace = true
 tauri.workspace = true
+tauri-plugin-dialog.workspace = true
+tokio.workspace = true
 
 [lints]
 workspace = true
