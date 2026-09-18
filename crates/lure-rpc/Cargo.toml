@@ -1,0 +1,14 @@
+[package]
+name = "lure-rpc"
+description = "Pi RPC 子进程与 JSONL 协议适配器"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+
+[lints]
+workspace = true
