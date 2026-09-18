@@ -7,8 +7,14 @@ rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
+lure-core = { path = "../lure-core" }
 serde.workspace = true
 serde_json.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+
+[target.'cfg(unix)'.dependencies]
+nix.workspace = true
 
 [lints]
 workspace = true
