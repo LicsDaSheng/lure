@@ -10,7 +10,7 @@ Lure 与 Pi 的唯一集成边界是：在用户选择的工作目录中启动 `
 
 - 桌面框架：Tauri 2
 - 前端：React 19 + TypeScript + Vite
-- UI：shadcn/ui + Tailwind CSS 4
+- UI：AI Elements + shadcn/ui + Tailwind CSS 4
 - Rust：Cargo workspace（edition 2024）
 - 包管理器：pnpm
 - 初始平台：macOS，工程结构预留其他桌面平台适配空间
@@ -35,7 +35,9 @@ lure/
 ├── src/                       # React 前端
 │   ├── App.tsx                # 当前应用壳与前端组合入口
 │   ├── App.test.tsx           # 前端可观察行为测试
-│   ├── components/ui/         # 纳入源码管理的 shadcn/ui 组件
+│   ├── components/
+│   │   ├── ai-elements/       # 流式对话、消息、推理与工具展示组件
+│   │   └── ui/                # 纳入源码管理的 shadcn/ui 基础组件
 │   ├── lib/utils.ts           # className 合并工具
 │   ├── index.css              # Tailwind CSS 与设计令牌
 │   ├── main.tsx               # React 挂载入口
@@ -104,9 +106,14 @@ src/
 
 Feature 内聚自己的组件、状态与测试；只有形成稳定复用需求后才上移到 `components/` 或 `lib/`。通用界面原语优先通过 shadcn/ui CLI 写入 `components/ui/`，样式使用 Tailwind CSS 和 `src/index.css` 中的语义设计令牌。
 
+流式对话界面统一采用 AI Elements。`components/ai-elements/` 当前包含会话滚动、消息与 Markdown、提示输入、推理过程、来源和工具调用组件；组件源码纳入项目维护，并通过 Streamdown 渲染流式 Markdown。AI Elements 只承担展示与交互，消息事实来源和运行控制仍由 Pi RPC 适配层提供。
+
 ```bash
 # 按需引入 shadcn/ui 组件
 pnpm dlx shadcn@latest add button
+
+# 按需引入 AI Elements 组件
+pnpm dlx ai-elements@latest add conversation
 ```
 
 ## 5. 开发命令
