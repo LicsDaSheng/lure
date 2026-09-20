@@ -55,22 +55,27 @@ describe("piSessionReducer", () => {
     });
   });
 
-  it("仅在 run_settled 后恢复 ready，并在时间线记录执行结果", () => {
+  it("运行生命周期只更新独立运行状态，不写入对话消息", () => {
     const running = reduce([
-      { sequence: 1, event: { type: "run_started" } },
-      { sequence: 2, event: { type: "run_finished", willRetry: false } },
+      {
+        sequence: 1,
+        event: { type: "user_message_accepted", requestId: "1", message: "检查项目" },
+      },
+      { sequence: 2, event: { type: "run_started" } },
+      { sequence: 3, event: { type: "run_finished", willRetry: false } },
     ]);
     expect(running.connection.phase).toBe("running");
-    expect(running.runStatus).toBe("running");
-    expect(running.messages.at(-1)).toMatchObject({ kind: "status", status: "running" });
+    expect(running.run.phase).toBe("running");
+    expect(running.messages).toHaveLength(1);
+    expect(running.messages[0]?.content).toBe("检查项目");
 
     const settled = piSessionReducer(running, {
-      sequence: 3,
+      sequence: 4,
       event: { type: "run_settled" },
     });
     expect(settled.connection.phase).toBe("ready");
-    expect(settled.runStatus).toBe("completed");
-    expect(settled.messages.at(-1)).toMatchObject({ kind: "status", status: "completed" });
+    expect(settled.run.phase).toBe("idle");
+    expect(settled.messages).toEqual(running.messages);
   });
 
   it("工具调用后的新助手轮次保留前一轮内容", () => {
@@ -149,32 +154,34 @@ describe("piSessionReducer", () => {
     });
   });
 
-  it("将压缩摘要加入时间线并保留 token 数", () => {
-    const state = reduce([
+  it("将上下文压缩保存在独立运行状态中，不写入对话消息", () => {
+    const compacting = reduce([
       {
         sequence: 1,
         event: { type: "compaction_changed", active: true, reason: "threshold" },
       },
-      {
-        sequence: 2,
-        event: {
-          type: "compaction_changed",
-          active: false,
-          reason: "threshold",
-          aborted: false,
-          summary: "摘要内容",
-          tokensBefore: 32000,
-        },
-      },
     ]);
+    expect(compacting.run.phase).toBe("compacting");
+    expect(compacting.messages).toEqual([]);
 
-    expect(state.messages[0]).toMatchObject({
-      role: "system",
-      kind: "compaction",
-      content: "摘要内容",
-      tokensBefore: 32000,
-      pending: false,
+    const settled = piSessionReducer(compacting, {
+      sequence: 2,
+      event: {
+        type: "compaction_changed",
+        active: false,
+        reason: "threshold",
+        aborted: false,
+        summary: "摘要内容",
+        tokensBefore: 32000,
+      },
     });
+    expect(settled.run.phase).toBe("idle");
+    expect(settled.run.compaction).toMatchObject({
+      active: false,
+      summary: "摘要内容",
+      tokensBefore: 32000,
+    });
+    expect(settled.messages).toEqual([]);
   });
 
   it("将扩展交互呈现为等待输入，并在响应后恢复执行", () => {
@@ -195,22 +202,20 @@ describe("piSessionReducer", () => {
       },
     ]);
 
-    expect(waiting.runStatus).toBe("waiting_input");
+    expect(waiting.run.phase).toBe("waiting_input");
     expect(waiting.extensionRequest?.requestId).toBe("ui-1");
-    expect(waiting.messages.at(-1)).toMatchObject({
-      kind: "status",
-      status: "waiting_input",
-    });
+    expect(waiting.messages).toEqual([]);
 
     const resumed = piSessionReducer(waiting, {
       sequence: 3,
       event: { type: "extension_ui_resolved", requestId: "ui-1", cancelled: false },
     });
-    expect(resumed.runStatus).toBe("running");
+    expect(resumed.run.phase).toBe("running");
     expect(resumed.extensionRequest).toBeNull();
+    expect(resumed.messages).toEqual([]);
   });
 
-  it("区分用户停止、重试和失败状态", () => {
+  it("停止、重试和连接失败都不生成对话消息", () => {
     const stopped = reduce([
       { sequence: 1, event: { type: "run_started" } },
       { sequence: 2, event: { type: "assistant_message_started" } },
@@ -225,7 +230,9 @@ describe("piSessionReducer", () => {
       },
       { sequence: 4, event: { type: "run_settled" } },
     ]);
-    expect(stopped.runStatus).toBe("stopped");
+    expect(stopped.run.phase).toBe("idle");
+    expect(stopped.messages).toHaveLength(1);
+    expect(stopped.messages[0]?.stopReason).toBe("aborted");
 
     const retrying = reduce([
       { sequence: 1, event: { type: "run_started" } },
@@ -240,11 +247,14 @@ describe("piSessionReducer", () => {
         },
       },
     ]);
-    expect(retrying.messages.at(-1)?.content).toContain("第 2/3 次");
+    expect(retrying.run.phase).toBe("retrying");
+    expect(retrying.run.retry).toMatchObject({ active: true, attempt: 2, maxAttempts: 3 });
+    expect(retrying.messages).toEqual([]);
 
     const failed = reduce([{ sequence: 1, event: { type: "process_exited", code: 1 } }]);
-    expect(failed.runStatus).toBe("failed");
-    expect(failed.messages.at(-1)).toMatchObject({ kind: "status", status: "failed" });
+    expect(failed.connection.phase).toBe("failed");
+    expect(failed.run.phase).toBe("idle");
+    expect(failed.messages).toEqual([]);
   });
 
   it("切换到新的 Pi session 时清空旧对话，重复就绪事件不清空当前对话", () => {
@@ -279,7 +289,7 @@ describe("piSessionReducer", () => {
       },
     });
     expect(nextSession.messages).toEqual([]);
-    expect(nextSession.runStatus).toBe("idle");
+    expect(nextSession.run.phase).toBe("idle");
     expect(nextSession.connection.sessionId).toBe("session-2");
   });
 

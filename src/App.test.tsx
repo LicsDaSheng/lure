@@ -74,6 +74,7 @@ beforeEach(() => {
       return [
         { provider: "test", id: "fake-model" },
         { provider: "test", id: "other-model" },
+        { provider: "qwen-token-plan-cn", id: "deepseek-v4.1-flash" },
       ];
     }
     if (command === "get_commands") {
@@ -224,10 +225,22 @@ describe("主工作区对话态", () => {
     const card = screen.getByRole("group", { name: "任务输入卡" });
     expect(within(card).getByText("main")).toBeInTheDocument();
     expect(within(card).getByText("lure")).toBeInTheDocument();
-    expect(within(card).getByRole("combobox", { name: "模型" })).toBeInTheDocument();
+    const modelSelect = within(card).getByRole("combobox", { name: "模型" });
+    expect(modelSelect).toBeInTheDocument();
+    const testProvider = within(modelSelect).getByRole("group", { name: "test" });
+    const qwenProvider = within(modelSelect).getByRole("group", {
+      name: "qwen-token-plan-cn",
+    });
+    expect(within(testProvider).getByRole("option", { name: "fake-model [test]" })).toBeInTheDocument();
+    expect(within(testProvider).getByRole("option", { name: "other-model [test]" })).toBeInTheDocument();
+    expect(
+      within(qwenProvider).getByRole("option", {
+        name: "deepseek-v4.1-flash [qwen-token-plan-cn]",
+      }),
+    ).toBeInTheDocument();
     expect(within(card).getByRole("combobox", { name: "思考强度" })).toBeInTheDocument();
 
-    fireEvent.change(within(card).getByRole("combobox", { name: "模型" }), {
+    fireEvent.change(modelSelect, {
       target: { value: "test::other-model" },
     });
     await waitFor(() =>
@@ -238,7 +251,7 @@ describe("主工作区对话态", () => {
     );
   });
 
-  it("发送后出现顶栏、用户消息与执行状态", async () => {
+  it("发送后出现顶栏和用户消息，运行生命周期不进入对话流", async () => {
     await renderConnected();
 
     fireEvent.change(textbox(), { target: { value: "检查项目" } });
@@ -265,10 +278,9 @@ describe("主工作区对话态", () => {
     expect(within(header).queryByText("fake-model")).not.toBeInTheDocument();
 
     emit({ sequence: 2, event: { type: "run_started" } });
-    const status = screen.getByRole("status", { name: "任务状态" });
-    expect(within(status).getByText("执行中")).toBeInTheDocument();
-    expect(within(status).getByRole("button", { name: "停止任务" })).toBeInTheDocument();
-    expect(status).toHaveAttribute("aria-live", "polite");
+    expect(screen.queryByRole("status", { name: "任务状态" })).not.toBeInTheDocument();
+    expect(screen.queryByText("Pi 已开始执行任务")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "停止生成" })).toBeInTheDocument();
   });
 
   it("运行中保留可编辑草稿并把主操作切换为停止", async () => {
@@ -289,7 +301,7 @@ describe("主工作区对话态", () => {
     expect(textbox()).toHaveValue("下一条草稿");
   });
 
-  it("完成后展示结果摘要与结果卡片，并区分已停止与失败", async () => {
+  it("settled 后保留真实回复和结果卡片，不生成完成状态消息", async () => {
     await renderConnected();
     fireEvent.change(textbox(), { target: { value: "修改文件" } });
     fireEvent.submit(textbox().closest("form")!);
@@ -326,13 +338,12 @@ describe("主工作区对话态", () => {
 
     expect(await screen.findByText("已经改好")).toBeInTheDocument();
     expect(screen.getByRole("article", { name: "结果：src/App.tsx" })).toBeInTheDocument();
-    expect(
-      screen.getByRole("status", { name: "任务状态" }).textContent,
-    ).toContain("已完成");
-    expect(screen.queryByText("已失败")).not.toBeInTheDocument();
+    expect(screen.queryByRole("status", { name: "任务状态" })).not.toBeInTheDocument();
+    expect(screen.queryByText("任务执行完成")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "发送消息" })).toBeInTheDocument();
   });
 
-  it("用户停止的任务标记为已停止而不是失败", async () => {
+  it("用户停止只在对应助手轮次说明，不生成生命周期消息", async () => {
     await renderConnected();
     fireEvent.change(textbox(), { target: { value: "长任务" } });
     fireEvent.submit(textbox().closest("form")!);
@@ -351,8 +362,9 @@ describe("主工作区对话态", () => {
     });
     emit({ sequence: 4, event: { type: "run_settled" } });
 
-    expect(screen.getByRole("status", { name: "任务状态" }).textContent).toContain("已停止");
-    expect(screen.queryByText("已失败")).not.toBeInTheDocument();
+    expect(screen.getByText("任务已由你停止，已完成的内容仍然保留。")).toBeInTheDocument();
+    expect(screen.queryByRole("status", { name: "任务状态" })).not.toBeInTheDocument();
+    expect(screen.queryByText("任务执行完成")).not.toBeInTheDocument();
   });
 });
 
@@ -504,7 +516,7 @@ describe("风险与错误处理", () => {
       },
     });
 
-    expect(screen.getByRole("status", { name: "任务状态" }).textContent).toContain("等待输入");
+    expect(screen.queryByRole("status", { name: "任务状态" })).not.toBeInTheDocument();
     const dialog = await screen.findByRole("dialog");
     expect(within(dialog).getByText("选择范围")).toBeInTheDocument();
     expect(within(dialog).getByRole("button", { name: "取消" })).toBeInTheDocument();
@@ -616,9 +628,9 @@ describe("事件订阅生命周期", () => {
       listener?.({ payload: { sequence: 7, event: { type: "run_started" } } });
     });
 
-    // 单例状态行 1 处 + 执行流内的可追溯记录 1 条；重复投递会产生 4 处。
-    expect(screen.getAllByRole("status", { name: "任务状态" })).toHaveLength(1);
-    expect(screen.getAllByText("Pi 已开始执行任务")).toHaveLength(2);
+    expect(screen.queryByRole("status", { name: "任务状态" })).not.toBeInTheDocument();
+    expect(screen.queryByText("Pi 已开始执行任务")).not.toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: "停止生成" })).toHaveLength(1);
     view.unmount();
   });
 

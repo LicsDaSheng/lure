@@ -5,7 +5,6 @@ import {
 } from "@/components/ai-elements/message";
 import { Reasoning, ReasoningContent, ReasoningTrigger } from "@/components/ai-elements/reasoning";
 import { Tool, ToolContent, ToolHeader, ToolInput, ToolOutput } from "@/components/ai-elements/tool";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import type { ConversationMessage, ToolRun } from "@/features/pi-connection/reducer";
 import { ScrollTextIcon } from "lucide-react";
@@ -13,7 +12,6 @@ import { ScrollTextIcon } from "lucide-react";
 import { ContentPreviewDialog } from "./content-preview-dialog";
 import { createResultDescriptor, formatToolSummary, getToolOutputLineCount } from "./presentation";
 import { ResultCard } from "./result-card";
-import { RunStatusRecord } from "./run-status-line";
 
 function getToolState(tool: ToolRun) {
   return tool.status === "running"
@@ -80,34 +78,6 @@ function StopReason({ message }: { message: ConversationMessage }) {
   return null;
 }
 
-function SystemMessage({ message }: { message: ConversationMessage }) {
-  if (message.kind === "compaction") {
-    return (
-      <details className="rounded-xl border border-border/60 bg-muted/25 px-4 py-2 text-sm text-muted-foreground">
-        <summary className="cs-smooth-interaction-fast cursor-pointer list-none outline-none">
-          <Badge className="mr-2 rounded-md" variant="outline">
-            上下文压缩
-          </Badge>
-          {message.pending
-            ? "正在压缩上下文…"
-            : message.errorMessage
-              ? `压缩未完成：${message.errorMessage}`
-              : `已压缩上下文${message.tokensBefore ? `（压缩前 ${message.tokensBefore} tokens）` : ""}，点击查看摘要`}
-        </summary>
-        {message.content && <MessageResponse className="mt-2">{message.content}</MessageResponse>}
-      </details>
-    );
-  }
-  return (
-    <div className="rounded-xl border border-border/60 bg-muted/25 px-4 py-2 text-sm text-muted-foreground">
-      <Badge className="mr-2 rounded-md" variant="outline">
-        分支摘要
-      </Badge>
-      {message.content}
-    </div>
-  );
-}
-
 export function ConversationStream({
   messages,
   isRunning,
@@ -120,22 +90,6 @@ export function ConversationStream({
   return (
     <>
       {messages.map((message) => {
-        if (message.kind === "status") {
-          return (
-            <RunStatusRecord
-              content={message.content}
-              key={message.id}
-              status={message.status ?? "idle"}
-            />
-          );
-        }
-        if (message.role === "system") {
-          return (
-            <Message from="system" key={message.id}>
-              <SystemMessage message={message} />
-            </Message>
-          );
-        }
         return (
           <Message from={message.role} key={message.id}>
             <MessageContent>
