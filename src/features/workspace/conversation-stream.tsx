@@ -1,15 +1,14 @@
-import {
-  Message,
-  MessageContent,
-  MessageResponse,
-} from "@/components/ai-elements/message";
+import { MessagePrimitive, ThreadPrimitive } from "@assistant-ui/react";
+import { useMemo } from "react";
+import { ScrollTextIcon } from "lucide-react";
+
 import { Reasoning, ReasoningContent, ReasoningTrigger } from "@/components/ai-elements/reasoning";
 import { Tool, ToolContent, ToolHeader, ToolInput, ToolOutput } from "@/components/ai-elements/tool";
 import { Button } from "@/components/ui/button";
 import type { ConversationMessage, ToolRun } from "@/features/pi-connection/reducer";
-import { ScrollTextIcon } from "lucide-react";
 
 import { ContentPreviewDialog } from "./content-preview-dialog";
+import { MarkdownResponse } from "./markdown-response";
 import { createResultDescriptor, formatToolSummary, getToolOutputLineCount } from "./presentation";
 import { ResultCard } from "./result-card";
 
@@ -78,51 +77,74 @@ function StopReason({ message }: { message: ConversationMessage }) {
   return null;
 }
 
-export function ConversationStream({
-  messages,
-  isRunning,
-  activeAssistantId,
+function PiMessage({
+  role,
+  source,
 }: {
-  messages: ConversationMessage[];
-  isRunning: boolean;
-  activeAssistantId: string | null;
+  role: "assistant" | "user" | "system";
+  source: ConversationMessage | undefined;
 }) {
   return (
-    <>
-      {messages.map((message) => {
-        return (
-          <Message from={message.role} key={message.id}>
-            <MessageContent>
-              {message.blocks.map((block) =>
-                block.type === "thinking" ? (
-                  <Reasoning
-                    defaultOpen={false}
-                    isStreaming={isRunning && activeAssistantId === message.id}
-                    key={`thinking-${block.contentIndex}`}
-                  >
-                    <ReasoningTrigger
-                      getThinkingMessage={(streaming, duration) =>
-                        streaming
-                          ? "思考中…"
-                          : duration === undefined
-                            ? "思考过程"
-                            : `已思考 ${duration} 秒`
-                      }
-                    />
-                    <ReasoningContent>{block.text}</ReasoningContent>
-                  </Reasoning>
-                ) : (
-                  <MessageResponse key={`text-${block.contentIndex}`}>{block.text}</MessageResponse>
-                ),
-              )}
-              {message.tools.map((tool) => (
-                <ToolItem key={tool.id} tool={tool} />
-              ))}
-              <StopReason message={message} />
-            </MessageContent>
-          </Message>
-        );
-      })}
-    </>
+    <MessagePrimitive.Root
+      aria-label={role === "user" ? "用户消息" : "Pi 回复"}
+      className={`group flex w-full flex-col gap-2 ${role === "user" ? "is-user justify-end" : "is-assistant"}`}
+      data-role={role}
+    >
+      <div
+        className={
+          role === "user"
+            ? "flex min-w-0 w-full flex-col gap-2 overflow-hidden bg-[var(--pi-user-bg)] px-4 py-2 text-sm text-foreground"
+            : "flex min-w-0 w-full flex-col gap-2 overflow-hidden px-4 py-1 text-sm text-foreground"
+        }
+      >
+        <MessagePrimitive.Parts>
+          {({ part }) => {
+            if (part.type === "reasoning") {
+              return (
+                <Reasoning defaultOpen={false} isStreaming={part.status?.type === "running"}>
+                  <ReasoningTrigger
+                    getThinkingMessage={(streaming, duration) =>
+                      streaming
+                        ? "思考中…"
+                        : duration === undefined
+                          ? "思考过程"
+                          : `已思考 ${duration} 秒`
+                    }
+                  />
+                  <ReasoningContent>{part.text}</ReasoningContent>
+                </Reasoning>
+              );
+            }
+            if (part.type === "text") {
+              return <MarkdownResponse>{part.text}</MarkdownResponse>;
+            }
+            if (part.type === "tool-call") {
+              const tool = source?.tools.find((item) => item.id === part.toolCallId);
+              return tool ? <ToolItem tool={tool} /> : null;
+            }
+            return null;
+          }}
+        </MessagePrimitive.Parts>
+        {source && <StopReason message={source} />}
+      </div>
+    </MessagePrimitive.Root>
+  );
+}
+
+export function ConversationStream({ messages }: { messages: ConversationMessage[] }) {
+  const sourceMessages = useMemo(
+    () => new Map(messages.map((message) => [message.id, message])),
+    [messages],
+  );
+
+  return (
+    <ThreadPrimitive.Messages>
+      {({ message }) => (
+        <PiMessage
+          role={message.role}
+          source={sourceMessages.get(message.id)}
+        />
+      )}
+    </ThreadPrimitive.Messages>
   );
 }

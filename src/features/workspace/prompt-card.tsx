@@ -1,8 +1,9 @@
+import { ComposerPrimitive, useAui } from "@assistant-ui/react";
 import { Button } from "@/components/ui/button";
 import type { ConnectionPhase, ModelSnapshot } from "@/features/pi-connection/reducer";
 import { CornerDownLeftIcon, FolderIcon, GitBranchIcon, PlusIcon, SquareIcon, XIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
-import type { Ref } from "react";
+import { useLayoutEffect, type Ref } from "react";
 
 export type PromptAttachment = {
   name: string;
@@ -34,7 +35,6 @@ export function PromptCard({
   isRunning,
   eventsReady,
   onDraftChange,
-  onSubmit,
   onStop,
   onChooseDirectory,
   onConnect,
@@ -57,7 +57,6 @@ export function PromptCard({
   isRunning: boolean;
   eventsReady: boolean;
   onDraftChange: (value: string) => void;
-  onSubmit: () => void;
   onStop: () => void;
   onChooseDirectory: () => void;
   onConnect: () => void;
@@ -67,6 +66,13 @@ export function PromptCard({
   onSelectThinkingLevel: (level: string) => void;
   textareaRef: Ref<HTMLTextAreaElement>;
 }) {
+  const aui = useAui();
+  useLayoutEffect(() => {
+    if (aui.composer.getState().text !== draft) {
+      aui.composer.setText(draft);
+    }
+  }, [aui, draft]);
+
   const modelOptions = models.length
     ? models
     : model
@@ -150,22 +156,13 @@ export function PromptCard({
           </ul>
         )}
 
-        <form
-          onSubmit={(event) => {
-            event.preventDefault();
-            onSubmit();
-          }}
-        >
-          <textarea
+        <ComposerPrimitive.Root>
+          <ComposerPrimitive.Input
+            addAttachmentOnPaste={false}
             aria-label="任务指令"
             ref={textareaRef}
             className="max-h-48 min-h-11 w-full resize-none bg-transparent px-3.5 py-3 text-sm leading-6 outline-none placeholder:text-muted-foreground"
             onChange={(event) => onDraftChange(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key !== "Enter" || event.shiftKey || event.nativeEvent.isComposing) return;
-              event.preventDefault();
-              if (canSubmit) onSubmit();
-            }}
             placeholder={
               isRunning
                 ? "Pi 正在执行，可继续编辑下一条消息"
@@ -173,7 +170,9 @@ export function PromptCard({
                   ? "描述你想完成的事情…"
                   : "选择工作目录并连接 Pi 后即可发送"
             }
-            value={draft}
+            submitMode="enter"
+            unstable_focusOnRunStart={false}
+            unstable_focusOnScrollToBottom={false}
           />
 
           <div className="flex flex-wrap items-center gap-2 px-3 pb-2.5">
@@ -238,17 +237,19 @@ export function PromptCard({
                 <SquareIcon />
               </Button>
             ) : (
-              <Button
-                aria-label="发送消息"
-                disabled={!canSubmit}
-                size="icon-sm"
-                type="submit"
-              >
-                <CornerDownLeftIcon />
-              </Button>
+              <ComposerPrimitive.Send asChild>
+                <Button
+                  aria-label="发送消息"
+                  disabled={!canSubmit}
+                  size="icon-sm"
+                  type="button"
+                >
+                  <CornerDownLeftIcon />
+                </Button>
+              </ComposerPrimitive.Send>
             )}
           </div>
-        </form>
+        </ComposerPrimitive.Root>
       </div>
     </div>
   );
