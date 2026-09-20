@@ -1,8 +1,10 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
+import type { ToolCallMessagePartProps } from "@assistant-ui/react";
+
 import type { ToolView } from "./presentation";
-import { ToolCard, toolCallToView } from "./tool-part";
+import { ToolCard, ToolPartCard, readToolView } from "./tool-part";
 
 function view(overrides: Partial<ToolView> = {}): ToolView {
   return {
@@ -17,46 +19,44 @@ function view(overrides: Partial<ToolView> = {}): ToolView {
 }
 
 describe("工具执行展示", () => {
-  it("直接从工具调用部件派生展示数据，不需要回查消息来源", () => {
-    expect(
-      toolCallToView({
-        toolCallId: "tool-7",
-        toolName: "edit",
-        argsText: '{"path":"src/App.tsx"}',
-        result: "updated",
-        isError: false,
-        artifact: { status: "completed", truncatedLines: 12 },
-      }),
-    ).toEqual({
-      id: "tool-7",
-      name: "edit",
-      status: "completed",
-      input: '{"path":"src/App.tsx"}',
-      output: "updated",
-      truncatedLines: 12,
-    });
+  it("直接消费工具调用部件携带的展示数据，不回查消息来源", () => {
+    const output = Array.from({ length: 30 }, (_, index) => `第 ${index + 1} 行`).join("\n");
+    render(
+      <ToolPartCard
+        {...({ artifact: view({ output }) } as ToolCallMessagePartProps)}
+      />,
+    );
+
+    expect(screen.getByText("已完成")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /已读取 README.md/ }));
+    expect(screen.getByText(/第 1 行/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /查看完整 30 行输出/ })).toBeInTheDocument();
   });
 
-  it("缺少部件状态时按结果推断，错误结果优先标记失败", () => {
-    expect(
-      toolCallToView({
-        toolCallId: "tool-8",
-        toolName: "bash",
-        argsText: '{"command":"ls"}',
-        result: undefined,
-        isError: false,
-      }).status,
-    ).toBe("running");
+  it("缺少展示数据时不渲染工具卡", () => {
+    const { container } = render(
+      <ToolPartCard {...({} as ToolCallMessagePartProps)} />,
+    );
 
+    expect(container).toBeEmptyDOMElement();
+  });
+
+  it("展示数据形状不符时忽略该工具，不中断整条回复", () => {
+    expect(readToolView(undefined)).toBeNull();
+    expect(readToolView("tool-1")).toBeNull();
+    expect(readToolView({ status: "completed" })).toBeNull();
+    expect(readToolView({ id: "tool-1", name: "read", status: "unknown" })).toBeNull();
     expect(
-      toolCallToView({
-        toolCallId: "tool-9",
-        toolName: "bash",
-        argsText: '{"command":"false"}',
-        result: "退出码 1",
-        isError: true,
-      }).status,
-    ).toBe("error");
+      readToolView({ id: "tool-1", name: "read", status: "running" }),
+    ).toEqual({
+      id: "tool-1",
+      name: "read",
+      status: "running",
+      input: "",
+      output: "",
+      truncatedLines: null,
+    });
   });
 
   it("折叠展示工具摘要与状态，展开后显示参数与输出", () => {

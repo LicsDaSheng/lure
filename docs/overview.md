@@ -10,7 +10,7 @@ Lure 与 Pi 的唯一集成边界是：在用户选择的工作目录中启动 `
 
 - 桌面框架：Tauri 2
 - 前端：React 19 + TypeScript + Vite
-- UI：assistant-ui + AI Elements + shadcn/ui + Tailwind CSS 4
+- UI：assistant-ui + shadcn/ui + Tailwind CSS 4
 - Rust：Cargo workspace（edition 2024）
 - 包管理器：pnpm
 - 初始平台：macOS，工程结构预留其他桌面平台适配空间
@@ -98,7 +98,7 @@ React UI ⇄ Tauri command/event ⇄ lure-desktop
 2. Rust 优先使用 `LURE_PI_PATH`，否则从当前 `PATH` 启动 `pi --mode rpc`。
 3. `lure-rpc` 只按 LF 切分 stdout JSONL，以请求 ID 关联 `get_state`、`prompt` 和 `abort` 响应。
 4. Tauri 通过统一的 `lure://pi-event` 推送带序号的规范化事件。
-5. 前端 reducer 保留 Pi 消息事实，并把助手内容存为单一有序 `parts` 序列（`text`、`thinking`、`tool`）；assistant-ui `ExternalStoreRuntime` 按该顺序映射为线程内容，工具卡因此出现在它真实发生的位置。
+5. 前端 reducer 保留 Pi 消息事实，并把助手内容存为单一有序 `parts` 序列（`text`、`thinking`、`tool`）；`convertPiMessage()` 按该顺序映射为 assistant-ui 线程内容，工具卡因此出现在它真实发生的位置。
 6. 断开连接或应用退出时，中止活动任务并回收 Pi 子进程。
 
 当前桌面边界只暴露 `connect_pi`、`disconnect_pi`、`send_prompt`、`abort_pi` 四个命令。MVP 不支持图片、消息排队、模型切换和历史会话管理；交互式 extension UI 请求会被安全取消，避免 Pi 持续等待。
@@ -122,7 +122,7 @@ src/
 
 Feature 内聚自己的组件、状态与测试；只有形成稳定复用需求后才上移到 `components/` 或 `lib/`。通用界面原语优先通过 shadcn/ui CLI 写入 `components/ui/`，样式使用 Tailwind CSS 和 `src/index.css` 中的语义设计令牌。
 
-对话线程统一采用 assistant-ui。`PiAssistantRuntimeProvider` 通过 `ExternalStoreRuntime` 将 Pi reducer 中的消息转换为 assistant-ui 标准内容部件；`ThreadPrimitive`、`MessagePrimitive` 和 `ComposerPrimitive` 分别负责滚动线程、消息上下文与输入行为。Pi reducer 仍是唯一消息事实来源，assistant-ui 不接管 Pi 的会话、模型、工具或运行生命周期。
+对话线程统一采用 assistant-ui。`PiAssistantRuntimeProvider` 用 `ExternalThread` 与 `convertPiMessage()` 把 Pi reducer 中的消息转换为 assistant-ui 标准内容部件，并通过 `AuiProvider` 提供给 `ThreadPrimitive`、`MessagePrimitive` 与 `ComposerPrimitive`；三者分别负责滚动线程、消息上下文与输入行为。输入文本与附件由 composer 自身持有，App 只按工作目录持久化草稿。Pi reducer 仍是唯一消息事实来源，assistant-ui 不接管 Pi 的会话、模型、工具或运行生命周期。
 
 助手消息的内容模型是**单一有序 parts 序列**：
 
@@ -143,7 +143,7 @@ type MessagePart =
 
 - 文本部件交给 `MarkdownResponse`，Markdown 通过 Streamdown 渲染。
 - 思考部件由 `reasoning-part.tsx` 呈现，工具部件由 `tool-part.tsx` 呈现。
-- 工具执行状态随工具调用部件的 `artifact` 一起传递（`toolArtifact()`），渲染只依赖部件自身携带的信息，不回查 reducer 中的消息来源。
+- 工具执行状态随工具调用部件的 `artifact` 一起传递（`toolPartToView()`），渲染只依赖部件自身携带的信息，不回查 reducer 中的消息来源。
 - 目录、模型、思考强度、附件和停止操作仍由工作区输入卡按照 Pi RPC 能力提供。
 
 ```bash

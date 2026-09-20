@@ -1,10 +1,15 @@
-import { ThreadPrimitive, type AppendMessage } from "@assistant-ui/react";
+import {
+  ThreadPrimitive,
+  useAui,
+  type AppendMessage,
+} from "@assistant-ui/react";
 import { Button } from "@/components/ui/button";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { selectImageFiles, readImageAttachments } from "@/features/pi-connection/api";
 import { usePiSession } from "@/features/pi-connection/use-pi-session";
 import {
   PiAssistantRuntimeProvider,
+  readAppendMessageImages,
   readAppendMessageText,
 } from "@/features/workspace/assistant-runtime";
 import { ConversationStream } from "@/features/workspace/conversation-stream";
@@ -13,16 +18,48 @@ import { ErrorPanel } from "@/features/workspace/error-panel";
 import { ExtensionUiDialog } from "@/features/workspace/extension-ui-dialog";
 import { readDraft, readTitle, writeDraft, writeTitle } from "@/features/workspace/local-preferences";
 import { serializeConversation } from "@/features/workspace/presentation";
-import { PromptCard, type PromptAttachment } from "@/features/workspace/prompt-card";
+import { PromptCard } from "@/features/workspace/prompt-card";
 import { RiskConfirmDialog } from "@/features/workspace/risk-confirm-dialog";
 import { TaskHeader } from "@/features/workspace/task-header";
 import { TaskNavigation } from "@/features/workspace/task-navigation";
 import { ArrowDownIcon, MenuIcon } from "lucide-react";
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 
 function directoryNameOf(directory: string | null) {
   if (!directory) return null;
   return directory.split(/[\\/]/).filter(Boolean).at(-1) ?? directory;
+}
+
+function ComposerDraftInitializer({ initialText }: { initialText: string }) {
+  const aui = useAui();
+  const restored = useRef(false);
+
+  useLayoutEffect(() => {
+    if (restored.current) return;
+    restored.current = true;
+    aui.composer.setText(initialText);
+  }, [aui, initialText]);
+
+  return null;
+}
+
+function ComposerEmptyState({
+  projectName,
+  onDraftChange,
+}: {
+  projectName: string | null;
+  onDraftChange: (value: string) => void;
+}) {
+  const aui = useAui();
+  return (
+    <EmptyState
+      onPickExample={(value) => {
+        aui.composer.setText(value);
+        onDraftChange(value);
+      }}
+      projectName={projectName}
+    />
+  );
 }
 
 function App() {
@@ -46,9 +83,9 @@ function App() {
   const { connection, messages, extensionRequest } = state;
   const [navigationOpen, setNavigationOpen] = useState(false);
   const [taskQuery, setTaskQuery] = useState("");
-  const [attachments, setAttachments] = useState<PromptAttachment[]>([]);
+  const [composerGeneration, setComposerGeneration] = useState(0);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [pendingRisk, setPendingRisk] = useState<"images" | "export" | null>(null);
+  const [pendingRisk, setPendingRisk] = useState<"export" | null>(null);
   const promptInputRef = useRef<HTMLTextAreaElement>(null);
 
   const directory = connection.workingDirectory ?? selectedDirectory;
@@ -56,19 +93,8 @@ function App() {
   const branch = workspaceContext?.branch ?? null;
 
   // 草稿与标题按工作目录保存在本机，切换任务或意外关闭后可以恢复。
-  const [draftState, setDraftState] = useState(() => ({
-    scope: selectedDirectory,
-    value: readDraft(selectedDirectory),
-  }));
-  if (draftState.scope !== selectedDirectory) {
-    setDraftState({ scope: selectedDirectory, value: readDraft(selectedDirectory) });
-  }
-  const draft = draftState.value;
-  const setDraft = useCallback(
-    (value: string) => {
-      writeDraft(selectedDirectory, value);
-      setDraftState({ scope: selectedDirectory, value });
-    },
+  const persistDraft = useCallback(
+    (value: string) => writeDraft(selectedDirectory, value),
     [selectedDirectory],
   );
 
@@ -93,7 +119,6 @@ function App() {
   const canConnectSession =
     connection.phase === "disconnected" ||
     (connection.phase === "failed" && !connection.sessionId);
-  const canSubmit = canSend && (draft.trim().length > 0 || attachments.length > 0);
 
   const handleRetry = useCallback(async () => {
     if (!canConnectSession) await disconnect();
@@ -101,57 +126,44 @@ function App() {
     else await newConversation();
   }, [canConnectSession, connect, disconnect, newConversation, selectedDirectory]);
 
-  const submitPrompt = useCallback(
-    async (content: string) => {
-      const text = content.trim();
-      if (!text || !canSend) return;
+  const handleAssistantNew = useCallback(
+    async (message: AppendMessage) => {
+      const text = readAppendMessageText(message);
+      const images = readAppendMessageImages(message);
+      if ((!text && images.length === 0) || !canSend) return;
       setIsSubmitting(true);
       try {
-        await prompt(
-          text,
-          attachments.map(({ data, mimeType }) => ({ data, mimeType })),
-        );
-        setDraft("");
-        setAttachments([]);
+        await prompt(text, images);
+        persistDraft("");
       } finally {
         setIsSubmitting(false);
       }
     },
-    [attachments, canSend, prompt, setDraft],
-  );
-
-  const handleAssistantNew = useCallback(
-    async (message: AppendMessage) => {
-      await submitPrompt(readAppendMessageText(message));
-    },
-    [submitPrompt],
+    [canSend, persistDraft, prompt],
   );
 
   const pickImages = useCallback(async () => {
     try {
       const paths = await selectImageFiles();
-      if (paths.length === 0) return;
-      const images = await readImageAttachments(paths);
-      setAttachments((previous) => [...previous, ...images]);
+      if (paths.length === 0) return [];
+      return await readImageAttachments(paths);
     } catch {
-      // 选择或读取失败时保持当前草稿不变。
+      return [];
     }
   }, []);
-
-  const confirmAddImages = useCallback(async () => {
-    setPendingRisk(null);
-    await pickImages();
-  }, [pickImages]);
 
   const handleNewTask = useCallback(async () => {
     const created = await newConversation();
     if (!created) return;
-    setDraft("");
+    persistDraft("");
+    setComposerGeneration((value) => value + 1);
     setTaskTitle(directoryName ?? "新任务");
-    setAttachments([]);
     setNavigationOpen(false);
-    promptInputRef.current?.focus();
-  }, [directoryName, newConversation, setDraft, setTaskTitle]);
+  }, [directoryName, newConversation, persistDraft, setTaskTitle]);
+
+  useEffect(() => {
+    if (composerGeneration > 0) promptInputRef.current?.focus();
+  }, [composerGeneration]);
 
   const confirmExport = useCallback(() => {
     setPendingRisk(null);
@@ -171,12 +183,14 @@ function App() {
     <TooltipProvider>
       <PiAssistantRuntimeProvider
         activeAssistantId={state.activeAssistantId}
+        canSend={canSend}
         isRunning={isRunning}
-        isSendDisabled={!canSend}
+        key={`${selectedDirectory ?? "pending"}:${composerGeneration}`}
         messages={messages}
         onCancel={abort}
         onNew={handleAssistantNew}
       >
+        <ComposerDraftInitializer initialText={readDraft(selectedDirectory)} />
         <div className="relative flex h-dvh min-h-0 overflow-hidden bg-background text-foreground">
         {navigationOpen && (
           <button
@@ -242,11 +256,14 @@ function App() {
             role="log"
           >
             <ThreadPrimitive.Viewport className="min-h-0 flex-1 overflow-y-auto">
-              <div className="flex min-h-full flex-col gap-4 px-4 py-6 md:px-6">
+              <div className="mx-auto flex min-h-full w-full max-w-[920px] flex-col gap-4 px-4 py-6 md:px-6">
                 {hasConversation ? (
                   <ConversationStream />
                 ) : (
-                  <EmptyState onPickExample={setDraft} projectName={directoryName} />
+                  <ComposerEmptyState
+                    onDraftChange={persistDraft}
+                    projectName={directoryName}
+                  />
                 )}
               </div>
               <ThreadPrimitive.ScrollToBottom asChild>
@@ -260,52 +277,33 @@ function App() {
                   <ArrowDownIcon className="size-4" />
                 </Button>
               </ThreadPrimitive.ScrollToBottom>
+
+              <PromptCard
+                branch={branch}
+                canConnectSession={canConnectSession}
+                directoryName={directoryName}
+                eventsReady={eventsReady}
+                isRunning={isRunning}
+                model={connection.model}
+                models={availableModels}
+                onAddImages={pickImages}
+                onChooseDirectory={() => void chooseDirectory()}
+                onConnect={() => void connect()}
+                onDraftChange={persistDraft}
+                onSelectModel={(provider, modelId) => void setModel(provider, modelId)}
+                onSelectThinkingLevel={(level) => void setThinkingLevel(level)}
+                onStop={() => void abort()}
+                phase={connection.phase}
+                textareaRef={promptInputRef}
+                thinkingLevel={connection.thinkingLevel}
+              />
             </ThreadPrimitive.Viewport>
           </ThreadPrimitive.Root>
-
-          <PromptCard
-            attachments={attachments}
-            branch={branch}
-            canConnectSession={canConnectSession}
-            canSubmit={canSubmit}
-            directoryName={directoryName}
-            draft={draft}
-            eventsReady={eventsReady}
-            isRunning={isRunning}
-            model={connection.model}
-            models={availableModels}
-            onAddImages={() => setPendingRisk("images")}
-            onChooseDirectory={() => void chooseDirectory()}
-            onConnect={() => void connect()}
-            onDraftChange={setDraft}
-            onRemoveAttachment={(name) =>
-              setAttachments((previous) => previous.filter((item) => item.name !== name))
-            }
-            onSelectModel={(provider, modelId) => void setModel(provider, modelId)}
-            onSelectThinkingLevel={(level) => void setThinkingLevel(level)}
-            onStop={() => void abort()}
-            phase={connection.phase}
-            textareaRef={promptInputRef}
-            thinkingLevel={connection.thinkingLevel}
-          />
 
           {isSubmitting && <span className="sr-only">正在提交指令</span>}
         </main>
 
         <ExtensionUiDialog onRespond={respondToExtension} request={extensionRequest} />
-
-        <RiskConfirmDialog
-          confirmLabel="继续选择图片"
-          details={{
-            action: "把所选图片作为附件随指令发送给 Pi。",
-            recoverable: "本地文件不会被修改；图片内容会随指令发送给模型服务，发出后无法撤回。",
-            target: "你选择的本地图片文件。",
-          }}
-          onCancel={() => setPendingRisk(null)}
-          onConfirm={() => void confirmAddImages()}
-          open={pendingRisk === "images"}
-          title="发送图片前确认"
-        />
 
         <RiskConfirmDialog
           confirmLabel="导出并保存"

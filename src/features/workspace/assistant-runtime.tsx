@@ -1,46 +1,58 @@
 import {
-  AssistantRuntimeProvider,
+  AuiProvider,
+  ExternalThread,
+  useAui,
   type AppendMessage,
-  type ThreadMessageLike,
-  useExternalMessageConverter,
-  useExternalStoreRuntime,
+  type ExternalThreadMessage,
+  type ThreadAssistantMessagePart,
+  type ThreadUserMessagePart,
+  type ToolCallMessagePart,
 } from "@assistant-ui/react";
-import { useCallback, type ReactNode } from "react";
+import { useMemo, type ReactNode } from "react";
 
-import type { ConversationMessage, ToolPart } from "@/features/pi-connection/reducer";
+import type { ImageAttachment } from "@/features/pi-connection/api";
+import type {
+  ConversationMessage,
+  MessagePart,
+} from "@/features/pi-connection/reducer";
+import { toolPartToView } from "./presentation";
 
-import { toolArtifact } from "./presentation";
-
-type AssistantContentPart = Exclude<ThreadMessageLike["content"], string>[number];
-type AssistantToolCallPart = Extract<AssistantContentPart, { type: "tool-call" }>;
-
-function parseToolArguments(input: string): NonNullable<AssistantToolCallPart["args"]> {
+function parseToolArgs(input: string): ToolCallMessagePart["args"] {
   if (!input.trim()) return {};
   try {
     const parsed: unknown = JSON.parse(input);
     return parsed !== null && typeof parsed === "object" && !Array.isArray(parsed)
-      ? (parsed as NonNullable<AssistantToolCallPart["args"]>)
+      ? (parsed as ToolCallMessagePart["args"])
       : {};
   } catch {
     return {};
   }
 }
 
-function convertTool(tool: ToolPart) {
+function convertAssistantPart(
+  part: MessagePart,
+  isRunning: boolean,
+): ThreadAssistantMessagePart {
+  const status = { type: isRunning ? ("running" as const) : ("complete" as const) };
+  if (part.type === "text") return { type: "text", text: part.text, status };
+  if (part.type === "thinking") {
+    return { type: "reasoning", text: part.text, status };
+  }
+
   return {
-    type: "tool-call" as const,
-    toolCallId: tool.toolCallId,
-    toolName: tool.name,
-    args: parseToolArguments(tool.input),
-    argsText: tool.input,
-    ...(tool.status === "running" ? {} : { result: tool.output }),
-    isError: tool.status === "error",
-    artifact: toolArtifact(tool),
+    type: "tool-call",
+    toolCallId: part.toolCallId,
+    toolName: part.name,
+    args: parseToolArgs(part.input),
+    argsText: part.input,
+    result: part.output || undefined,
+    isError: part.status === "error",
+    artifact: toolPartToView(part),
   };
 }
 
-function getAssistantStatus(message: ConversationMessage, isActive: boolean) {
-  if (isActive) return { type: "running" as const };
+function messageStatus(message: ConversationMessage, isRunning: boolean) {
+  if (isRunning) return { type: "running" as const };
   if (message.errorMessage) {
     return {
       type: "incomplete" as const,
@@ -48,87 +60,114 @@ function getAssistantStatus(message: ConversationMessage, isActive: boolean) {
       error: message.errorMessage,
     };
   }
-  if (message.stopReason === "aborted") {
-    return { type: "incomplete" as const, reason: "cancelled" as const };
-  }
   if (message.stopReason === "length") {
     return { type: "incomplete" as const, reason: "length" as const };
+  }
+  if (message.stopReason === "aborted") {
+    return { type: "incomplete" as const, reason: "cancelled" as const };
   }
   return { type: "complete" as const, reason: "stop" as const };
 }
 
 export function convertPiMessage(
   message: ConversationMessage,
-  isActive: boolean,
-): ThreadMessageLike {
-  const partStatus = { type: isActive ? ("running" as const) : ("complete" as const) };
-  // parts 已经是有序的：直接按顺序映射，工具不再被推到消息末尾。
-  const content: AssistantContentPart[] = message.parts.map((part) => {
-    if (part.type === "tool") return convertTool(part);
+  isRunning: boolean,
+): ExternalThreadMessage {
+  // Pi 消息没有时间戳，界面也不展示时间；用固定值满足 assistant-ui 的消息契约。
+  const createdAt = new Date(0);
+  if (message.role === "user") {
     return {
-      type: part.type === "thinking" ? ("reasoning" as const) : ("text" as const),
-      text: part.text,
-      status: partStatus,
+      id: message.id,
+      role: "user",
+      content: message.parts.flatMap<ThreadUserMessagePart>((part) =>
+        part.type === "text" ? [{ type: "text", text: part.text }] : [],
+      ),
+      attachments: [],
+      createdAt,
+      metadata: { custom: {} },
     };
-  });
+  }
 
   return {
     id: message.id,
-    role: message.role,
-    content,
-    ...(message.role === "assistant"
-      ? { status: getAssistantStatus(message, isActive) }
-      : {}),
+    role: "assistant",
+    content: message.parts.map((part) => convertAssistantPart(part, isRunning)),
+    status: messageStatus(message, isRunning),
+    createdAt,
+    metadata: {
+      unstable_state: null,
+      unstable_annotations: [],
+      unstable_data: [],
+      steps: [],
+      custom: {},
+    },
   };
 }
 
-export function readAppendMessageText(
-  message: Pick<AppendMessage, "role" | "content">,
-): string {
+type ComposerMessageContent = Pick<AppendMessage, "content" | "attachments"> & {
+  role?: AppendMessage["role"];
+};
+
+export function readAppendMessageText(message: ComposerMessageContent): string {
   return message.content
-    .filter((part): part is Extract<(typeof message.content)[number], { type: "text" }> =>
-      part.type === "text",
-    )
-    .map((part) => part.text)
+    .flatMap((part) => (part.type === "text" ? [part.text] : []))
     .join("\n")
     .trim();
+}
+
+const DATA_IMAGE_PATTERN = /^data:([^;,]+);base64,(.+)$/s;
+
+export function readAppendMessageImages(
+  message: ComposerMessageContent,
+): ImageAttachment[] {
+  return (message.attachments ?? []).flatMap((attachment) =>
+    (attachment.content ?? []).flatMap((part) => {
+      if (part.type !== "image") return [];
+      const match = DATA_IMAGE_PATTERN.exec(part.image);
+      if (!match) return [];
+      return [{ mimeType: match[1], data: match[2] }];
+    }),
+  );
 }
 
 export function PiAssistantRuntimeProvider({
   children,
   messages,
-  isRunning,
-  isSendDisabled,
   activeAssistantId,
+  isRunning,
+  canSend,
   onNew,
   onCancel,
 }: {
   children: ReactNode;
   messages: ConversationMessage[];
-  isRunning: boolean;
-  isSendDisabled: boolean;
   activeAssistantId: string | null;
-  onNew: (message: AppendMessage) => Promise<void>;
-  onCancel: () => Promise<void>;
+  isRunning: boolean;
+  canSend: boolean;
+  onNew: (message: AppendMessage) => Promise<void> | void;
+  onCancel: () => void;
 }) {
-  const convertMessage = useCallback(
-    (message: ConversationMessage) =>
-      convertPiMessage(message, isRunning && message.id === activeAssistantId),
-    [activeAssistantId, isRunning],
+  const convertedMessages = useMemo(
+    () =>
+      messages.map((message) =>
+        convertPiMessage(
+          message,
+          isRunning && message.role === "assistant" && message.id === activeAssistantId,
+        ),
+      ),
+    [activeAssistantId, isRunning, messages],
   );
-  const convertedMessages = useExternalMessageConverter({
-    callback: convertMessage,
-    isRunning,
-    joinStrategy: "none",
-    messages,
-  });
-  const runtime = useExternalStoreRuntime({
-    messages: convertedMessages,
-    isRunning,
-    isSendDisabled,
-    onNew,
-    onCancel,
+  const aui = useAui({
+    thread: ExternalThread({
+      messages: convertedMessages,
+      isRunning,
+      isSendDisabled: !canSend,
+      onNew: (message) => {
+        void Promise.resolve(onNew(message)).catch(() => undefined);
+      },
+      onCancel,
+    }),
   });
 
-  return <AssistantRuntimeProvider runtime={runtime}>{children}</AssistantRuntimeProvider>;
+  return <AuiProvider value={aui}>{children}</AuiProvider>;
 }

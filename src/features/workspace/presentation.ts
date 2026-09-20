@@ -23,15 +23,16 @@ export type ToolView = {
   truncatedLines: number | null;
 };
 
-/** 随工具调用部件一起传递的界面状态。 */
-export type ToolCallArtifact = {
-  status: ToolStatus;
-  truncatedLines: number | null;
-};
-
-/** 把 Pi 的工具执行事实转换为随部件携带的界面状态。 */
-export function toolArtifact(tool: ToolPart): ToolCallArtifact {
-  return { status: tool.status, truncatedLines: tool.truncatedLines };
+/** 把 Pi 工具 part 一次转换为 assistant-ui 渲染器直接消费的展示数据。 */
+export function toolPartToView(tool: ToolPart): ToolView {
+  return {
+    id: tool.toolCallId,
+    name: tool.name,
+    status: tool.status,
+    input: tool.input,
+    output: tool.output,
+    truncatedLines: tool.truncatedLines,
+  };
 }
 
 const statusVerbs: Record<ToolStatus, { active: string; done: string; failed: string }> = {
