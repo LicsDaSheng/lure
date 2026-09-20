@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button";
 import type { ConnectionPhase, ModelSnapshot } from "@/features/pi-connection/reducer";
 import { CornerDownLeftIcon, FolderIcon, GitBranchIcon, PlusIcon, SquareIcon, XIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { useLayoutEffect, type Ref } from "react";
+import { useLayoutEffect, useRef, type Ref } from "react";
 
 export type PromptAttachment = {
   name: string;
@@ -67,6 +67,7 @@ export function PromptCard({
   textareaRef: Ref<HTMLTextAreaElement>;
 }) {
   const aui = useAui();
+  const composingRef = useRef(false);
   useLayoutEffect(() => {
     if (aui.composer.getState().text !== draft) {
       aui.composer.setText(draft);
@@ -162,7 +163,21 @@ export function PromptCard({
             aria-label="任务指令"
             ref={textareaRef}
             className="max-h-48 min-h-11 w-full resize-none bg-transparent px-3.5 py-3 text-sm leading-6 outline-none placeholder:text-muted-foreground"
-            onChange={(event) => onDraftChange(event.target.value)}
+            onChange={(event) => {
+              // 中文等 IME 组合输入期间，composer 自己维护受控值；此时若再把拼音中间态写回
+              // React 状态，受控输入会被滞后值覆盖，导致组合被打断并累积成错误文本。
+              const nativeIsComposing =
+                (event.nativeEvent as { isComposing?: boolean }).isComposing === true;
+              if (composingRef.current || nativeIsComposing) return;
+              onDraftChange(event.target.value);
+            }}
+            onCompositionEnd={(event) => {
+              composingRef.current = false;
+              onDraftChange(event.currentTarget.value);
+            }}
+            onCompositionStart={() => {
+              composingRef.current = true;
+            }}
             placeholder={
               isRunning
                 ? "Pi 正在执行，可继续编辑下一条消息"

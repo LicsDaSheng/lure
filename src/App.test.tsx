@@ -316,6 +316,27 @@ describe("主工作区对话态", () => {
     expect(screen.getByRole("button", { name: /正在读取 README.md/ })).toBeInTheDocument();
   });
 
+  it("中文组合输入不写入拼音中间态，提交后保留完整中文", async () => {
+    await renderConnected();
+    const field = textbox() as HTMLTextAreaElement;
+    const draftKey = `lure:draft:${defaultWorkspace}`;
+
+    // 拼音组合过程：composer 自己维护受控值，外部不得把中间态当作草稿写回。
+    fireEvent.compositionStart(field);
+    fireEvent.change(field, { target: { value: "j" } });
+    fireEvent.change(field, { target: { value: "jin" } });
+    expect(localStorage.getItem(draftKey)).toBeNull();
+    expect(screen.getByRole("button", { name: "发送消息" })).toBeDisabled();
+
+    // IME 提交：只写入完整中文，不出现拼音累积。
+    field.value = "今天";
+    fireEvent.compositionEnd(field);
+    fireEvent.change(field, { target: { value: "今天" } });
+    expect(localStorage.getItem(draftKey)).toBe("今天");
+    expect(field).toHaveValue("今天");
+    expect(screen.getByRole("button", { name: "发送消息" })).toBeEnabled();
+  });
+
   it("运行中保留可编辑草稿并把主操作切换为停止", async () => {
     await renderConnected();
     fireEvent.change(textbox(), { target: { value: "第一条" } });
