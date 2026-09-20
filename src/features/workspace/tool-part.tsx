@@ -24,7 +24,6 @@ import {
   createResultDescriptor,
   formatToolSummary,
   getToolOutputLineCount,
-  type ToolCallArtifact,
   type ToolView,
 } from "./presentation";
 import { ResultCard } from "./result-card";
@@ -44,51 +43,27 @@ const statusIcons: Record<ToolStatus, ReactNode> = {
   error: <XCircleIcon className="size-4 text-[var(--pi-error)]" />,
 };
 
-function readArtifact(value: unknown): ToolCallArtifact | null {
-  if (!value || typeof value !== "object") return null;
-  const { status, truncatedLines } = value as {
-    status?: unknown;
-    truncatedLines?: unknown;
-  };
-  if (status !== "running" && status !== "completed" && status !== "error") return null;
-  return {
-    status,
-    truncatedLines: typeof truncatedLines === "number" ? truncatedLines : null,
-  };
-}
-
-function readOutput(result: unknown): string {
-  if (typeof result === "string") return result;
-  if (result === undefined || result === null) return "";
-  try {
-    return JSON.stringify(result, null, 2);
-  } catch {
-    return String(result);
-  }
-}
-
 /**
- * 从工具调用部件派生展示数据。
+ * 读取工具调用部件携带的展示数据。
  *
- * 渲染只依赖部件自身携带的信息：Pi 的执行状态随 `artifact` 一起传递，
- * 因此不需要回查 reducer 里的消息来源。
+ * `artifact` 在 assistant-ui 契约里是 `unknown`；这里只接受
+ * `toolPartToView()` 的形状，形状不符时就当没有可展示的工具，而不是当场抛错。
  */
-export function toolCallToView(
-  part: Pick<
-    ToolCallMessagePartProps,
-    "toolCallId" | "toolName" | "argsText" | "result" | "isError" | "artifact"
-  >,
-): ToolView {
-  const artifact = readArtifact(part.artifact);
+export function readToolView(value: unknown): ToolView | null {
+  if (!value || typeof value !== "object") return null;
+  const candidate = value as Partial<ToolView>;
+  if (typeof candidate.id !== "string" || typeof candidate.name !== "string") return null;
+  const status = candidate.status;
+  if (status !== "running" && status !== "completed" && status !== "error") return null;
+
   return {
-    id: part.toolCallId,
-    name: part.toolName,
-    status: part.isError
-      ? "error"
-      : (artifact?.status ?? (part.result === undefined ? "running" : "completed")),
-    input: part.argsText,
-    output: readOutput(part.result),
-    truncatedLines: artifact?.truncatedLines ?? null,
+    id: candidate.id,
+    name: candidate.name,
+    status,
+    input: typeof candidate.input === "string" ? candidate.input : "",
+    output: typeof candidate.output === "string" ? candidate.output : "",
+    truncatedLines:
+      typeof candidate.truncatedLines === "number" ? candidate.truncatedLines : null,
   };
 }
 
@@ -175,6 +150,8 @@ export function ToolCard({ view }: { view: ToolView }) {
   );
 }
 
-export function ToolPartCard(props: ToolCallMessagePartProps) {
-  return <ToolCard view={toolCallToView(props)} />;
+export function ToolPartCard({ artifact }: ToolCallMessagePartProps) {
+  const view = readToolView(artifact);
+  if (!view) return null;
+  return <ToolCard view={view} />;
 }

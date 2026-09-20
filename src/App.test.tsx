@@ -150,12 +150,12 @@ describe("主工作区初始态", () => {
     expect(screen.getByRole("button", { name: "发送消息" })).toBeDisabled();
   });
 
-  it("工作流示例只填入草稿且不自动执行", () => {
+  it("工作流示例只填入草稿且不自动执行", async () => {
     render(<App />);
 
     fireEvent.click(screen.getByRole("button", { name: "分析当前项目" }));
 
-    expect(textbox()).toHaveValue("分析当前项目");
+    await waitFor(() => expect(textbox()).toHaveValue("分析当前项目"));
     expect(screen.queryByText("分析当前项目", { selector: "p, div, h2" })).toBeNull();
     expect(mocks.invoke).not.toHaveBeenCalledWith("send_prompt", expect.anything());
   });
@@ -441,7 +441,12 @@ describe("主工作区对话态", () => {
     fireEvent.submit(textbox().closest("form")!);
     await waitFor(() => expect(mocks.invoke).toHaveBeenCalledWith("send_prompt", expect.anything()));
 
+    // 运行开始不应把焦点从用户手上拿走：用户可能正在编辑下一条指令或阅读执行过程。
+    const imageButton = screen.getByRole("button", { name: "添加图片" });
+    imageButton.focus();
     emit({ sequence: 1, event: { type: "run_started" } });
+    expect(imageButton).toHaveFocus();
+    expect(textbox()).not.toHaveFocus();
 
     expect(textbox()).toBeEnabled();
     fireEvent.change(textbox(), { target: { value: "下一条草稿" } });
@@ -729,7 +734,7 @@ describe("附件", () => {
     expect(await screen.findByText("shot.png")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "移除附件 shot.png" }));
-    expect(screen.queryByText("shot.png")).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByText("shot.png")).not.toBeInTheDocument());
 
     fireEvent.click(screen.getByRole("button", { name: "添加图片" }));
     fireEvent.click(await screen.findByRole("button", { name: "继续选择图片" }));
@@ -745,6 +750,24 @@ describe("附件", () => {
     );
 
     await waitFor(() => expect(screen.queryByText("shot.png")).not.toBeInTheDocument());
+  });
+
+  it("允许只发送图片附件", async () => {
+    await renderConnected();
+
+    fireEvent.click(screen.getByRole("button", { name: "添加图片" }));
+    fireEvent.click(await screen.findByRole("button", { name: "继续选择图片" }));
+    expect(await screen.findByText("shot.png")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "发送消息" })).toBeEnabled();
+
+    fireEvent.submit(textbox().closest("form")!);
+
+    await waitFor(() =>
+      expect(mocks.invoke).toHaveBeenCalledWith("send_prompt", {
+        images: [{ data: "aGVsbG8=", mimeType: "image/png" }],
+        message: "",
+      }),
+    );
   });
 });
 describe("事件订阅生命周期", () => {

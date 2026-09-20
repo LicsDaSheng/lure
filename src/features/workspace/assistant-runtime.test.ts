@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 
 import type { ConversationMessage } from "@/features/pi-connection/reducer";
-import { convertPiMessage, readAppendMessageText } from "./assistant-runtime";
+import {
+  convertPiMessage,
+  readAppendMessageImages,
+  readAppendMessageText,
+} from "./assistant-runtime";
 
 describe("assistant-ui 消息适配", () => {
   it("按 parts 的真实顺序转换文本、思考与工具调用", () => {
@@ -26,7 +30,7 @@ describe("assistant-ui 消息适配", () => {
       ],
     };
 
-    expect(convertPiMessage(message, false)).toEqual({
+    expect(convertPiMessage(message, false)).toMatchObject({
       id: "assistant-1",
       role: "assistant",
       content: [
@@ -40,7 +44,14 @@ describe("assistant-ui 消息适配", () => {
           argsText: "{\"path\":\"README.md\"}",
           result: "文件内容",
           isError: false,
-          artifact: { status: "completed", truncatedLines: null },
+          artifact: {
+            id: "tool-1",
+            name: "read",
+            status: "completed",
+            input: "{\"path\":\"README.md\"}",
+            output: "文件内容",
+            truncatedLines: null,
+          },
         },
         { type: "text", text: "读取完成", status: { type: "complete" } },
       ],
@@ -76,7 +87,14 @@ describe("assistant-ui 消息适配", () => {
           argsText: "not-json",
           isError: true,
           result: "执行失败",
-          artifact: { status: "error", truncatedLines: null },
+          artifact: {
+            id: "tool-2",
+            name: "bash",
+            status: "error",
+            input: "not-json",
+            output: "执行失败",
+            truncatedLines: null,
+          },
         },
       ],
       status: { type: "running" },
@@ -87,16 +105,36 @@ describe("assistant-ui 消息适配", () => {
     });
   });
 
-  it("只从 assistant-ui 新消息中提取文本内容", () => {
-    expect(
-      readAppendMessageText({
-        role: "user",
-        content: [
-          { type: "text", text: "第一段" },
-          { type: "text", text: "第二段" },
-        ],
-      }),
-    ).toBe("第一段\n第二段");
+  it("从 assistant-ui 新消息中提取文本与图片附件", () => {
+    const message = {
+      role: "user" as const,
+      content: [
+        { type: "text" as const, text: "第一段" },
+        { type: "text" as const, text: "第二段" },
+      ],
+      attachments: [
+        {
+          id: "image-1",
+          type: "image" as const,
+          name: "shot.png",
+          contentType: "image/png",
+          status: { type: "complete" as const },
+          content: [
+            {
+              type: "image" as const,
+              image: "data:image/png;base64,aGVsbG8=",
+              filename: "shot.png",
+            },
+          ],
+        },
+      ],
+    };
+
+    expect(readAppendMessageText(message)).toBe("第一段\n第二段");
+    expect(readAppendMessageImages(message)).toEqual([
+      { data: "aGVsbG8=", mimeType: "image/png" },
+    ]);
     expect(readAppendMessageText({ role: "user", content: [] })).toBe("");
+    expect(readAppendMessageImages({ role: "user", content: [] })).toEqual([]);
   });
 });
