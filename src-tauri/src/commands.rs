@@ -1,5 +1,5 @@
 use std::path::{Path, PathBuf};
-use std::time::{Duration, SystemTime};
+use std::time::Duration;
 
 use lure_core::{
     ConnectionPhase, ConnectionSnapshot, ErrorCode, LureError, LureEvent, ModelSnapshot,
@@ -12,7 +12,6 @@ use serde_json::Value;
 use tauri::{AppHandle, Manager, State};
 use tokio::process::Command;
 
-use crate::capture;
 use crate::events::{emit_lure_event, forward_pi_events};
 use crate::state::{DesktopSession, Operation, SharedAppState, ensure_operation_allowed};
 
@@ -98,11 +97,7 @@ pub(crate) async fn connect_pi(
         },
     );
 
-    // 临时采集：把 Pi stdout 的原始行录到工作目录下，供后续生成 mock 数据。
-    let capture_path = capture::next_capture_path(&canonical, SystemTime::now()).await;
-    let config =
-        PiProcessConfig::for_working_directory(&canonical).with_stdout_capture(&capture_path);
-    eprintln!("[lure] Pi stdout 采集：{}", capture_path.display());
+    let config = PiProcessConfig::for_working_directory(&canonical);
     let (client, rpc_state) = match PiRpcClient::connect(config).await {
         Ok(value) => value,
         Err(error) => {

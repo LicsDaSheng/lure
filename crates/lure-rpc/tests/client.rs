@@ -13,33 +13,6 @@ fn fake_pi_without_handshake() -> PathBuf {
 }
 
 #[tokio::test]
-async fn captures_raw_stdout_lines_for_mock_recording() {
-    let directory =
-        std::env::temp_dir().join(format!("lure-rpc-capture-client-{}", std::process::id()));
-    let _ = tokio::fs::remove_dir_all(&directory).await;
-    let capture_path = directory.join("stdout.jsonl");
-
-    let config = PiProcessConfig::new(fake_pi(), env!("CARGO_MANIFEST_DIR"))
-        .with_stdout_capture(&capture_path);
-    let (client, state) = PiRpcClient::connect(config).await.unwrap();
-    client.stop().await.unwrap();
-
-    assert_eq!(state.session_id, "fake-session");
-    let recorded = tokio::fs::read_to_string(&capture_path).await.unwrap();
-    let lines: Vec<&str> = recorded.lines().collect();
-    assert!(!lines.is_empty(), "采集文件应当包含 stdout 原始行");
-
-    let handshake: serde_json::Value = serde_json::from_str(lines[0]).unwrap();
-    assert_eq!(handshake["type"], "response");
-    assert_eq!(handshake["command"], "get_state");
-    assert_eq!(handshake["data"]["sessionId"], "fake-session");
-    for line in &lines {
-        serde_json::from_str::<serde_json::Value>(line).unwrap();
-    }
-    tokio::fs::remove_dir_all(&directory).await.unwrap();
-}
-
-#[tokio::test]
 async fn connects_with_handshake_in_the_selected_working_directory() {
     let working_directory = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let config = PiProcessConfig::new(fake_pi(), &working_directory);

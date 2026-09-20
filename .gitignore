@@ -25,5 +25,3 @@ target
 *.sw?
 .idea/
 .pi
-# 临时：Pi RPC stdout 采集（真机 mock 录制），采集完成后移除
-.lure-capture
