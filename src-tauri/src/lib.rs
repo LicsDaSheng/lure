@@ -1,5 +1,6 @@
 //! Lure 桌面应用的 Tauri 组合根。
 
+mod base64;
 mod commands;
 mod events;
 mod state;
@@ -20,10 +21,19 @@ pub fn run() -> tauri::Result<()> {
         .plugin(tauri_plugin_dialog::init())
         .manage(Arc::new(AppState::default()))
         .invoke_handler(tauri::generate_handler![
+            commands::get_default_workspace,
             commands::connect_pi,
+            commands::new_pi_session,
             commands::disconnect_pi,
             commands::send_prompt,
             commands::abort_pi,
+            commands::get_available_models,
+            commands::set_model,
+            commands::set_thinking_level,
+            commands::get_commands,
+            commands::respond_extension_ui,
+            commands::get_workspace_context,
+            commands::read_image_attachments,
         ])
         .build(tauri::generate_context!())?;
 

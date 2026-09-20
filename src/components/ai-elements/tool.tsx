@@ -28,10 +28,9 @@ export type ToolProps = ComponentProps<typeof Collapsible> & {
 export const Tool = ({ className, status = "running", ...props }: ToolProps) => (
   <Collapsible
     className={cn(
-      "group not-prose w-full rounded-none border-0 shadow-none",
-      status === "running" && "bg-[var(--pi-tool-pending)]",
-      status === "completed" && "bg-[var(--pi-tool-success)]",
-      status === "error" && "bg-[var(--pi-tool-error)]",
+      "group not-prose w-full rounded-xl border border-border/60 bg-muted/25 shadow-none",
+      status === "running" && "border-[var(--pi-accent)]/40",
+      status === "error" && "border-[var(--pi-error)]/40 bg-[var(--pi-tool-error)]/40",
       className,
     )}
     {...props}
@@ -53,13 +52,13 @@ export type ToolHeaderProps = {
 );
 
 const statusLabels: Record<ToolPart["state"], string> = {
-  "approval-requested": "Awaiting Approval",
-  "approval-responded": "Responded",
-  "input-available": "Running",
-  "input-streaming": "Pending",
-  "output-available": "Completed",
-  "output-denied": "Denied",
-  "output-error": "Error",
+  "approval-requested": "等待确认",
+  "approval-responded": "已响应",
+  "input-available": "执行中",
+  "input-streaming": "准备中",
+  "output-available": "已完成",
+  "output-denied": "已取消",
+  "output-error": "失败",
 };
 
 const statusIcons: Record<ToolPart["state"], ReactNode> = {
@@ -129,10 +128,10 @@ export type ToolInputProps = ComponentProps<"div"> & {
 
 export const ToolInput = ({ className, input, ...props }: ToolInputProps) => (
   <div className={cn("space-y-2 overflow-hidden", className)} {...props}>
-    <h4 className="font-medium text-muted-foreground text-xs uppercase tracking-wide">
-      Parameters
+    <h4 className="font-medium text-muted-foreground text-xs tracking-wide">
+      工具参数
     </h4>
-    <div className="rounded-none bg-muted/30 text-xs">
+    <div className="rounded-lg bg-muted/40 text-xs">
       <CodeBlock code={typeof input === "string" ? input : JSON.stringify(input, null, 2)} language="json" />
     </div>
   </div>
@@ -168,12 +167,12 @@ export const ToolOutput = ({
 
   return (
     <div className={cn("space-y-2", className)} {...props}>
-      <h4 className="font-medium text-muted-foreground text-xs uppercase tracking-wide">
-        {errorText ? "Error" : "Result"}
+      <h4 className="font-medium text-muted-foreground text-xs tracking-wide">
+        {errorText ? "错误信息" : "工具输出"}
       </h4>
       <div
         className={cn(
-          "overflow-x-auto rounded-none p-2 text-xs [&_table]:w-full",
+          "overflow-x-auto rounded-lg p-2 text-xs [&_table]:w-full",
           errorText
             ? "bg-destructive/10 text-destructive"
             : "bg-muted/50 text-foreground"
@@ -182,7 +181,7 @@ export const ToolOutput = ({
         {errorText && <div>{errorText}</div>}
         {Output}
         {hiddenLines > 0 && (
-          <p className="mt-1 text-xs text-[var(--pi-dim)]">… ({hiddenLines} more lines)</p>
+          <p className="mt-1 text-xs text-[var(--pi-dim)]">… 另有 {hiddenLines} 行未显示</p>
         )}
       </div>
     </div>

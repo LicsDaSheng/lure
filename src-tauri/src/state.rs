@@ -34,6 +34,7 @@ pub(crate) type SharedAppState = Arc<AppState>;
 #[derive(Debug, Clone, Copy)]
 pub(crate) enum Operation {
     Connect,
+    NewSession,
     Prompt,
     Abort,
 }
@@ -44,7 +45,7 @@ pub(crate) fn ensure_operation_allowed(
 ) -> Result<(), LureError> {
     match (phase, operation) {
         (ConnectionPhase::Disconnected | ConnectionPhase::Failed, Operation::Connect)
-        | (ConnectionPhase::Ready, Operation::Prompt)
+        | (ConnectionPhase::Ready, Operation::NewSession | Operation::Prompt)
         | (ConnectionPhase::Running, Operation::Abort) => Ok(()),
         (
             ConnectionPhase::Connecting | ConnectionPhase::Ready | ConnectionPhase::Running,
@@ -53,11 +54,13 @@ pub(crate) fn ensure_operation_allowed(
             ErrorCode::AlreadyConnected,
             "Pi 已连接或正在连接",
         )),
-        (ConnectionPhase::Running, Operation::Prompt) => Err(LureError::new(
-            ErrorCode::RunAlreadyActive,
-            "Pi 正在执行任务，请先停止当前运行",
-        )),
-        (_, Operation::Prompt | Operation::Abort) => Err(LureError::new(
+        (ConnectionPhase::Running, Operation::NewSession | Operation::Prompt) => {
+            Err(LureError::new(
+                ErrorCode::RunAlreadyActive,
+                "Pi 正在执行任务，请先停止当前运行",
+            ))
+        }
+        (_, Operation::NewSession | Operation::Prompt | Operation::Abort) => Err(LureError::new(
             ErrorCode::NotConnected,
             "当前没有可用的 Pi RPC 会话",
         )),
@@ -90,6 +93,15 @@ mod tests {
         assert!(ensure_operation_allowed(ConnectionPhase::Ready, Operation::Connect).is_err());
         assert!(
             ensure_operation_allowed(ConnectionPhase::Disconnected, Operation::Connect).is_ok()
+        );
+    }
+
+    #[test]
+    fn only_ready_sessions_can_be_replaced() {
+        assert!(ensure_operation_allowed(ConnectionPhase::Ready, Operation::NewSession).is_ok());
+        assert!(ensure_operation_allowed(ConnectionPhase::Running, Operation::NewSession).is_err());
+        assert!(
+            ensure_operation_allowed(ConnectionPhase::Disconnected, Operation::NewSession).is_err()
         );
     }
 }

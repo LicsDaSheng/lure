@@ -12,6 +12,8 @@ if sys.argv[1:] != ["--mode", "rpc"]:
     print("unexpected arguments", file=sys.stderr)
     raise SystemExit(2)
 
+session_number = 1
+
 for raw_line in sys.stdin:
     command = json.loads(raw_line)
     request_id = command.get("id")
@@ -30,14 +32,69 @@ for raw_line in sys.stdin:
                 "isCompacting": False,
                 "steeringMode": "one-at-a-time",
                 "followUpMode": "one-at-a-time",
-                "sessionFile": os.path.join(os.getcwd(), "session.jsonl"),
-                "sessionId": "fake-session",
+                "sessionFile": os.path.join(
+                    os.getcwd(),
+                    "session.jsonl" if session_number == 1 else f"session-{session_number}.jsonl",
+                ),
+                "sessionId": "fake-session" if session_number == 1 else f"fake-session-{session_number}",
                 "autoCompactionEnabled": True,
                 "messageCount": 0,
                 "pendingMessageCount": 0,
             },
         }), flush=True)
+    elif command_type == "new_session":
+        session_number += 1
+        print(json.dumps({
+            "id": request_id,
+            "type": "response",
+            "command": command_type,
+            "success": True,
+            "data": {"cancelled": False},
+        }), flush=True)
+    elif command_type == "get_available_models":
+        print(json.dumps({
+            "id": request_id,
+            "type": "response",
+            "command": command_type,
+            "success": True,
+            "data": {"models": [
+                {"provider": "test", "id": "fake-model"},
+                {"provider": "test", "id": "other-model"},
+            ]},
+        }), flush=True)
+    elif command_type == "set_model":
+        print(json.dumps({
+            "id": request_id,
+            "type": "response",
+            "command": command_type,
+            "success": True,
+            "data": {"model": {
+                "provider": command["provider"],
+                "id": command["modelId"],
+            }},
+        }), flush=True)
+    elif command_type == "set_thinking_level":
+        print(json.dumps({
+            "id": request_id,
+            "type": "response",
+            "command": command_type,
+            "success": True,
+            "data": {"thinkingLevel": command["level"]},
+        }), flush=True)
+    elif command_type == "get_commands":
+        print(json.dumps({
+            "id": request_id,
+            "type": "response",
+            "command": command_type,
+            "success": True,
+            "data": {"commands": [
+                {"name": "review", "description": "Review changes", "source": "extension"},
+            ]},
+        }), flush=True)
     elif command_type == "prompt":
+        if command["message"] == "images" and not command.get("images"):
+            print(json.dumps({"id": request_id, "type": "response", "command": "prompt", "success": False, "error": "images missing"}), flush=True)
+            continue
         if command["message"] == "out-of-order":
             threading.Timer(0.1, lambda rid=request_id: print(json.dumps({"id": rid, "type": "response", "command": "prompt", "success": True}), flush=True)).start()
             continue
@@ -63,8 +120,8 @@ for raw_line in sys.stdin:
     elif command_type == "abort":
         print(json.dumps({"id": request_id, "type": "response", "command": "abort", "success": True}), flush=True)
     elif command_type == "extension_ui_response":
-        if command.get("id") == "ui-1" and command.get("cancelled") is True:
-            print(json.dumps({"type": "extension_ui_request", "id": "notice-1", "method": "notify", "message": "cancelled-received", "notifyType": "info"}), flush=True)
+        if command.get("id") == "ui-1":
+            print(json.dumps({"type": "extension_ui_request", "id": "notice-1", "method": "notify", "message": "response-received", "notifyType": "info"}), flush=True)
         continue
     else:
         print(json.dumps({"id": request_id, "type": "response", "command": command_type, "success": False, "error": "unsupported"}), flush=True)

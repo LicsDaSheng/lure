@@ -24,6 +24,8 @@ pub enum ErrorCode {
     RpcFrameTooLarge,
     #[serde(rename = "PROCESS_EXITED")]
     ProcessExited,
+    #[serde(rename = "ATTACHMENT_UNREADABLE")]
+    AttachmentUnreadable,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

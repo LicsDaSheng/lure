@@ -1,5 +1,5 @@
 use lure_core::{LureEvent, MessageBlock, MessageBlockKind};
-use serde_json::{Value, json};
+use serde_json::Value;
 
 pub(crate) struct NormalizedFrame {
     pub events: Vec<LureEvent>,
@@ -135,13 +135,22 @@ fn normalize_extension_request(value: &Value) -> NormalizedFrame {
     let method = string_field(value, "method");
     match method.as_str() {
         "select" | "confirm" | "input" | "editor" => NormalizedFrame {
-            events: vec![LureEvent::ExtensionUiUnsupported {
+            events: vec![LureEvent::ExtensionUiRequested {
+                request_id: string_field(value, "id"),
                 method,
                 title: value["title"].as_str().map(ToOwned::to_owned),
+                message: value["message"].as_str().map(ToOwned::to_owned),
+                options: value["options"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .filter_map(|option| option.as_str().or_else(|| option["label"].as_str()))
+                    .map(ToOwned::to_owned)
+                    .collect(),
+                placeholder: value["placeholder"].as_str().map(ToOwned::to_owned),
+                default_value: value["defaultValue"].as_str().map(ToOwned::to_owned),
             }],
-            automatic_response: value["id"]
-                .as_str()
-                .map(|id| json!({"type":"extension_ui_response","id":id,"cancelled":true})),
+            automatic_response: None,
         },
         "notify" => NormalizedFrame {
             events: vec![LureEvent::Notification {
@@ -297,18 +306,20 @@ mod tests {
     }
 
     #[test]
-    fn interactive_extension_requests_are_cancelled() {
+    fn interactive_extension_requests_are_forwarded_to_the_desktop() {
         let frame = normalize_event(&json!({
             "type":"extension_ui_request",
             "id":"ui-1",
-            "method":"confirm",
-            "title":"确认",
-            "message":"继续吗"
+            "method":"select",
+            "title":"选择范围",
+            "message":"请选择",
+            "options":["当前文件", "整个项目"]
         }));
         assert!(matches!(
             frame.events.first(),
-            Some(LureEvent::ExtensionUiUnsupported { method, .. }) if method == "confirm"
+            Some(LureEvent::ExtensionUiRequested { request_id, method, options, .. })
+                if request_id == "ui-1" && method == "select" && options.len() == 2
         ));
-        assert_eq!(frame.automatic_response.unwrap()["cancelled"], true);
+        assert!(frame.automatic_response.is_none());
     }
 }

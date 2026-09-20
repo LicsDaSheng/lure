@@ -13,7 +13,7 @@ use tokio::time::{Instant, MissedTickBehavior};
 use crate::RpcError;
 use crate::jsonl::read_json_lines;
 use crate::normalize::normalize_event;
-use crate::protocol::{RequestContext, RpcSessionState};
+use crate::protocol::{RequestContext, RpcCommand, RpcImage, RpcModel, RpcSessionState};
 
 const DEFAULT_FRAME_LIMIT: usize = 16 * 1024 * 1024;
 const STDERR_EVENT_LIMIT: usize = 512;
@@ -61,6 +61,10 @@ enum ActorCommand {
         context: RequestContext,
         timeout: Duration,
         reply: oneshot::Sender<Result<Value, RpcError>>,
+    },
+    Notify {
+        body: Value,
+        reply: oneshot::Sender<Result<(), RpcError>>,
     },
     Stop {
         reply: oneshot::Sender<Result<(), RpcError>>,
@@ -149,23 +153,49 @@ impl PiRpcClient {
             command_timeout: config.command_timeout,
         };
 
-        let response = client
-            .request(
-                json!({"type":"get_state"}),
-                RequestContext::Plain,
-                config.handshake_timeout,
-            )
-            .await;
-        let response = match response {
-            Ok(response) => response,
+        let state = client.read_state(config.handshake_timeout).await;
+        let state = match state {
+            Ok(state) => state,
             Err(error) => {
                 let _ = client.stop().await;
                 return Err(error);
             }
         };
-        let state = serde_json::from_value(response["data"].clone())
-            .map_err(|error| RpcError::Protocol(format!("get_state 响应无效：{error}")))?;
         Ok((client, state))
+    }
+
+    async fn read_state(&self, timeout: Duration) -> Result<RpcSessionState, RpcError> {
+        let response = self
+            .request(json!({"type":"get_state"}), RequestContext::Plain, timeout)
+            .await?;
+        serde_json::from_value(response["data"].clone())
+            .map_err(|error| RpcError::Protocol(format!("get_state 响应无效：{error}")))
+    }
+
+    /// 在当前 Pi RPC 进程中创建空白 session，并返回新的会话状态。
+    ///
+    /// # Errors
+    ///
+    /// Pi 拒绝创建、扩展取消操作或返回无效状态时返回错误。
+    pub async fn new_session(&self) -> Result<RpcSessionState, RpcError> {
+        let response = self
+            .request(
+                json!({"type":"new_session"}),
+                RequestContext::Plain,
+                self.command_timeout,
+            )
+            .await?;
+        if response
+            .pointer("/data/cancelled")
+            .and_then(Value::as_bool)
+            .unwrap_or(false)
+        {
+            return Err(RpcError::CommandRejected {
+                command: "new_session".into(),
+                message: "新建会话已取消".into(),
+            });
+        }
+        self.read_state(self.command_timeout).await
     }
 
     #[must_use]
@@ -187,6 +217,131 @@ impl PiRpcClient {
         )
         .await?;
         Ok(())
+    }
+
+    /// 发送带图片的提示词并等待 Pi 接受。
+    ///
+    /// # Errors
+    ///
+    /// Pi 进程不可用、请求超时或命令被拒绝时返回错误。
+    pub async fn prompt_with_images(
+        &self,
+        message: impl Into<String>,
+        images: Vec<RpcImage>,
+    ) -> Result<(), RpcError> {
+        let message = message.into();
+        self.request(
+            json!({"type":"prompt","message":message,"images":images}),
+            RequestContext::Prompt(message),
+            self.command_timeout,
+        )
+        .await?;
+        Ok(())
+    }
+
+    /// 获取 Pi 当前可用模型。
+    ///
+    /// # Errors
+    ///
+    /// Pi 返回无效响应或请求失败时返回错误。
+    pub async fn get_available_models(&self) -> Result<Vec<RpcModel>, RpcError> {
+        let response = self
+            .request(
+                json!({"type":"get_available_models"}),
+                RequestContext::Plain,
+                self.command_timeout,
+            )
+            .await?;
+        let data = &response["data"];
+        let models = data.get("models").unwrap_or(data).clone();
+        serde_json::from_value(models)
+            .map_err(|error| RpcError::Protocol(format!("get_available_models 响应无效：{error}")))
+    }
+
+    /// 切换当前模型。
+    ///
+    /// # Errors
+    ///
+    /// Pi 拒绝模型或返回无效响应时返回错误。
+    pub async fn set_model(&self, provider: &str, model_id: &str) -> Result<RpcModel, RpcError> {
+        let response = self
+            .request(
+                json!({"type":"set_model","provider":provider,"modelId":model_id}),
+                RequestContext::Plain,
+                self.command_timeout,
+            )
+            .await?;
+        let candidate = response["data"]
+            .get("model")
+            .unwrap_or(&response["data"])
+            .clone();
+        serde_json::from_value(candidate).or_else(|_| {
+            Ok(RpcModel {
+                provider: provider.to_owned(),
+                id: model_id.to_owned(),
+            })
+        })
+    }
+
+    /// 切换当前思考强度。
+    ///
+    /// # Errors
+    ///
+    /// Pi 拒绝级别时返回错误。
+    pub async fn set_thinking_level(&self, level: &str) -> Result<String, RpcError> {
+        let response = self
+            .request(
+                json!({"type":"set_thinking_level","level":level}),
+                RequestContext::Plain,
+                self.command_timeout,
+            )
+            .await?;
+        Ok(response
+            .pointer("/data/thinkingLevel")
+            .and_then(Value::as_str)
+            .unwrap_or(level)
+            .to_owned())
+    }
+
+    /// 获取 Pi 公开的扩展命令、提示词和 skills。
+    ///
+    /// # Errors
+    ///
+    /// Pi 返回无效响应或请求失败时返回错误。
+    pub async fn get_commands(&self) -> Result<Vec<RpcCommand>, RpcError> {
+        let response = self
+            .request(
+                json!({"type":"get_commands"}),
+                RequestContext::Plain,
+                self.command_timeout,
+            )
+            .await?;
+        let data = &response["data"];
+        let commands = data.get("commands").unwrap_or(data).clone();
+        serde_json::from_value(commands)
+            .map_err(|error| RpcError::Protocol(format!("get_commands 响应无效：{error}")))
+    }
+
+    /// 回应 Pi extension UI 请求。
+    ///
+    /// # Errors
+    ///
+    /// Pi 进程不可用或写入失败时返回错误。
+    pub async fn respond_to_extension(
+        &self,
+        request_id: &str,
+        value: Option<Value>,
+        cancelled: bool,
+    ) -> Result<(), RpcError> {
+        let mut body = json!({
+            "type":"extension_ui_response",
+            "id":request_id,
+            "cancelled":cancelled,
+        });
+        if let Some(value) = value {
+            body["value"] = value;
+        }
+        self.notify(body).await
     }
 
     /// 中止当前 Pi 运行。
@@ -220,6 +375,15 @@ impl PiRpcClient {
             return Ok(());
         }
         response.await.unwrap_or(Ok(()))
+    }
+
+    async fn notify(&self, body: Value) -> Result<(), RpcError> {
+        let (reply, response) = oneshot::channel();
+        self.commands
+            .send(ActorCommand::Notify { body, reply })
+            .await
+            .map_err(|_| RpcError::ActorStopped)?;
+        response.await.map_err(|_| RpcError::ActorStopped)?
     }
 
     async fn request(
@@ -330,6 +494,10 @@ async fn run_actor(
                                 let _ = reply.send(Err(error));
                             }
                         }
+                    }
+                    ActorCommand::Notify { body, reply } => {
+                        let result = write_frame(&mut stdin, &body).await;
+                        let _ = reply.send(result);
                     }
                     ActorCommand::Stop { reply } => {
                         terminate_child(&mut child).await;
