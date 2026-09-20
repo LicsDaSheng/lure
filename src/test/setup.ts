@@ -12,6 +12,7 @@ class ResizeObserverMock implements ResizeObserver {
 }
 
 globalThis.ResizeObserver = ResizeObserverMock;
+HTMLElement.prototype.scrollTo = () => undefined;
 
 afterEach(() => {
   cleanup();

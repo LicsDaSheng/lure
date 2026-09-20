@@ -1,12 +1,12 @@
-import {
-  Conversation,
-  ConversationContent,
-  ConversationScrollButton,
-} from "@/components/ai-elements/conversation";
+import { ThreadPrimitive, type AppendMessage } from "@assistant-ui/react";
 import { Button } from "@/components/ui/button";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { selectImageFiles, readImageAttachments } from "@/features/pi-connection/api";
 import { usePiSession } from "@/features/pi-connection/use-pi-session";
+import {
+  PiAssistantRuntimeProvider,
+  readAppendMessageText,
+} from "@/features/workspace/assistant-runtime";
 import { ConversationStream } from "@/features/workspace/conversation-stream";
 import { EmptyState } from "@/features/workspace/empty-state";
 import { ErrorPanel } from "@/features/workspace/error-panel";
@@ -17,7 +17,7 @@ import { PromptCard, type PromptAttachment } from "@/features/workspace/prompt-c
 import { RiskConfirmDialog } from "@/features/workspace/risk-confirm-dialog";
 import { TaskHeader } from "@/features/workspace/task-header";
 import { TaskNavigation } from "@/features/workspace/task-navigation";
-import { MenuIcon } from "lucide-react";
+import { ArrowDownIcon, MenuIcon } from "lucide-react";
 import { useCallback, useRef, useState } from "react";
 
 function directoryNameOf(directory: string | null) {
@@ -101,21 +101,31 @@ function App() {
     else await newConversation();
   }, [canConnectSession, connect, disconnect, newConversation, selectedDirectory]);
 
-  const handleSubmit = useCallback(async () => {
-    const content = draft.trim();
-    if (!content || !canSend) return;
-    setIsSubmitting(true);
-    try {
-      await prompt(
-        content,
-        attachments.map(({ data, mimeType }) => ({ data, mimeType })),
-      );
-      setDraft("");
-      setAttachments([]);
-    } finally {
-      setIsSubmitting(false);
-    }
-  }, [attachments, canSend, draft, prompt]);
+  const submitPrompt = useCallback(
+    async (content: string) => {
+      const text = content.trim();
+      if (!text || !canSend) return;
+      setIsSubmitting(true);
+      try {
+        await prompt(
+          text,
+          attachments.map(({ data, mimeType }) => ({ data, mimeType })),
+        );
+        setDraft("");
+        setAttachments([]);
+      } finally {
+        setIsSubmitting(false);
+      }
+    },
+    [attachments, canSend, prompt, setDraft],
+  );
+
+  const handleAssistantNew = useCallback(
+    async (message: AppendMessage) => {
+      await submitPrompt(readAppendMessageText(message));
+    },
+    [submitPrompt],
+  );
 
   const pickImages = useCallback(async () => {
     try {
@@ -159,7 +169,15 @@ function App() {
 
   return (
     <TooltipProvider>
-      <div className="relative flex h-dvh min-h-0 overflow-hidden bg-background text-foreground">
+      <PiAssistantRuntimeProvider
+        activeAssistantId={state.activeAssistantId}
+        isRunning={isRunning}
+        isSendDisabled={!canSend}
+        messages={messages}
+        onCancel={abort}
+        onNew={handleAssistantNew}
+      >
+        <div className="relative flex h-dvh min-h-0 overflow-hidden bg-background text-foreground">
         {navigationOpen && (
           <button
             aria-label="关闭导航遮罩"
@@ -218,20 +236,32 @@ function App() {
             </div>
           )}
 
-          <Conversation className="mx-auto min-h-0 w-full max-w-[920px]">
-            <ConversationContent className="min-h-full gap-4 px-4 py-6 md:px-6">
-              {hasConversation ? (
-                <ConversationStream
-                  activeAssistantId={state.activeAssistantId}
-                  isRunning={isRunning}
-                  messages={messages}
-                />
-              ) : (
-                <EmptyState onPickExample={setDraft} projectName={directoryName} />
-              )}
-            </ConversationContent>
-            <ConversationScrollButton />
-          </Conversation>
+          <ThreadPrimitive.Root
+            aria-label="对话线程"
+            className="relative mx-auto flex min-h-0 w-full max-w-[920px] flex-1 flex-col"
+            role="log"
+          >
+            <ThreadPrimitive.Viewport className="min-h-0 flex-1 overflow-y-auto">
+              <div className="flex min-h-full flex-col gap-4 px-4 py-6 md:px-6">
+                {hasConversation ? (
+                  <ConversationStream messages={messages} />
+                ) : (
+                  <EmptyState onPickExample={setDraft} projectName={directoryName} />
+                )}
+              </div>
+              <ThreadPrimitive.ScrollToBottom asChild>
+                <Button
+                  aria-label="滚动到最新消息"
+                  className="sticky bottom-4 left-1/2 -translate-x-1/2 rounded-full shadow-sm disabled:hidden"
+                  size="icon"
+                  type="button"
+                  variant="outline"
+                >
+                  <ArrowDownIcon className="size-4" />
+                </Button>
+              </ThreadPrimitive.ScrollToBottom>
+            </ThreadPrimitive.Viewport>
+          </ThreadPrimitive.Root>
 
           <PromptCard
             attachments={attachments}
@@ -254,7 +284,6 @@ function App() {
             onSelectModel={(provider, modelId) => void setModel(provider, modelId)}
             onSelectThinkingLevel={(level) => void setThinkingLevel(level)}
             onStop={() => void abort()}
-            onSubmit={() => void handleSubmit()}
             phase={connection.phase}
             textareaRef={promptInputRef}
             thinkingLevel={connection.thinkingLevel}
@@ -290,7 +319,8 @@ function App() {
           open={pendingRisk === "export"}
           title="导出任务记录前确认"
         />
-      </div>
+        </div>
+      </PiAssistantRuntimeProvider>
     </TooltipProvider>
   );
 }

@@ -10,7 +10,7 @@ Lure 与 Pi 的唯一集成边界是：在用户选择的工作目录中启动 `
 
 - 桌面框架：Tauri 2
 - 前端：React 19 + TypeScript + Vite
-- UI：AI Elements + shadcn/ui + Tailwind CSS 4
+- UI：assistant-ui + AI Elements + shadcn/ui + Tailwind CSS 4
 - Rust：Cargo workspace（edition 2024）
 - 包管理器：pnpm
 - 初始平台：macOS，工程结构预留其他桌面平台适配空间
@@ -38,7 +38,7 @@ lure/
 │   ├── App.tsx                # 当前应用壳与前端组合入口
 │   ├── App.test.tsx           # 前端可观察行为测试
 │   ├── components/
-│   │   ├── ai-elements/       # 流式对话、消息、推理与工具展示组件
+│   │   ├── ai-elements/       # 推理与工具展示组件
 │   │   └── ui/                # 纳入源码管理的 shadcn/ui 基础组件
 │   ├── features/pi-connection/# Tauri API、事件 reducer 与连接会话 Hook
 │   ├── lib/utils.ts           # className 合并工具
@@ -99,7 +99,7 @@ React UI ⇄ Tauri command/event ⇄ lure-desktop
 2. Rust 优先使用 `LURE_PI_PATH`，否则从当前 `PATH` 启动 `pi --mode rpc`。
 3. `lure-rpc` 只按 LF 切分 stdout JSONL，以请求 ID 关联 `get_state`、`prompt` 和 `abort` 响应。
 4. Tauri 通过统一的 `lure://pi-event` 推送带序号的规范化事件。
-5. 前端 reducer 将文本、thinking 和工具事件映射到 AI Elements；只有 `agent_settled` 才恢复可输入状态。
+5. 前端 reducer 保留 Pi 消息事实，assistant-ui `ExternalStoreRuntime` 将文本、thinking 和工具事件映射为线程内容；只有 `agent_settled` 才恢复可发送状态。
 6. 断开连接或应用退出时，中止活动任务并回收 Pi 子进程。
 
 当前桌面边界只暴露 `connect_pi`、`disconnect_pi`、`send_prompt`、`abort_pi` 四个命令。MVP 不支持图片、消息排队、模型切换和历史会话管理；交互式 extension UI 请求会被安全取消，避免 Pi 持续等待。
@@ -123,14 +123,13 @@ src/
 
 Feature 内聚自己的组件、状态与测试；只有形成稳定复用需求后才上移到 `components/` 或 `lib/`。通用界面原语优先通过 shadcn/ui CLI 写入 `components/ui/`，样式使用 Tailwind CSS 和 `src/index.css` 中的语义设计令牌。
 
-流式对话界面统一采用 AI Elements。`components/ai-elements/` 当前包含会话滚动、消息与 Markdown、提示输入、推理过程、来源和工具调用组件；组件源码纳入项目维护，并通过 Streamdown 渲染流式 Markdown。AI Elements 只承担展示与交互，消息事实来源和运行控制仍由 Pi RPC 适配层提供。
+对话线程统一采用 assistant-ui。`PiAssistantRuntimeProvider` 通过 `ExternalStoreRuntime` 将 Pi reducer 中的消息转换为 assistant-ui 标准内容部件；`ThreadPrimitive`、`MessagePrimitive` 和 `ComposerPrimitive` 分别负责滚动线程、消息上下文与输入行为。Pi reducer 仍是唯一消息事实来源，assistant-ui 不接管 Pi 的会话、模型、工具或运行生命周期。
+
+`components/ai-elements/` 仅保留适合 Lure 的推理与工具展示组件，Markdown 继续通过 Streamdown 渲染；目录、模型、思考强度、附件和停止操作仍由工作区输入卡按照 Pi RPC 能力提供。
 
 ```bash
 # 按需引入 shadcn/ui 组件
 pnpm dlx shadcn@latest add button
-
-# 按需引入 AI Elements 组件
-pnpm dlx ai-elements@latest add conversation
 ```
 
 ## 5. 开发命令

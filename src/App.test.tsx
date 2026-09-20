@@ -135,7 +135,7 @@ describe("主工作区初始态", () => {
     expect(card.className).toContain("rounded-[20px]");
     expect(card.className).not.toContain("border-t");
 
-    const content = screen.getByRole("log");
+    const content = screen.getByRole("log", { name: "对话线程" });
     expect(content.className).toContain("max-w-[920px]");
   });
 
@@ -281,6 +281,39 @@ describe("主工作区对话态", () => {
     expect(screen.queryByRole("status", { name: "任务状态" })).not.toBeInTheDocument();
     expect(screen.queryByText("Pi 已开始执行任务")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "停止生成" })).toBeInTheDocument();
+  });
+
+  it("保留 Pi 产生的连续助手轮次及其工具归属", async () => {
+    await renderConnected();
+
+    emit({ sequence: 1, event: { type: "assistant_message_started" } });
+    emit({
+      sequence: 2,
+      event: {
+        type: "assistant_message_completed",
+        text: "先读取文件",
+        thinking: "",
+      },
+    });
+    emit({
+      sequence: 3,
+      event: {
+        type: "tool_started",
+        toolCallId: "tool-1",
+        toolName: "read",
+        input: "{\"path\":\"README.md\"}",
+      },
+    });
+    emit({ sequence: 4, event: { type: "assistant_message_started" } });
+    emit({
+      sequence: 5,
+      event: { type: "assistant_text_delta", contentIndex: 0, delta: "读取完成" },
+    });
+
+    expect(screen.getAllByLabelText("Pi 回复")).toHaveLength(2);
+    expect(screen.getByText("先读取文件")).toBeInTheDocument();
+    expect(screen.getByText("读取完成")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /正在读取 README.md/ })).toBeInTheDocument();
   });
 
   it("运行中保留可编辑草稿并把主操作切换为停止", async () => {
