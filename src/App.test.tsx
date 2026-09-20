@@ -1,6 +1,8 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { StrictMode } from "react";
+
 import type { EventEnvelope } from "@/features/pi-connection/reducer";
 import App from "./App";
 
@@ -9,20 +11,20 @@ const mocks = vi.hoisted(() => ({
   open: vi.fn(),
   listen: vi.fn(),
   unlisten: vi.fn(),
-  eventHandler: undefined as
-    | ((event: { payload: EventEnvelope }) => void)
-    | undefined,
+  createObjectURL: vi.fn(() => "blob:mock-url"),
+  revokeObjectURL: vi.fn(),
+  listeners: new Set<(event: { payload: EventEnvelope }) => void>(),
 }));
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: mocks.invoke }));
-vi.mock("@tauri-apps/api/event", () => ({
-  listen: mocks.listen,
-}));
+vi.mock("@tauri-apps/api/event", () => ({ listen: mocks.listen }));
 vi.mock("@tauri-apps/plugin-dialog", () => ({ open: mocks.open }));
+
+const defaultWorkspace = "/home/test/lure";
 
 const readySnapshot = {
   phase: "ready",
-  workingDirectory: "/tmp/lure-project",
+  workingDirectory: defaultWorkspace,
   sessionId: "session-1",
   sessionFile: "/tmp/session.jsonl",
   model: { provider: "test", id: "fake-model" },
@@ -31,18 +33,75 @@ const readySnapshot = {
 } as const;
 
 function emit(envelope: EventEnvelope) {
-  act(() => mocks.eventHandler?.({ payload: envelope }));
+  act(() => {
+    for (const listener of [...mocks.listeners]) listener({ payload: envelope });
+  });
+}
+
+async function renderConnected() {
+  render(<App />);
+  await waitFor(() => expect(mocks.invoke).toHaveBeenCalledWith("connect_pi", {
+    workingDirectory: defaultWorkspace,
+  }));
+  await screen.findByRole("combobox", { name: "模型" });
+}
+
+function textbox() {
+  return screen.getByRole("textbox", { name: "任务指令" });
 }
 
 beforeEach(() => {
+  localStorage.clear();
   mocks.invoke.mockReset();
   mocks.open.mockReset();
   mocks.listen.mockReset();
   mocks.unlisten.mockReset();
-  mocks.eventHandler = undefined;
+  mocks.createObjectURL.mockClear();
+  mocks.revokeObjectURL.mockClear();
+  mocks.listeners.clear();
+  mocks.invoke.mockImplementation(async (command: string) => {
+    if (command === "get_default_workspace") return defaultWorkspace;
+    if (command === "connect_pi") return readySnapshot;
+    if (command === "new_pi_session") {
+      return {
+        ...readySnapshot,
+        sessionId: "session-2",
+        sessionFile: "/tmp/session-2.jsonl",
+      };
+    }
+    if (command === "send_prompt") return { accepted: true };
+    if (command === "get_available_models") {
+      return [
+        { provider: "test", id: "fake-model" },
+        { provider: "test", id: "other-model" },
+      ];
+    }
+    if (command === "get_commands") {
+      return [{ name: "review", description: "审查改动", source: "extension" }];
+    }
+    if (command === "get_workspace_context") {
+      return { workingDirectory: defaultWorkspace, branch: "main" };
+    }
+    if (command === "set_model") return { provider: "test", id: "other-model" };
+    if (command === "set_thinking_level") return "high";
+    if (command === "read_image_attachments") {
+      return [{ data: "aGVsbG8=", mimeType: "image/png", name: "shot.png" }];
+    }
+    return undefined;
+  });
+  mocks.open.mockImplementation(async (options: { directory?: boolean } | undefined) =>
+    options?.directory ? "/tmp/lure-project" : ["/tmp/shot.png"],
+  );
   mocks.listen.mockImplementation(async (_name, handler) => {
-    mocks.eventHandler = handler;
-    return mocks.unlisten;
+    mocks.listeners.add(handler);
+    return () => {
+      mocks.listeners.delete(handler);
+      mocks.unlisten();
+    };
+  });
+  Object.assign(URL, {
+    createObjectURL: mocks.createObjectURL,
+    revokeObjectURL: mocks.revokeObjectURL,
   });
 });
 
@@ -50,187 +109,517 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
-describe("App", () => {
-  it("按设计规约呈现任务导航与单一主工作区", () => {
+describe("主工作区初始态", () => {
+  it("启动后准备默认工作区并自动创建 Pi RPC", async () => {
     render(<App />);
 
-    const navigation = screen.getByRole("navigation", { name: "任务导航" });
-    expect(within(navigation).getByText("Lure")).toBeInTheDocument();
-    expect(
-      within(navigation).getByRole("button", { name: "新建任务" }),
-    ).toBeInTheDocument();
-    expect(
-      within(navigation).getByRole("searchbox", { name: "搜索任务" }),
-    ).toBeInTheDocument();
-    expect(within(navigation).getByText("今天")).toBeInTheDocument();
-    expect(within(navigation).getByText("最近")).toBeInTheDocument();
-    expect(within(navigation).getByText("已归档")).toBeInTheDocument();
-    expect(
-      within(navigation).getByRole("button", { name: "设置" }),
-    ).toBeInTheDocument();
-    expect(
-      within(navigation).queryByRole("button", { name: "选择工作目录" }),
-    ).not.toBeInTheDocument();
-
-    expect(
-      screen.getByRole("main", { name: "任务工作区" }),
-    ).toBeInTheDocument();
-    expect(
-      screen.getByRole("heading", { name: "开始一个新任务" }),
-    ).toBeInTheDocument();
-    expect(
-      screen.getAllByRole("button", {
-        name: /分析当前项目|检查未提交改动|解释代码结构/,
+    await waitFor(() =>
+      expect(mocks.invoke).toHaveBeenCalledWith("get_default_workspace"),
+    );
+    await waitFor(() =>
+      expect(mocks.invoke).toHaveBeenCalledWith("connect_pi", {
+        workingDirectory: defaultWorkspace,
       }),
-    ).toHaveLength(3);
+    );
+    expect(mocks.open).not.toHaveBeenCalled();
   });
 
-  it("可在窄窗口打开和关闭任务导航", () => {
+  it("不显示会话顶栏，并在底部提供悬浮输入卡", () => {
     render(<App />);
 
-    const openButton = screen.getByRole("button", { name: "打开任务导航" });
-    expect(openButton).toHaveAttribute("aria-expanded", "false");
-    fireEvent.click(openButton);
+    expect(screen.queryByLabelText("任务顶栏")).not.toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "开始一个新任务" })).toBeInTheDocument();
+
+    const card = screen.getByRole("group", { name: "任务输入卡" });
+    expect(card.className).toContain("rounded-[20px]");
+    expect(card.className).not.toContain("border-t");
+
+    const content = screen.getByRole("log");
+    expect(content.className).toContain("max-w-[920px]");
+  });
+
+  it("未连接时可编辑草稿但禁止发送", async () => {
+    render(<App />);
+
+    expect(textbox()).toBeEnabled();
+    expect(screen.getByRole("button", { name: "发送消息" })).toBeDisabled();
+
+    fireEvent.change(textbox(), { target: { value: "准备中的草稿" } });
+    expect(textbox()).toHaveValue("准备中的草稿");
+    expect(screen.getByRole("button", { name: "发送消息" })).toBeDisabled();
+  });
+
+  it("工作流示例只填入草稿且不自动执行", () => {
+    render(<App />);
+
+    fireEvent.click(screen.getByRole("button", { name: "分析当前项目" }));
+
+    expect(textbox()).toHaveValue("分析当前项目");
+    expect(screen.queryByText("分析当前项目", { selector: "p, div, h2" })).toBeNull();
+    expect(mocks.invoke).not.toHaveBeenCalledWith("send_prompt", expect.anything());
+  });
+
+  it("意外关闭后恢复默认工作目录中的未发送草稿", async () => {
+    const view = render(<App />);
+    expect(await screen.findAllByText("lure")).not.toHaveLength(0);
+    fireEvent.change(textbox(), { target: { value: "还没发送的草稿" } });
+    view.unmount();
+
+    render(<App />);
+
+    expect(await screen.findAllByText("lure")).not.toHaveLength(0);
+    expect(textbox()).toHaveValue("还没发送的草稿");
+  });
+
+  it("取消图片确认时不会选择文件", async () => {
+    render(<App />);
+
+    fireEvent.click(screen.getByRole("button", { name: "添加图片" }));
+    const dialog = await screen.findByRole("dialog");
+    fireEvent.click(within(dialog).getByRole("button", { name: "取消" }));
+
+    expect(mocks.open).not.toHaveBeenCalled();
+    expect(screen.queryByText("shot.png")).not.toBeInTheDocument();
+  });
+
+  it("窄窗口可以打开任务导航", () => {
+    render(<App />);
+
+    const open = screen.getByRole("button", { name: "打开任务导航" });
+    expect(open).toHaveAttribute("aria-expanded", "false");
+    fireEvent.click(open);
     expect(screen.getByRole("button", { name: "关闭任务导航" })).toHaveAttribute(
       "aria-expanded",
       "true",
     );
   });
+});
 
-  it("未连接时禁用输入，并可选择目录和连接 Pi", async () => {
-    mocks.open.mockResolvedValue("/tmp/lure-project");
-    mocks.invoke.mockImplementation(async (command) => {
-      if (command === "connect_pi") return readySnapshot;
-      return undefined;
+describe("主工作区对话态", () => {
+  it("新建任务复用默认 RPC client，并清空旧对话后聚焦输入框", async () => {
+    await renderConnected();
+    emit({
+      sequence: 1,
+      event: { type: "user_message_accepted", requestId: "old", message: "旧对话" },
     });
-    render(<App />);
-
-    const input = screen.getByPlaceholderText("连接 Pi 后即可发送消息…");
-    expect(input).toBeDisabled();
-
-    fireEvent.click(screen.getByRole("button", { name: "选择工作目录" }));
-    expect(await screen.findAllByText("/tmp/lure-project")).not.toHaveLength(0);
-
-    fireEvent.click(screen.getByRole("button", { name: "连接 Pi" }));
-    await waitFor(() =>
-      expect(mocks.invoke).toHaveBeenCalledWith("connect_pi", {
-        workingDirectory: "/tmp/lure-project",
-      }),
-    );
-    expect(await screen.findByText("fake-model")).toBeInTheDocument();
-    expect(screen.getByPlaceholderText("给 Pi 发送消息…")).toBeEnabled();
-
-    fireEvent.pointerDown(screen.getByRole("button", { name: "更多任务操作" }), {
-      button: 0,
-      ctrlKey: false,
+    expect(screen.getByText("旧对话")).toBeInTheDocument();
+    fireEvent.change(screen.getByRole("textbox", { name: "任务标题" }), {
+      target: { value: "旧任务" },
     });
-    fireEvent.click(await screen.findByRole("menuitem", { name: "断开 Pi" }));
-    await waitFor(() => expect(mocks.invoke).toHaveBeenCalledWith("disconnect_pi"));
-    expect(
-      await screen.findByPlaceholderText("连接 Pi 后即可发送消息…"),
-    ).toBeDisabled();
+
+    fireEvent.click(screen.getByRole("button", { name: "新建任务" }));
+
+    await waitFor(() => expect(mocks.invoke).toHaveBeenCalledWith("new_pi_session"));
+    expect(mocks.invoke).not.toHaveBeenCalledWith("disconnect_pi");
+    expect(mocks.open).not.toHaveBeenCalled();
+    expect(screen.queryByText("旧对话")).not.toBeInTheDocument();
+    expect(screen.queryByText("旧任务")).not.toBeInTheDocument();
+    expect(screen.getAllByText("lure").length).toBeGreaterThan(0);
+    expect(textbox()).toHaveFocus();
   });
 
-  it("发送提示词并展示 Pi 的流式响应", async () => {
-    mocks.open.mockResolvedValue("/tmp/lure-project");
-    mocks.invoke.mockImplementation(async (command) => {
-      if (command === "connect_pi") return readySnapshot;
-      if (command === "send_prompt") return { accepted: true };
-      return undefined;
+  it("连接后在输入卡上下文条带展示目录、分支与操作", async () => {
+    await renderConnected();
+
+    const card = screen.getByRole("group", { name: "任务输入卡" });
+    expect(within(card).getByText("main")).toBeInTheDocument();
+    expect(within(card).getByText("lure")).toBeInTheDocument();
+    expect(within(card).getByRole("combobox", { name: "模型" })).toBeInTheDocument();
+    expect(within(card).getByRole("combobox", { name: "思考强度" })).toBeInTheDocument();
+
+    fireEvent.change(within(card).getByRole("combobox", { name: "模型" }), {
+      target: { value: "test::other-model" },
     });
-    render(<App />);
+    await waitFor(() =>
+      expect(mocks.invoke).toHaveBeenCalledWith("set_model", {
+        modelId: "other-model",
+        provider: "test",
+      }),
+    );
+  });
 
-    fireEvent.click(screen.getByRole("button", { name: "选择工作目录" }));
-    await screen.findAllByText("/tmp/lure-project");
-    fireEvent.click(screen.getByRole("button", { name: "连接 Pi" }));
-    const input = await screen.findByPlaceholderText("给 Pi 发送消息…");
+  it("发送后出现顶栏、用户消息与执行状态", async () => {
+    await renderConnected();
 
-    fireEvent.change(input, { target: { value: "检查项目" } });
-    fireEvent.submit(input.closest("form")!);
+    fireEvent.change(textbox(), { target: { value: "检查项目" } });
+    expect(screen.getByRole("button", { name: "发送消息" })).toBeEnabled();
+    fireEvent.submit(textbox().closest("form")!);
     await waitFor(() =>
       expect(mocks.invoke).toHaveBeenCalledWith("send_prompt", {
+        images: [],
         message: "检查项目",
       }),
     );
 
     emit({
       sequence: 1,
-      event: {
-        type: "user_message_accepted",
-        requestId: "2",
-        message: "检查项目",
-      },
+      event: { type: "user_message_accepted", requestId: "2", message: "检查项目" },
     });
+    expect(await screen.findByText("检查项目")).toBeInTheDocument();
+
+    const header = screen.getByLabelText("任务顶栏");
+    expect(within(header).getByRole("textbox", { name: "任务标题" })).toHaveValue("lure");
+    expect(within(header).getByRole("button", { name: "导出记录" })).toBeInTheDocument();
+    expect(within(header).getByRole("button", { name: "更多任务操作" })).toBeInTheDocument();
+    expect(within(header).queryByText("执行中")).not.toBeInTheDocument();
+    expect(within(header).queryByText("fake-model")).not.toBeInTheDocument();
+
     emit({ sequence: 2, event: { type: "run_started" } });
-    emit({ sequence: 3, event: { type: "assistant_message_started" } });
+    const status = screen.getByRole("status", { name: "任务状态" });
+    expect(within(status).getByText("执行中")).toBeInTheDocument();
+    expect(within(status).getByRole("button", { name: "停止任务" })).toBeInTheDocument();
+    expect(status).toHaveAttribute("aria-live", "polite");
+  });
+
+  it("运行中保留可编辑草稿并把主操作切换为停止", async () => {
+    await renderConnected();
+    fireEvent.change(textbox(), { target: { value: "第一条" } });
+    fireEvent.submit(textbox().closest("form")!);
+    await waitFor(() => expect(mocks.invoke).toHaveBeenCalledWith("send_prompt", expect.anything()));
+
+    emit({ sequence: 1, event: { type: "run_started" } });
+
+    expect(textbox()).toBeEnabled();
+    fireEvent.change(textbox(), { target: { value: "下一条草稿" } });
+    expect(textbox()).toHaveValue("下一条草稿");
+    expect(screen.queryByRole("button", { name: "发送消息" })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "停止生成" }));
+    await waitFor(() => expect(mocks.invoke).toHaveBeenCalledWith("abort_pi"));
+    expect(textbox()).toHaveValue("下一条草稿");
+  });
+
+  it("完成后展示结果摘要与结果卡片，并区分已停止与失败", async () => {
+    await renderConnected();
+    fireEvent.change(textbox(), { target: { value: "修改文件" } });
+    fireEvent.submit(textbox().closest("form")!);
+    await waitFor(() => expect(mocks.invoke).toHaveBeenCalledWith("send_prompt", expect.anything()));
+
+    emit({ sequence: 1, event: { type: "run_started" } });
+    emit({ sequence: 2, event: { type: "assistant_message_started" } });
+    emit({
+      sequence: 3,
+      event: { type: "assistant_text_delta", contentIndex: 0, delta: "已经改好" },
+    });
     emit({
       sequence: 4,
-      event: { type: "assistant_thinking_delta", contentIndex: 0, delta: "分析中" },
-    });
-    emit({
-      sequence: 5,
-      event: { type: "assistant_text_delta", contentIndex: 1, delta: "完成" },
-    });
-    emit({
-      sequence: 6,
       event: {
         type: "tool_started",
         toolCallId: "tool-1",
-        toolName: "read",
-        input: "{\n  \"path\": \"README.md\"\n}",
+        toolName: "edit",
+        input: "{\n  \"path\": \"src/App.tsx\"\n}",
       },
     });
-
-    expect(screen.getByText("检查项目")).toBeInTheDocument();
-    expect(await screen.findByText("完成")).toBeInTheDocument();
-    expect(screen.getByText("Thinking…")).toBeInTheDocument();
-    expect(screen.getByText("read")).toBeInTheDocument();
-    expect(screen.getByText("Parameters")).toBeInTheDocument();
-    expect(screen.getByText(/README\.md/)).toBeInTheDocument();
-
     emit({
-      sequence: 7,
+      sequence: 5,
       event: {
         type: "tool_completed",
         toolCallId: "tool-1",
-        toolName: "read",
-        input: "{\n  \"path\": \"README.md\"\n}",
-        output: "done",
+        toolName: "edit",
+        input: "{\n  \"path\": \"src/App.tsx\"\n}",
+        output: "updated src/App.tsx",
         truncatedLines: null,
         isError: false,
       },
     });
-    expect(screen.getByText("Completed")).toBeInTheDocument();
-    expect(screen.queryByText("Parameters")).not.toBeInTheDocument();
+    emit({ sequence: 6, event: { type: "run_settled" } });
 
-    fireEvent.click(screen.getByRole("button", { name: "停止生成" }));
-    await waitFor(() => expect(mocks.invoke).toHaveBeenCalledWith("abort_pi"));
+    expect(await screen.findByText("已经改好")).toBeInTheDocument();
+    expect(screen.getByRole("article", { name: "结果：src/App.tsx" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("status", { name: "任务状态" }).textContent,
+    ).toContain("已完成");
+    expect(screen.queryByText("已失败")).not.toBeInTheDocument();
   });
 
-  it("以可折叠系统色块展示压缩摘要", async () => {
-    render(<App />);
-    await waitFor(() => expect(mocks.listen).toHaveBeenCalled());
+  it("用户停止的任务标记为已停止而不是失败", async () => {
+    await renderConnected();
+    fireEvent.change(textbox(), { target: { value: "长任务" } });
+    fireEvent.submit(textbox().closest("form")!);
+    await waitFor(() => expect(mocks.invoke).toHaveBeenCalledWith("send_prompt", expect.anything()));
 
+    emit({ sequence: 1, event: { type: "run_started" } });
+    emit({ sequence: 2, event: { type: "assistant_message_started" } });
     emit({
-      sequence: 1,
-      event: { type: "compaction_changed", active: true, reason: "threshold" },
+      sequence: 3,
+      event: {
+        type: "assistant_message_completed",
+        text: "",
+        thinking: "",
+        stopReason: "aborted",
+      },
     });
-    expect(screen.getAllByText("Compacting context…")).not.toHaveLength(0);
+    emit({ sequence: 4, event: { type: "run_settled" } });
 
+    expect(screen.getByRole("status", { name: "任务状态" }).textContent).toContain("已停止");
+    expect(screen.queryByText("已失败")).not.toBeInTheDocument();
+  });
+});
+
+describe("执行流渐进展开", () => {
+  it("工具默认折叠，展开后显示中文字段与完整输出入口", async () => {
+    await renderConnected();
+    fireEvent.change(textbox(), { target: { value: "读取" } });
+    fireEvent.submit(textbox().closest("form")!);
+    await waitFor(() => expect(mocks.invoke).toHaveBeenCalledWith("send_prompt", expect.anything()));
+
+    emit({ sequence: 1, event: { type: "run_started" } });
+    emit({ sequence: 2, event: { type: "assistant_message_started" } });
+    emit({
+      sequence: 3,
+      event: {
+        type: "tool_started",
+        toolCallId: "tool-1",
+        toolName: "bash",
+        input: "{\n  \"command\": \"pnpm test\"\n}",
+      },
+    });
+    emit({
+      sequence: 4,
+      event: {
+        type: "tool_completed",
+        toolCallId: "tool-1",
+        toolName: "bash",
+        input: "{\n  \"command\": \"pnpm test\"\n}",
+        output: Array.from({ length: 30 }, (_, index) => `line ${index}`).join("\n"),
+        truncatedLines: null,
+        isError: false,
+      },
+    });
+
+    const summary = screen.getByRole("button", { name: /项目命令执行完成/ });
+    expect(summary).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByText("工具参数")).not.toBeInTheDocument();
+
+    fireEvent.click(summary);
+    expect(summary).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByText("工具参数")).toBeInTheDocument();
+    expect(screen.getByText("工具输出")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /查看完整 30 行输出/ })).toBeInTheDocument();
+    expect(screen.getByText("已完成")).toBeInTheDocument();
+    expect(screen.queryByText("Completed")).not.toBeInTheDocument();
+  });
+});
+
+describe("完整内容预览", () => {
+  it("结果卡片在主区打开预览并恢复触发点焦点", async () => {
+    await renderConnected();
+    fireEvent.change(textbox(), { target: { value: "读取配置" } });
+    fireEvent.submit(textbox().closest("form")!);
+    await waitFor(() => expect(mocks.invoke).toHaveBeenCalledWith("send_prompt", expect.anything()));
+
+    emit({ sequence: 1, event: { type: "run_started" } });
+    emit({ sequence: 2, event: { type: "assistant_message_started" } });
+    emit({
+      sequence: 3,
+      event: {
+        type: "tool_started",
+        toolCallId: "tool-1",
+        toolName: "bash",
+        input: "{\n  \"command\": \"pnpm test\"\n}",
+      },
+    });
+    emit({
+      sequence: 4,
+      event: {
+        type: "tool_completed",
+        toolCallId: "tool-1",
+        toolName: "bash",
+        input: "{\n  \"command\": \"pnpm test\"\n}",
+        output: "all green",
+        truncatedLines: null,
+        isError: false,
+      },
+    });
+
+    const card = await screen.findByRole("article", { name: "结果：命令执行结果" });
+    const openPreview = within(card).getByRole("button", { name: "查看日志" });
+    openPreview.focus();
+    fireEvent.click(openPreview);
+
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByText("命令执行结果")).toBeInTheDocument();
+    expect(within(dialog).getByText("all green")).toBeInTheDocument();
+
+    fireEvent.keyDown(document, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(openPreview).toHaveFocus();
+  });
+
+  it("展开一个工具调用不影响其他工具", async () => {
+    await renderConnected();
+    fireEvent.change(textbox(), { target: { value: "两个工具" } });
+    fireEvent.submit(textbox().closest("form")!);
+    await waitFor(() => expect(mocks.invoke).toHaveBeenCalledWith("send_prompt", expect.anything()));
+
+    emit({ sequence: 1, event: { type: "run_started" } });
+    emit({ sequence: 2, event: { type: "assistant_message_started" } });
+    emit({
+      sequence: 3,
+      event: {
+        type: "tool_started",
+        toolCallId: "tool-1",
+        toolName: "read",
+        input: "{\n  \"path\": \"src/App.tsx\"\n}",
+      },
+    });
+    emit({
+      sequence: 4,
+      event: {
+        type: "tool_started",
+        toolCallId: "tool-2",
+        toolName: "bash",
+        input: "{\n  \"command\": \"git status\"\n}",
+      },
+    });
+
+    const first = screen.getByRole("button", { name: /正在读取 src\/App.tsx/ });
+    const second = screen.getByRole("button", { name: /正在执行项目命令/ });
+    expect(first).toHaveAttribute("aria-expanded", "false");
+    expect(second).toHaveAttribute("aria-expanded", "false");
+
+    fireEvent.click(first);
+
+    expect(first).toHaveAttribute("aria-expanded", "true");
+    expect(second).toHaveAttribute("aria-expanded", "false");
+  });
+});
+
+describe("风险与错误处理", () => {
+  it("扩展交互请求打开原生对话框并把响应回传 Pi", async () => {
+    await renderConnected();
+
+    emit({ sequence: 1, event: { type: "run_started" } });
     emit({
       sequence: 2,
       event: {
-        type: "compaction_changed",
-        active: false,
-        reason: "threshold",
-        aborted: false,
-        summary: "保留的摘要",
-        tokensBefore: 12000,
+        type: "extension_ui_requested",
+        requestId: "ui-1",
+        method: "select",
+        title: "选择范围",
+        message: "请选择处理范围",
+        options: ["当前文件", "整个项目"],
+        placeholder: null,
+        defaultValue: null,
       },
     });
-    expect(screen.getByText("Compacted from 12000 tokens (click to expand)")).toBeInTheDocument();
-    expect(screen.getByText("[compaction]")).toBeInTheDocument();
-    expect(screen.getByText("保留的摘要")).toBeInTheDocument();
+
+    expect(screen.getByRole("status", { name: "任务状态" }).textContent).toContain("等待输入");
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByText("选择范围")).toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: "取消" })).toBeInTheDocument();
+
+    fireEvent.change(screen.getByRole("combobox", { name: "选择一项" }), {
+      target: { value: "整个项目" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "提交输入" }));
+    await waitFor(() =>
+      expect(mocks.invoke).toHaveBeenCalledWith("respond_extension_ui", {
+        cancelled: false,
+        requestId: "ui-1",
+        value: "整个项目",
+      }),
+    );
+  });
+
+  it("失败时说明影响与原因，并提供可执行操作", async () => {
+    await renderConnected();
+
+    emit({ sequence: 1, event: { type: "process_exited", code: 1 } });
+
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain("影响：");
+    expect(alert.textContent).toContain("原因：");
+    expect(within(alert).getByRole("button", { name: "重新连接" })).toBeInTheDocument();
+  });
+
+  it("导出记录把当前对话写成 Markdown", async () => {
+    await renderConnected();
+    fireEvent.change(textbox(), { target: { value: "导出我" } });
+    fireEvent.submit(textbox().closest("form")!);
+    await waitFor(() => expect(mocks.invoke).toHaveBeenCalledWith("send_prompt", expect.anything()));
+    emit({
+      sequence: 1,
+      event: { type: "user_message_accepted", requestId: "5", message: "导出我" },
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "导出记录" }));
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByText("操作内容")).toBeInTheDocument();
+    fireEvent.click(within(dialog).getByRole("button", { name: "导出并保存" }));
+
+    expect(mocks.createObjectURL).toHaveBeenCalledTimes(1);
+    expect(mocks.revokeObjectURL).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("附件", () => {
+  it("选择图片后显示附件并可随指令发送", async () => {
+    await renderConnected();
+
+    fireEvent.click(screen.getByRole("button", { name: "添加图片" }));
+    const confirmDialog = await screen.findByRole("dialog");
+    expect(within(confirmDialog).getByText("影响对象")).toBeInTheDocument();
+    expect(within(confirmDialog).getByText("可否恢复")).toBeInTheDocument();
+    fireEvent.click(within(confirmDialog).getByRole("button", { name: "继续选择图片" }));
+    expect(await screen.findByText("shot.png")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "移除附件 shot.png" }));
+    expect(screen.queryByText("shot.png")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "添加图片" }));
+    fireEvent.click(await screen.findByRole("button", { name: "继续选择图片" }));
+    expect(await screen.findByText("shot.png")).toBeInTheDocument();
+
+    fireEvent.change(textbox(), { target: { value: "看看这张图" } });
+    fireEvent.submit(textbox().closest("form")!);
+    await waitFor(() =>
+      expect(mocks.invoke).toHaveBeenCalledWith("send_prompt", {
+        images: [{ data: "aGVsbG8=", mimeType: "image/png" }],
+        message: "看看这张图",
+      }),
+    );
+
+    await waitFor(() => expect(screen.queryByText("shot.png")).not.toBeInTheDocument());
+  });
+});
+describe("事件订阅生命周期", () => {
+  it("严格模式重复挂载后只保留一个 Pi 事件监听", async () => {
+    render(
+      <StrictMode>
+        <App />
+      </StrictMode>,
+    );
+
+    await waitFor(() => expect(mocks.listen).toHaveBeenCalled());
+    await waitFor(() => expect(mocks.listeners.size).toBe(1));
+    await waitFor(() =>
+      expect(mocks.invoke.mock.calls.filter(([command]) => command === "connect_pi")).toHaveLength(1),
+    );
+
+    emit({
+      sequence: 1,
+      event: { type: "user_message_accepted", requestId: "1", message: "只出现一次" },
+    });
+
+    expect(screen.getAllByText("只出现一次")).toHaveLength(1);
+  });
+
+  it("重复投递的同一事件只应用一次", async () => {
+    const view = render(<App />);
+    await waitFor(() => expect(mocks.listen).toHaveBeenCalled());
+
+    const listener = [...mocks.listeners][0];
+    act(() => {
+      // 模拟两个活跃监听同时收到同一个 RPC 事件。
+      listener?.({ payload: { sequence: 7, event: { type: "run_started" } } });
+      listener?.({ payload: { sequence: 7, event: { type: "run_started" } } });
+    });
+
+    // 单例状态行 1 处 + 执行流内的可追溯记录 1 条；重复投递会产生 4 处。
+    expect(screen.getAllByRole("status", { name: "任务状态" })).toHaveLength(1);
+    expect(screen.getAllByText("Pi 已开始执行任务")).toHaveLength(2);
+    view.unmount();
   });
 
   it("卸载时取消 Pi 事件监听", async () => {
@@ -240,5 +629,6 @@ describe("App", () => {
     view.unmount();
 
     expect(mocks.unlisten).toHaveBeenCalled();
+    expect(mocks.listeners.size).toBe(0);
   });
 });

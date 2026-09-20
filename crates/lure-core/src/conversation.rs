@@ -90,9 +90,18 @@ pub enum LureEvent {
         tokens_before: Option<u64>,
         error_message: Option<String>,
     },
-    ExtensionUiUnsupported {
+    ExtensionUiRequested {
+        request_id: String,
         method: String,
         title: Option<String>,
+        message: Option<String>,
+        options: Vec<String>,
+        placeholder: Option<String>,
+        default_value: Option<String>,
+    },
+    ExtensionUiResolved {
+        request_id: String,
+        cancelled: bool,
     },
     Notification {
         level: String,

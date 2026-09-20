@@ -10,14 +10,34 @@ export type LureError = {
   message: string;
 };
 
+export type ModelSnapshot = { provider: string; id: string };
+
 export type ConnectionSnapshot = {
   phase: ConnectionPhase;
   workingDirectory: string | null;
   sessionId: string | null;
   sessionFile: string | null;
-  model: { provider: string; id: string } | null;
+  model: ModelSnapshot | null;
   thinkingLevel: string | null;
   error: LureError | null;
+};
+
+export type RunStatus =
+  | "idle"
+  | "running"
+  | "waiting_input"
+  | "completed"
+  | "failed"
+  | "stopped";
+
+export type ExtensionUiRequest = {
+  requestId: string;
+  method: "select" | "confirm" | "input" | "editor" | string;
+  title: string | null;
+  message: string | null;
+  options: string[];
+  placeholder: string | null;
+  defaultValue: string | null;
 };
 
 export type MessageBlock = {
@@ -38,7 +58,7 @@ export type ToolRun = {
 export type ConversationMessage = {
   id: string;
   role: "assistant" | "user" | "system";
-  kind: "message" | "compaction" | "branch_summary";
+  kind: "message" | "compaction" | "branch_summary" | "status";
   content: string;
   thinking: string;
   blocks: MessageBlock[];
@@ -47,6 +67,7 @@ export type ConversationMessage = {
   errorMessage?: string | null;
   tokensBefore?: number | null;
   pending?: boolean;
+  status?: RunStatus;
 };
 
 export type PiEvent =
@@ -102,7 +123,8 @@ export type PiEvent =
       tokensBefore?: number | null;
       errorMessage?: string | null;
     }
-  | { type: "extension_ui_unsupported"; method: string; title?: string | null }
+  | ({ type: "extension_ui_requested" } & ExtensionUiRequest)
+  | { type: "extension_ui_resolved"; requestId: string; cancelled: boolean }
   | { type: "notification"; level: string; message: string }
   | { type: "process_stderr"; message: string }
   | { type: "process_exited"; code?: number | null }
@@ -120,6 +142,8 @@ export type PiSessionState = {
   error: LureError | null;
   notice: string | null;
   diagnostics: string[];
+  runStatus: RunStatus;
+  extensionRequest: ExtensionUiRequest | null;
 };
 
 export const disconnectedSnapshot: ConnectionSnapshot = {
@@ -139,6 +163,8 @@ export const initialPiSessionState: PiSessionState = {
   error: null,
   notice: null,
   diagnostics: [],
+  runStatus: "idle",
+  extensionRequest: null,
 };
 
 export function piSessionReducer(
@@ -148,12 +174,32 @@ export function piSessionReducer(
   const event = envelope.event;
   switch (event.type) {
     case "connection_changed":
-    case "session_ready":
       return {
         ...state,
         connection: event.snapshot,
         error: event.snapshot.error,
+        ...(event.snapshot.phase === "disconnected"
+          ? { extensionRequest: null, runStatus: "idle" as const }
+          : {}),
       };
+    case "session_ready": {
+      const sessionChanged = state.connection.sessionId !== event.snapshot.sessionId;
+      return {
+        ...state,
+        connection: event.snapshot,
+        error: event.snapshot.error,
+        ...(sessionChanged
+          ? {
+              messages: [],
+              activeAssistantId: null,
+              notice: null,
+              diagnostics: [],
+              runStatus: "idle" as const,
+              extensionRequest: null,
+            }
+          : {}),
+      };
+    }
     case "user_message_accepted": {
       if (state.messages.some((message) => message.id === `user-${event.requestId}`)) {
         return state;
@@ -217,31 +263,75 @@ export function piSessionReducer(
         event,
       );
     case "run_started":
-      return {
-        ...state,
-        connection: { ...state.connection, phase: "running" },
-      };
+      return appendStatus(
+        {
+          ...state,
+          connection: { ...state.connection, phase: "running" },
+          runStatus: "running",
+        },
+        envelope.sequence,
+        "running",
+        "Pi 已开始执行任务",
+      );
     case "run_finished":
       return state;
-    case "run_settled":
-      return {
-        ...state,
-        connection: { ...state.connection, phase: "ready" },
-        activeAssistantId: null,
-      };
-    case "retry_changed":
-      return {
-        ...state,
-        notice: event.active
-          ? `Retrying (${event.attempt ?? "?"}/${event.maxAttempts ?? "?"})${event.delayMs ? ` in ${Math.ceil(event.delayMs / 1000)}s` : ""}…`
-          : event.message ?? null,
-      };
+    case "run_settled": {
+      const stopped = [...state.messages]
+        .reverse()
+        .find((message) => message.role === "assistant")?.stopReason === "aborted";
+      const status: RunStatus = stopped ? "stopped" : state.error ? "failed" : "completed";
+      return appendStatus(
+        {
+          ...state,
+          connection: { ...state.connection, phase: "ready" },
+          activeAssistantId: null,
+          runStatus: status,
+        },
+        envelope.sequence,
+        status,
+        stopped ? "任务已由你停止，已完成的过程仍然保留" : "任务执行完成",
+      );
+    }
+    case "retry_changed": {
+      const content = event.active
+        ? `正在进行第 ${event.attempt ?? "?"}/${event.maxAttempts ?? "?"} 次重试${event.delayMs ? `，将在 ${Math.ceil(event.delayMs / 1000)} 秒后开始` : ""}`
+        : event.message ?? "重试已结束";
+      return appendStatus(
+        { ...state, notice: event.active ? content : event.message ?? null },
+        envelope.sequence,
+        event.active ? "running" : state.runStatus,
+        content,
+      );
+    }
     case "compaction_changed":
       return updateCompaction(state, envelope.sequence, event);
-    case "extension_ui_unsupported":
+    case "extension_ui_requested":
+      return appendStatus(
+        {
+          ...state,
+          runStatus: "waiting_input",
+          extensionRequest: {
+            requestId: event.requestId,
+            method: event.method,
+            title: event.title,
+            message: event.message,
+            options: event.options,
+            placeholder: event.placeholder,
+            defaultValue: event.defaultValue,
+          },
+        },
+        envelope.sequence,
+        "waiting_input",
+        event.title ?? "Pi 需要你的输入",
+      );
+    case "extension_ui_resolved":
       return {
         ...state,
-        notice: `当前版本暂不支持扩展交互：${event.title ?? event.method}`,
+        runStatus: state.connection.phase === "running" ? "running" : state.runStatus,
+        extensionRequest:
+          state.extensionRequest?.requestId === event.requestId
+            ? null
+            : state.extensionRequest,
       };
     case "notification":
       return { ...state, notice: event.message };
@@ -255,21 +345,57 @@ export function piSessionReducer(
         code: "PROCESS_EXITED",
         message: `Pi 进程已退出${event.code == null ? "" : `（退出码 ${event.code}）`}`,
       };
-      return {
-        ...state,
-        connection: { ...state.connection, phase: "failed", error },
-        error,
-      };
+      return appendStatus(
+        {
+          ...state,
+          connection: { ...state.connection, phase: "failed", error },
+          error,
+          runStatus: "failed",
+        },
+        envelope.sequence,
+        "failed",
+        error.message,
+      );
     }
     case "protocol_error": {
       const error = { code: "RPC_PROTOCOL_ERROR", message: event.message };
-      return {
-        ...state,
-        connection: { ...state.connection, phase: "failed", error },
-        error,
-      };
+      return appendStatus(
+        {
+          ...state,
+          connection: { ...state.connection, phase: "failed", error },
+          error,
+          runStatus: "failed",
+        },
+        envelope.sequence,
+        "failed",
+        "Pi RPC 通信失败",
+      );
     }
   }
+}
+
+function appendStatus(
+  state: PiSessionState,
+  sequence: number,
+  status: RunStatus,
+  content: string,
+): PiSessionState {
+  return {
+    ...state,
+    messages: [
+      ...state.messages,
+      {
+        id: `status-${sequence}`,
+        role: "system",
+        kind: "status",
+        content,
+        thinking: "",
+        blocks: [],
+        tools: [],
+        status,
+      },
+    ],
+  };
 }
 
 function startAssistantMessage(state: PiSessionState, sequence: number): PiSessionState {

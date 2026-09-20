@@ -418,7 +418,6 @@ export const CodeBlock = ({
   return (
     <CodeBlockContext.Provider value={contextValue}>
       <CodeBlockContainer className={className} language={language} {...props}>
-        <div className="px-4 pt-2 font-mono text-xs text-[var(--pi-muted)]">```{language}</div>
         {children}
         <CodeBlockContent
           code={code}

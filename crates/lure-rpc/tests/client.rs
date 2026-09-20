@@ -2,7 +2,7 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use lure_core::LureEvent;
-use lure_rpc::{PiProcessConfig, PiRpcClient, RpcError};
+use lure_rpc::{PiProcessConfig, PiRpcClient, RpcError, RpcImage};
 
 fn fake_pi() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/fake-pi.py")
@@ -112,31 +112,85 @@ async fn keeps_stderr_out_of_the_json_protocol() {
 }
 
 #[tokio::test]
-async fn cancels_unsupported_extension_dialogs_without_hanging_pi() {
+async fn exposes_extension_dialogs_and_forwards_the_user_response() {
     let config = PiProcessConfig::new(fake_pi(), env!("CARGO_MANIFEST_DIR"));
     let (client, _state) = PiRpcClient::connect(config).await.unwrap();
     let mut events = client.subscribe();
 
     client.prompt("extension").await.unwrap();
 
-    let mut saw_unsupported = false;
-    let mut saw_acknowledgement = false;
-    tokio::time::timeout(Duration::from_secs(2), async {
-        while !(saw_unsupported && saw_acknowledgement) {
-            match events.recv().await.unwrap() {
-                LureEvent::ExtensionUiUnsupported { method, .. } => {
-                    saw_unsupported = method == "confirm";
-                }
-                LureEvent::Notification { message, .. } => {
-                    saw_acknowledgement = message == "cancelled-received";
-                }
-                _ => {}
+    let request_id = tokio::time::timeout(Duration::from_secs(2), async {
+        loop {
+            if let LureEvent::ExtensionUiRequested {
+                request_id, method, ..
+            } = events.recv().await.unwrap()
+            {
+                assert_eq!(method, "confirm");
+                break request_id;
             }
         }
     })
     .await
     .unwrap();
 
+    client
+        .respond_to_extension(&request_id, Some(serde_json::json!(true)), false)
+        .await
+        .unwrap();
+
+    let acknowledgement = tokio::time::timeout(Duration::from_secs(2), async {
+        loop {
+            if let LureEvent::Notification { message, .. } = events.recv().await.unwrap() {
+                break message;
+            }
+        }
+    })
+    .await
+    .unwrap();
+    assert_eq!(acknowledgement, "response-received");
+
+    client.stop().await.unwrap();
+}
+
+#[tokio::test]
+async fn manages_models_thinking_commands_and_image_prompts() {
+    let config = PiProcessConfig::new(fake_pi(), env!("CARGO_MANIFEST_DIR"));
+    let (client, _state) = PiRpcClient::connect(config).await.unwrap();
+
+    let models = client.get_available_models().await.unwrap();
+    assert_eq!(models.len(), 2);
+    assert_eq!(models[1].id, "other-model");
+
+    let selected = client.set_model("test", "other-model").await.unwrap();
+    assert_eq!(selected.id, "other-model");
+    assert_eq!(client.set_thinking_level("high").await.unwrap(), "high");
+
+    let commands = client.get_commands().await.unwrap();
+    assert_eq!(commands[0].name, "review");
+
+    client
+        .prompt_with_images(
+            "images",
+            vec![RpcImage {
+                data: "aGVsbG8=".into(),
+                mime_type: "image/png".into(),
+            }],
+        )
+        .await
+        .unwrap();
+
+    client.stop().await.unwrap();
+}
+
+#[tokio::test]
+async fn creates_a_new_session_on_the_existing_rpc_client() {
+    let config = PiProcessConfig::new(fake_pi(), env!("CARGO_MANIFEST_DIR"));
+    let (client, state) = PiRpcClient::connect(config).await.unwrap();
+
+    let next_state = client.new_session().await.unwrap();
+
+    assert_ne!(next_state.session_id, state.session_id);
+    assert_eq!(next_state.session_id, "fake-session-2");
     client.stop().await.unwrap();
 }
 

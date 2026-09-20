@@ -1,18 +1,33 @@
-import { useCallback, useEffect, useReducer, useState } from "react";
+import { useCallback, useEffect, useReducer, useRef, useState } from "react";
+
+import { writeLastDirectory } from "@/features/workspace/local-preferences";
 
 import {
   abortPi,
   connectPi,
   disconnectPi,
+  getAvailableModels,
+  getDefaultWorkspace,
+  getPiCommands,
+  getWorkspaceContext,
   listenToPiEvents,
+  newPiSession,
+  respondToExtensionUi,
+  selectModel,
+  selectThinkingLevel,
   selectWorkingDirectory,
   sendPrompt,
+  type ImageAttachment,
+  type PiCommand,
+  type WorkspaceContext,
 } from "./api";
 import {
   disconnectedSnapshot,
   initialPiSessionState,
   piSessionReducer,
+  type EventEnvelope,
   type LureError,
+  type ModelSnapshot,
 } from "./reducer";
 
 export function usePiSession() {
@@ -20,12 +35,33 @@ export function usePiSession() {
   const [selectedDirectory, setSelectedDirectory] = useState<string | null>(null);
   const [commandError, setCommandError] = useState<LureError | null>(null);
   const [eventsReady, setEventsReady] = useState(false);
+  const [availableModels, setAvailableModels] = useState<ModelSnapshot[]>([]);
+  const [commands, setCommands] = useState<PiCommand[]>([]);
+  const [workspaceContext, setWorkspaceContext] = useState<WorkspaceContext | null>(null);
+  const lastSequence = useRef(0);
+  const startupAttempted = useRef(false);
+
+  /**
+   * Pi 事件按序号单调递增，桌面端据此忽略重复投递。
+   *
+   * 事件订阅在开发模式的重复挂载或注册竞态下可能短暂存在两个活跃监听，
+   * 去重可以保证同一个 RPC 事件只被应用一次。
+   */
+  const handlePiEvent = useCallback((event: EventEnvelope) => {
+    if (event.sequence !== 0) {
+      if (event.sequence <= lastSequence.current) return;
+      lastSequence.current = event.sequence;
+    }
+    dispatch(event);
+  }, []);
 
   useEffect(() => {
     let disposed = false;
     let unlisten: (() => void) | undefined;
 
-    void listenToPiEvents((event) => dispatch(event))
+    void listenToPiEvents((event) => {
+      if (!disposed) handlePiEvent(event);
+    })
       .then((dispose) => {
         if (disposed) dispose();
         else {
@@ -41,15 +77,43 @@ export function usePiSession() {
       disposed = true;
       unlisten?.();
     };
+  }, [handlePiEvent]);
+
+  const loadWorkspaceContext = useCallback(async (directory: string) => {
+    try {
+      const context = await getWorkspaceContext(directory);
+      setWorkspaceContext(
+        context ?? { branch: null, workingDirectory: directory },
+      );
+    } catch {
+      setWorkspaceContext({ branch: null, workingDirectory: directory });
+    }
   }, []);
 
   const chooseDirectory = useCallback(async () => {
     setCommandError(null);
     try {
       const directory = await selectWorkingDirectory();
-      if (directory) setSelectedDirectory(directory);
+      if (directory) {
+        writeLastDirectory(directory);
+        setSelectedDirectory(directory);
+        await loadWorkspaceContext(directory);
+      }
     } catch (error) {
       setCommandError(normalizeError(error, "无法选择工作目录"));
+    }
+  }, [loadWorkspaceContext]);
+
+  const refreshCapabilities = useCallback(async () => {
+    const [modelsResult, commandsResult] = await Promise.allSettled([
+      getAvailableModels(),
+      getPiCommands(),
+    ]);
+    if (modelsResult.status === "fulfilled" && Array.isArray(modelsResult.value)) {
+      setAvailableModels(modelsResult.value);
+    }
+    if (commandsResult.status === "fulfilled" && Array.isArray(commandsResult.value)) {
+      setCommands(commandsResult.value);
     }
   }, []);
 
@@ -59,10 +123,61 @@ export function usePiSession() {
     try {
       const snapshot = await connectPi(selectedDirectory);
       dispatch({ sequence: 0, event: { type: "session_ready", snapshot } });
+      await Promise.all([
+        refreshCapabilities(),
+        loadWorkspaceContext(snapshot.workingDirectory ?? selectedDirectory),
+      ]);
     } catch (error) {
       setCommandError(normalizeError(error, "连接 Pi 失败"));
     }
-  }, [eventsReady, selectedDirectory]);
+  }, [eventsReady, loadWorkspaceContext, refreshCapabilities, selectedDirectory]);
+
+  const connectDefault = useCallback(async (): Promise<boolean> => {
+    if (!eventsReady) return false;
+    setCommandError(null);
+    try {
+      const directory = await getDefaultWorkspace();
+      setSelectedDirectory(directory);
+      writeLastDirectory(directory);
+      const snapshot = await connectPi(directory);
+      dispatch({ sequence: 0, event: { type: "session_ready", snapshot } });
+      await Promise.all([
+        refreshCapabilities(),
+        loadWorkspaceContext(snapshot.workingDirectory ?? directory),
+      ]);
+      return true;
+    } catch (error) {
+      setCommandError(normalizeError(error, "启动默认 Pi RPC 失败"));
+      return false;
+    }
+  }, [eventsReady, loadWorkspaceContext, refreshCapabilities]);
+
+  useEffect(() => {
+    if (!eventsReady || startupAttempted.current) return;
+    startupAttempted.current = true;
+    void connectDefault();
+  }, [connectDefault, eventsReady]);
+
+  const newConversation = useCallback(async () => {
+    if (state.connection.phase === "disconnected" || state.connection.phase === "failed") {
+      return connectDefault();
+    }
+    setCommandError(null);
+    try {
+      const snapshot = await newPiSession();
+      dispatch({ sequence: 0, event: { type: "session_ready", snapshot } });
+      const directory = snapshot.workingDirectory ?? selectedDirectory;
+      if (directory) {
+        setSelectedDirectory(directory);
+        await loadWorkspaceContext(directory);
+      }
+      await refreshCapabilities();
+      return true;
+    } catch (error) {
+      setCommandError(normalizeError(error, "新建对话失败"));
+      return false;
+    }
+  }, [connectDefault, loadWorkspaceContext, refreshCapabilities, selectedDirectory, state.connection.phase]);
 
   const disconnect = useCallback(async () => {
     setCommandError(null);
@@ -72,15 +187,17 @@ export function usePiSession() {
         sequence: 0,
         event: { type: "connection_changed", snapshot: disconnectedSnapshot },
       });
+      setAvailableModels([]);
+      setCommands([]);
     } catch (error) {
       setCommandError(normalizeError(error, "断开 Pi 失败"));
     }
   }, []);
 
-  const prompt = useCallback(async (message: string) => {
+  const prompt = useCallback(async (message: string, images: ImageAttachment[] = []) => {
     setCommandError(null);
     try {
-      await sendPrompt(message);
+      await sendPrompt(message, images);
     } catch (error) {
       const normalized = normalizeError(error, "发送消息失败");
       setCommandError(normalized);
@@ -97,16 +214,69 @@ export function usePiSession() {
     }
   }, []);
 
+  const setModel = useCallback(async (provider: string, modelId: string) => {
+    setCommandError(null);
+    try {
+      const model = await selectModel(provider, modelId);
+      dispatch({
+        sequence: 0,
+        event: {
+          type: "connection_changed",
+          snapshot: { ...state.connection, model },
+        },
+      });
+    } catch (error) {
+      setCommandError(normalizeError(error, "切换模型失败"));
+    }
+  }, [state.connection]);
+
+  const setThinkingLevel = useCallback(async (level: string) => {
+    setCommandError(null);
+    try {
+      const thinkingLevel = await selectThinkingLevel(level);
+      dispatch({
+        sequence: 0,
+        event: {
+          type: "connection_changed",
+          snapshot: { ...state.connection, thinkingLevel },
+        },
+      });
+    } catch (error) {
+      setCommandError(normalizeError(error, "切换思考强度失败"));
+    }
+  }, [state.connection]);
+
+  const respondToExtension = useCallback(
+    async (value: unknown, cancelled = false) => {
+      const request = state.extensionRequest;
+      if (!request) return;
+      setCommandError(null);
+      try {
+        await respondToExtensionUi(request.requestId, value, cancelled);
+      } catch (error) {
+        setCommandError(normalizeError(error, "无法提交交互响应"));
+      }
+    },
+    [state.extensionRequest],
+  );
+
   return {
     state,
     selectedDirectory,
     eventsReady,
     error: commandError ?? state.error,
+    availableModels,
+    commands,
+    workspaceContext,
     chooseDirectory,
     connect,
+    newConversation,
     disconnect,
     prompt,
     abort,
+    setModel,
+    setThinkingLevel,
+    respondToExtension,
   };
 }
 
