@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { EventEnvelope } from "@/features/pi-connection/reducer";
@@ -51,6 +51,52 @@ afterEach(() => {
 });
 
 describe("App", () => {
+  it("按设计规约呈现任务导航与单一主工作区", () => {
+    render(<App />);
+
+    const navigation = screen.getByRole("navigation", { name: "任务导航" });
+    expect(within(navigation).getByText("Lure")).toBeInTheDocument();
+    expect(
+      within(navigation).getByRole("button", { name: "新建任务" }),
+    ).toBeInTheDocument();
+    expect(
+      within(navigation).getByRole("searchbox", { name: "搜索任务" }),
+    ).toBeInTheDocument();
+    expect(within(navigation).getByText("今天")).toBeInTheDocument();
+    expect(within(navigation).getByText("最近")).toBeInTheDocument();
+    expect(within(navigation).getByText("已归档")).toBeInTheDocument();
+    expect(
+      within(navigation).getByRole("button", { name: "设置" }),
+    ).toBeInTheDocument();
+    expect(
+      within(navigation).queryByRole("button", { name: "选择工作目录" }),
+    ).not.toBeInTheDocument();
+
+    expect(
+      screen.getByRole("main", { name: "任务工作区" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { name: "开始一个新任务" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getAllByRole("button", {
+        name: /分析当前项目|检查未提交改动|解释代码结构/,
+      }),
+    ).toHaveLength(3);
+  });
+
+  it("可在窄窗口打开和关闭任务导航", () => {
+    render(<App />);
+
+    const openButton = screen.getByRole("button", { name: "打开任务导航" });
+    expect(openButton).toHaveAttribute("aria-expanded", "false");
+    fireEvent.click(openButton);
+    expect(screen.getByRole("button", { name: "关闭任务导航" })).toHaveAttribute(
+      "aria-expanded",
+      "true",
+    );
+  });
+
   it("未连接时禁用输入，并可选择目录和连接 Pi", async () => {
     mocks.open.mockResolvedValue("/tmp/lure-project");
     mocks.invoke.mockImplementation(async (command) => {
@@ -74,7 +120,11 @@ describe("App", () => {
     expect(await screen.findByText("fake-model")).toBeInTheDocument();
     expect(screen.getByPlaceholderText("给 Pi 发送消息…")).toBeEnabled();
 
-    fireEvent.click(screen.getByRole("button", { name: "断开连接" }));
+    fireEvent.pointerDown(screen.getByRole("button", { name: "更多任务操作" }), {
+      button: 0,
+      ctrlKey: false,
+    });
+    fireEvent.click(await screen.findByRole("menuitem", { name: "断开 Pi" }));
     await waitFor(() => expect(mocks.invoke).toHaveBeenCalledWith("disconnect_pi"));
     expect(
       await screen.findByPlaceholderText("连接 Pi 后即可发送消息…"),
