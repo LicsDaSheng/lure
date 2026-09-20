@@ -1,6 +1,5 @@
 import type {
   ConversationMessage,
-  RunStatus,
   ToolRun,
 } from "@/features/pi-connection/reducer";
 
@@ -135,28 +134,13 @@ function summarizeDiff(output: string) {
   return { added, files: files.size, removed };
 }
 
-export function getStatusPresentation(status: RunStatus) {
-  const presentations = {
-    idle: { label: "准备中", tone: "muted" },
-    running: { label: "执行中", tone: "active" },
-    waiting_input: { label: "等待输入", tone: "warning" },
-    completed: { label: "已完成", tone: "success" },
-    failed: { label: "已失败", tone: "danger" },
-    stopped: { label: "已停止", tone: "muted" },
-  } as const;
-  return presentations[status];
-}
-
 export function serializeConversation(
   title: string,
   messages: ConversationMessage[],
 ): string {
   const sections = messages.flatMap((message) => {
-    if (message.kind === "status") {
-      return message.content ? [`> ${message.content}`] : [];
-    }
-    if (message.kind !== "message" || !message.content.trim()) return [];
-    const role = message.role === "user" ? "用户" : message.role === "assistant" ? "Pi" : "系统";
+    if (!message.content.trim()) return [];
+    const role = message.role === "user" ? "用户" : "Pi";
     return [`## ${role}\n\n${message.content.trim()}`];
   });
   return [`# ${title}`, ...sections].join("\n\n");

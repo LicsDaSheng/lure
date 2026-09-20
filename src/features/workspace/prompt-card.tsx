@@ -72,6 +72,12 @@ export function PromptCard({
     : model
       ? [model]
       : [];
+  const modelGroups = new Map<string, ModelSnapshot[]>();
+  for (const option of modelOptions) {
+    const group = modelGroups.get(option.provider) ?? [];
+    group.push(option);
+    modelGroups.set(option.provider, group);
+  }
   const modelKey = model ? `${model.provider}::${model.id}` : "";
   const selectedModelKey =
     modelOptions.some((option) => `${option.provider}::${option.id}` === modelKey)
@@ -194,10 +200,17 @@ export function PromptCard({
                 }}
                 value={selectedModelKey}
               >
-                {modelOptions.map((option) => (
-                  <option key={`${option.provider}::${option.id}`} value={`${option.provider}::${option.id}`}>
-                    {option.id}
-                  </option>
+                {[...modelGroups].map(([provider, options]) => (
+                  <optgroup key={provider} label={provider}>
+                    {options.map((option) => (
+                      <option
+                        key={`${option.provider}::${option.id}`}
+                        value={`${option.provider}::${option.id}`}
+                      >
+                        {option.id} [{option.provider}]
+                      </option>
+                    ))}
+                  </optgroup>
                 ))}
               </select>
             )}

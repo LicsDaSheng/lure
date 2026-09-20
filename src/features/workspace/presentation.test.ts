@@ -72,7 +72,6 @@ describe("主工作区展示适配", () => {
       {
         id: "user-1",
         role: "user",
-        kind: "message",
         content: "检查项目",
         thinking: "",
         blocks: [],
@@ -81,7 +80,6 @@ describe("主工作区展示适配", () => {
       {
         id: "assistant-1",
         role: "assistant",
-        kind: "message",
         content: "检查完成",
         thinking: "内部过程",
         blocks: [],

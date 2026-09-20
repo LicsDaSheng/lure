@@ -15,7 +15,6 @@ import { readDraft, readTitle, writeDraft, writeTitle } from "@/features/workspa
 import { serializeConversation } from "@/features/workspace/presentation";
 import { PromptCard, type PromptAttachment } from "@/features/workspace/prompt-card";
 import { RiskConfirmDialog } from "@/features/workspace/risk-confirm-dialog";
-import { RunStatusLine } from "@/features/workspace/run-status-line";
 import { TaskHeader } from "@/features/workspace/task-header";
 import { TaskNavigation } from "@/features/workspace/task-navigation";
 import { MenuIcon } from "lucide-react";
@@ -44,7 +43,7 @@ function App() {
     setThinkingLevel,
     respondToExtension,
   } = usePiSession();
-  const { connection, messages, runStatus, extensionRequest } = state;
+  const { connection, messages, extensionRequest } = state;
   const [navigationOpen, setNavigationOpen] = useState(false);
   const [taskQuery, setTaskQuery] = useState("");
   const [attachments, setAttachments] = useState<PromptAttachment[]>([]);
@@ -95,7 +94,6 @@ function App() {
     connection.phase === "disconnected" ||
     (connection.phase === "failed" && !connection.sessionId);
   const canSubmit = canSend && (draft.trim().length > 0 || attachments.length > 0);
-  const latestStatus = [...messages].reverse().find((message) => message.kind === "status");
 
   const handleRetry = useCallback(async () => {
     if (!canConnectSession) await disconnect();
@@ -234,17 +232,6 @@ function App() {
             </ConversationContent>
             <ConversationScrollButton />
           </Conversation>
-
-          {hasConversation && runStatus !== "idle" && (
-            <div className="mx-auto w-full max-w-[920px] px-4 md:px-6">
-              <RunStatusLine
-                isRunning={isRunning}
-                message={latestStatus?.content ?? ""}
-                onStop={() => void abort()}
-                status={runStatus}
-              />
-            </div>
-          )}
 
           <PromptCard
             attachments={attachments}
