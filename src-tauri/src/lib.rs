@@ -1,6 +1,7 @@
 //! Lure 桌面应用的 Tauri 组合根。
 
 mod base64;
+mod capture;
 mod commands;
 mod events;
 mod state;
