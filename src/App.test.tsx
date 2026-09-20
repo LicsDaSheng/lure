@@ -386,6 +386,55 @@ describe("主工作区对话态", () => {
     expect(after).toBeGreaterThan(tool);
   });
 
+  it("同一回复中已结束与进行中的工具分别显示各自状态", async () => {
+    await renderConnected();
+
+    emit({
+      sequence: 1,
+      event: { type: "user_message_accepted", requestId: "1", message: "检查项目" },
+    });
+    emit({ sequence: 2, event: { type: "assistant_message_started" } });
+    emit({
+      sequence: 3,
+      event: {
+        type: "tool_started",
+        toolCallId: "tool-1",
+        toolName: "read",
+        input: "{\"path\":\"package.json\"}",
+      },
+    });
+    emit({
+      sequence: 4,
+      event: {
+        type: "tool_completed",
+        toolCallId: "tool-1",
+        toolName: "read",
+        input: "{\"path\":\"package.json\"}",
+        output: "{\"name\":\"lure\"}",
+        truncatedLines: null,
+        isError: false,
+      },
+    });
+    emit({
+      sequence: 5,
+      event: {
+        type: "tool_started",
+        toolCallId: "tool-2",
+        toolName: "read",
+        input: "{\"path\":\"src/main.tsx\"}",
+      },
+    });
+
+    await screen.findByLabelText("Pi 回复");
+
+    expect(
+      await screen.findByRole("button", { name: /已读取 package.json/ }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /正在读取 src\/main.tsx/ }),
+    ).toBeInTheDocument();
+  });
+
   it("运行中保留可编辑草稿并把主操作切换为停止", async () => {
     await renderConnected();
     fireEvent.change(textbox(), { target: { value: "第一条" } });

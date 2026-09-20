@@ -2,8 +2,7 @@ import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { Button } from "./button";
-import { Input } from "./input";
-import { Textarea } from "./textarea";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "./collapsible";
 
 describe("全局微交互", () => {
   it("按钮使用包提供的 hover、focus 和 active 效果", () => {
@@ -16,20 +15,16 @@ describe("全局微交互", () => {
     expect(button).toHaveClass("cs-tap-highlight-none");
   });
 
-  it("输入控件使用平滑且可感知的 focus 效果", () => {
+  it("折叠触发器使用平滑且可感知的交互效果", () => {
     render(
-      <>
-        <Input aria-label="标题" />
-        <Textarea aria-label="内容" />
-      </>,
+      <Collapsible>
+        <CollapsibleTrigger>展开</CollapsibleTrigger>
+        <CollapsibleContent>内容</CollapsibleContent>
+      </Collapsible>,
     );
 
-    for (const control of [
-      screen.getByRole("textbox", { name: "标题" }),
-      screen.getByRole("textbox", { name: "内容" }),
-    ]) {
-      expect(control).toHaveClass("cs-smooth-interaction-fast");
-      expect(control).toHaveClass("cs-focus-pop");
-    }
+    const trigger = screen.getByRole("button", { name: "展开" });
+    expect(trigger).toHaveClass("cs-smooth-interaction-fast");
+    expect(trigger).toHaveClass("cs-focus-pop");
   });
 });

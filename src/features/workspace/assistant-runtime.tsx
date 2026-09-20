@@ -9,6 +9,8 @@ import { useCallback, type ReactNode } from "react";
 
 import type { ConversationMessage, ToolPart } from "@/features/pi-connection/reducer";
 
+import { toolArtifact } from "./presentation";
+
 type AssistantContentPart = Exclude<ThreadMessageLike["content"], string>[number];
 type AssistantToolCallPart = Extract<AssistantContentPart, { type: "tool-call" }>;
 
@@ -27,12 +29,13 @@ function parseToolArguments(input: string): NonNullable<AssistantToolCallPart["a
 function convertTool(tool: ToolPart) {
   return {
     type: "tool-call" as const,
-    toolCallId: tool.id,
+    toolCallId: tool.toolCallId,
     toolName: tool.name,
     args: parseToolArguments(tool.input),
     argsText: tool.input,
     ...(tool.status === "running" ? {} : { result: tool.output }),
     isError: tool.status === "error",
+    artifact: toolArtifact(tool),
   };
 }
 
@@ -76,7 +79,6 @@ export function convertPiMessage(
     ...(message.role === "assistant"
       ? { status: getAssistantStatus(message, isActive) }
       : {}),
-    metadata: { custom: { sourceMessageId: message.id } },
   };
 }
 

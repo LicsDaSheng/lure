@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import type { ConversationMessage } from "@/features/pi-connection/reducer";
 import { convertPiMessage, readAppendMessageText } from "./assistant-runtime";
 
-describe("assistant-ui Pi 消息适配", () => {
+describe("assistant-ui 消息适配", () => {
   it("按 parts 的真实顺序转换文本、思考与工具调用", () => {
     const message: ConversationMessage = {
       id: "assistant-1",
@@ -40,11 +40,11 @@ describe("assistant-ui Pi 消息适配", () => {
           argsText: "{\"path\":\"README.md\"}",
           result: "文件内容",
           isError: false,
+          artifact: { status: "completed", truncatedLines: null },
         },
         { type: "text", text: "读取完成", status: { type: "complete" } },
       ],
       status: { type: "complete", reason: "stop" },
-      metadata: { custom: { sourceMessageId: "assistant-1" } },
     });
   });
 
@@ -76,6 +76,7 @@ describe("assistant-ui Pi 消息适配", () => {
           argsText: "not-json",
           isError: true,
           result: "执行失败",
+          artifact: { status: "error", truncatedLines: null },
         },
       ],
       status: { type: "running" },
