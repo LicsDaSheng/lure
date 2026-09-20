@@ -20,18 +20,33 @@ export type ConnectionSnapshot = {
   error: LureError | null;
 };
 
+export type MessageBlock = {
+  type: "text" | "thinking";
+  contentIndex: number;
+  text: string;
+};
+
 export type ToolRun = {
   id: string;
   name: string;
   status: "running" | "completed" | "error";
+  input: string;
+  output: string;
+  truncatedLines: number | null;
 };
 
 export type ConversationMessage = {
   id: string;
-  role: "assistant" | "user";
+  role: "assistant" | "user" | "system";
+  kind: "message" | "compaction" | "branch_summary";
   content: string;
   thinking: string;
+  blocks: MessageBlock[];
   tools: ToolRun[];
+  stopReason?: string | null;
+  errorMessage?: string | null;
+  tokensBefore?: number | null;
+  pending?: boolean;
 };
 
 export type PiEvent =
@@ -41,13 +56,30 @@ export type PiEvent =
   | { type: "assistant_message_started" }
   | { type: "assistant_text_delta"; contentIndex: number; delta: string }
   | { type: "assistant_thinking_delta"; contentIndex: number; delta: string }
-  | { type: "assistant_message_completed"; text: string; thinking: string }
-  | { type: "tool_started"; toolCallId: string; toolName: string }
-  | { type: "tool_updated"; toolCallId: string; toolName: string }
+  | {
+      type: "assistant_message_completed";
+      text: string;
+      thinking: string;
+      blocks?: Array<{ contentIndex: number; kind: "text" | "thinking"; text: string }>;
+      stopReason?: string | null;
+      errorMessage?: string | null;
+    }
+  | { type: "tool_started"; toolCallId: string; toolName: string; input?: string }
+  | {
+      type: "tool_updated";
+      toolCallId: string;
+      toolName: string;
+      input?: string;
+      output?: string;
+      truncatedLines?: number | null;
+    }
   | {
       type: "tool_completed";
       toolCallId: string;
       toolName: string;
+      input?: string;
+      output?: string;
+      truncatedLines?: number | null;
       isError: boolean;
     }
   | { type: "run_started" }
@@ -58,6 +90,7 @@ export type PiEvent =
       active: boolean;
       attempt?: number | null;
       maxAttempts?: number | null;
+      delayMs?: number | null;
       message?: string | null;
     }
   | {
@@ -65,6 +98,9 @@ export type PiEvent =
       active: boolean;
       reason?: string | null;
       aborted?: boolean | null;
+      summary?: string | null;
+      tokensBefore?: number | null;
+      errorMessage?: string | null;
     }
   | { type: "extension_ui_unsupported"; method: string; title?: string | null }
   | { type: "notification"; level: string; message: string }
@@ -129,8 +165,10 @@ export function piSessionReducer(
           {
             id: `user-${event.requestId}`,
             role: "user",
+            kind: "message",
             content: event.message,
             thinking: "",
+            blocks: [{ type: "text", contentIndex: 0, text: event.message }],
             tools: [],
           },
         ],
@@ -142,21 +180,33 @@ export function piSessionReducer(
       return updateActiveAssistant(state, envelope.sequence, (message) => ({
         ...message,
         content: message.content + event.delta,
+        blocks: appendBlockDelta(message.blocks, "text", event.contentIndex, event.delta),
       }));
     case "assistant_thinking_delta":
       return updateActiveAssistant(state, envelope.sequence, (message) => ({
         ...message,
         thinking: message.thinking + event.delta,
+        blocks: appendBlockDelta(message.blocks, "thinking", event.contentIndex, event.delta),
       }));
     case "assistant_message_completed":
       return updateActiveAssistant(state, envelope.sequence, (message) => ({
         ...message,
         content: event.text,
         thinking: event.thinking,
+        blocks: event.blocks?.map((block) => ({
+          type: block.kind,
+          contentIndex: block.contentIndex,
+          text: block.text,
+        })) ?? message.blocks,
+        stopReason: event.stopReason,
+        errorMessage: event.errorMessage,
       }));
     case "tool_started":
+      return updateTool(state, envelope.sequence, event.toolCallId, event.toolName, "running", {
+        input: event.input,
+      });
     case "tool_updated":
-      return updateTool(state, envelope.sequence, event.toolCallId, event.toolName, "running");
+      return updateTool(state, envelope.sequence, event.toolCallId, event.toolName, "running", event);
     case "tool_completed":
       return updateTool(
         state,
@@ -164,6 +214,7 @@ export function piSessionReducer(
         event.toolCallId,
         event.toolName,
         event.isError ? "error" : "completed",
+        event,
       );
     case "run_started":
       return {
@@ -182,14 +233,11 @@ export function piSessionReducer(
       return {
         ...state,
         notice: event.active
-          ? `正在重试${event.attempt ? `（第 ${event.attempt} 次）` : ""}`
+          ? `Retrying (${event.attempt ?? "?"}/${event.maxAttempts ?? "?"})${event.delayMs ? ` in ${Math.ceil(event.delayMs / 1000)}s` : ""}…`
           : event.message ?? null,
       };
     case "compaction_changed":
-      return {
-        ...state,
-        notice: event.active ? "正在压缩上下文" : null,
-      };
+      return updateCompaction(state, envelope.sequence, event);
     case "extension_ui_unsupported":
       return {
         ...state,
@@ -231,7 +279,15 @@ function startAssistantMessage(state: PiSessionState, sequence: number): PiSessi
     activeAssistantId: id,
     messages: [
       ...state.messages,
-      { id, role: "assistant", content: "", thinking: "", tools: [] },
+      {
+        id,
+        role: "assistant",
+        kind: "message",
+        content: "",
+        thinking: "",
+        blocks: [],
+        tools: [],
+      },
     ],
   };
 }
@@ -251,18 +307,76 @@ function updateActiveAssistant(
   };
 }
 
+function appendBlockDelta(
+  blocks: MessageBlock[],
+  type: MessageBlock["type"],
+  contentIndex: number,
+  delta: string,
+): MessageBlock[] {
+  const existing = blocks.find((block) => block.contentIndex === contentIndex);
+  if (!existing) {
+    return [...blocks, { type, contentIndex, text: delta }].sort(
+      (left, right) => left.contentIndex - right.contentIndex,
+    );
+  }
+  return blocks.map((block) =>
+    block.contentIndex === contentIndex ? { ...block, type, text: block.text + delta } : block,
+  );
+}
+
 function updateTool(
   state: PiSessionState,
   sequence: number,
   id: string,
   name: string,
   status: ToolRun["status"],
+  details: { input?: string; output?: string; truncatedLines?: number | null },
 ): PiSessionState {
   return updateActiveAssistant(state, sequence, (message) => {
     const existing = message.tools.find((tool) => tool.id === id);
+    const next: ToolRun = {
+      id,
+      name,
+      status,
+      input: details.input || existing?.input || "",
+      output: details.output ?? existing?.output ?? "",
+      truncatedLines: details.truncatedLines ?? existing?.truncatedLines ?? null,
+    };
     const tools = existing
-      ? message.tools.map((tool) => (tool.id === id ? { ...tool, name, status } : tool))
-      : [...message.tools, { id, name, status }];
+      ? message.tools.map((tool) => (tool.id === id ? next : tool))
+      : [...message.tools, next];
     return { ...message, tools };
   });
+}
+
+function updateCompaction(
+  state: PiSessionState,
+  sequence: number,
+  event: Extract<PiEvent, { type: "compaction_changed" }>,
+): PiSessionState {
+  if (event.active) {
+    return { ...state, notice: "Compacting context…" };
+  }
+  if (event.aborted) {
+    return { ...state, notice: null };
+  }
+  return {
+    ...state,
+    notice: null,
+    messages: [
+      ...state.messages,
+      {
+        id: `compaction-${sequence}`,
+        role: "system",
+        kind: "compaction",
+        content: event.summary ?? "",
+        thinking: "",
+        blocks: [],
+        tools: [],
+        tokensBefore: event.tokensBefore,
+        errorMessage: event.errorMessage,
+        pending: false,
+      },
+    ],
+  };
 }

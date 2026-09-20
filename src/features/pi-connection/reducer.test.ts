@@ -97,6 +97,82 @@ describe("piSessionReducer", () => {
     expect(state.messages[1]?.content).toBe("读取完成");
   });
 
+  it("按 contentIndex 保留多个思考块与正文的顺序", () => {
+    const state = reduce([
+      { sequence: 1, event: { type: "assistant_message_started" } },
+      { sequence: 2, event: { type: "assistant_thinking_delta", contentIndex: 0, delta: "一" } },
+      { sequence: 3, event: { type: "assistant_text_delta", contentIndex: 1, delta: "答案" } },
+      { sequence: 4, event: { type: "assistant_thinking_delta", contentIndex: 2, delta: "二" } },
+    ]);
+
+    expect(state.messages[0]?.blocks).toEqual([
+      { type: "thinking", contentIndex: 0, text: "一" },
+      { type: "text", contentIndex: 1, text: "答案" },
+      { type: "thinking", contentIndex: 2, text: "二" },
+    ]);
+  });
+
+  it("保留工具参数、输出及截断行数", () => {
+    const state = reduce([
+      { sequence: 1, event: { type: "assistant_message_started" } },
+      {
+        sequence: 2,
+        event: {
+          type: "tool_started",
+          toolCallId: "tool-1",
+          toolName: "read",
+          input: "{\n  \"path\": \"README.md\"\n}",
+        },
+      },
+      {
+        sequence: 3,
+        event: {
+          type: "tool_completed",
+          toolCallId: "tool-1",
+          toolName: "read",
+          output: "line 1\nline 2",
+          truncatedLines: 12,
+          isError: false,
+        },
+      },
+    ]);
+
+    expect(state.messages[0]?.tools[0]).toMatchObject({
+      input: expect.stringContaining("README.md"),
+      output: "line 1\nline 2",
+      truncatedLines: 12,
+      status: "completed",
+    });
+  });
+
+  it("将压缩摘要加入时间线并保留 token 数", () => {
+    const state = reduce([
+      {
+        sequence: 1,
+        event: { type: "compaction_changed", active: true, reason: "threshold" },
+      },
+      {
+        sequence: 2,
+        event: {
+          type: "compaction_changed",
+          active: false,
+          reason: "threshold",
+          aborted: false,
+          summary: "摘要内容",
+          tokensBefore: 32000,
+        },
+      },
+    ]);
+
+    expect(state.messages[0]).toMatchObject({
+      role: "system",
+      kind: "compaction",
+      content: "摘要内容",
+      tokensBefore: 32000,
+      pending: false,
+    });
+  });
+
   it("跟踪工具状态和进程错误", () => {
     const state = reduce([
       { sequence: 1, event: { type: "assistant_message_started" } },

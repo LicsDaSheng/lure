@@ -7,5 +7,5 @@ mod conversation;
 mod error;
 
 pub use connection::{ConnectionPhase, ConnectionSnapshot, ModelSnapshot};
-pub use conversation::{EventEnvelope, LureEvent};
+pub use conversation::{EventEnvelope, LureEvent, MessageBlock, MessageBlockKind};
 pub use error::{ErrorCode, LureError};
