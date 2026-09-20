@@ -38,7 +38,6 @@ lure/
 │   ├── App.tsx                # 当前应用壳与前端组合入口
 │   ├── App.test.tsx           # 前端可观察行为测试
 │   ├── components/
-│   │   ├── ai-elements/       # 推理与工具展示组件
 │   │   └── ui/                # 纳入源码管理的 shadcn/ui 基础组件
 │   ├── features/pi-connection/# Tauri API、事件 reducer 与连接会话 Hook
 │   ├── lib/utils.ts           # className 合并工具
@@ -140,7 +139,12 @@ type MessagePart =
 - 消息文本与思考通过 `messageText()` / `messageThinking()` 从 parts 派生，不再维护重复的聚合字段。
 - 渲染层不再需要把工具堆到消息末尾；导出仅包含真实文本。
 
-`components/ai-elements/` 仅保留适合 Lure 的推理与工具展示组件，Markdown 继续通过 Streamdown 渲染；目录、模型、思考强度、附件和停止操作仍由工作区输入卡按照 Pi RPC 能力提供。
+界面只有一套渲染体系：对话内容由 assistant-ui 的消息部件渲染，部件注册集中在 `conversation-stream.tsx`。
+
+- 文本部件交给 `MarkdownResponse`，Markdown 通过 Streamdown 渲染。
+- 思考部件由 `reasoning-part.tsx` 呈现，工具部件由 `tool-part.tsx` 呈现。
+- 工具执行状态随工具调用部件的 `artifact` 一起传递（`toolArtifact()`），渲染只依赖部件自身携带的信息，不回查 reducer 中的消息来源。
+- 目录、模型、思考强度、附件和停止操作仍由工作区输入卡按照 Pi RPC 能力提供。
 
 ```bash
 # 按需引入 shadcn/ui 组件

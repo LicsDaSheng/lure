@@ -6,9 +6,19 @@ import {
   formatToolSummary,
   getToolOutputLineCount,
   serializeConversation,
+  type ToolView,
 } from "./presentation";
 
-const completedTool: ToolPart = {
+const completedView: ToolView = {
+  id: "tool-1",
+  name: "edit",
+  status: "completed",
+  input: JSON.stringify({ path: "src/App.tsx" }),
+  output: "updated",
+  truncatedLines: null,
+};
+
+const completedToolPart: ToolPart = {
   id: "tool-1",
   type: "tool",
   contentIndex: 0,
@@ -22,27 +32,27 @@ const completedTool: ToolPart = {
 
 describe("主工作区展示适配", () => {
   it("将已知工具转换为用户可理解的摘要", () => {
-    expect(formatToolSummary({ ...completedTool, name: "read", status: "running" })).toBe(
+    expect(formatToolSummary({ ...completedView, name: "read", status: "running" })).toBe(
       "正在读取 src/App.tsx",
     );
-    expect(formatToolSummary(completedTool)).toBe("已修改 src/App.tsx");
+    expect(formatToolSummary(completedView)).toBe("已修改 src/App.tsx");
   });
 
   it("只为可确定类型的工具结果创建结果卡片", () => {
-    expect(createResultDescriptor(completedTool)).toMatchObject({
+    expect(createResultDescriptor(completedView)).toMatchObject({
       type: "file",
       title: "src/App.tsx",
       actionLabel: "预览",
     });
     expect(
-      createResultDescriptor({ ...completedTool, name: "unknown" }),
+      createResultDescriptor({ ...completedView, name: "unknown" }),
     ).toBeNull();
   });
 
   it("合并已显示和截断的输出行数", () => {
     expect(
       getToolOutputLineCount({
-        ...completedTool,
+        ...completedView,
         output: "one\ntwo",
         truncatedLines: 8,
       }),
@@ -51,7 +61,7 @@ describe("主工作区展示适配", () => {
 
   it("把 Diff 输出识别为变更卡片并统计增删行数", () => {
     const descriptor = createResultDescriptor({
-      ...completedTool,
+      ...completedView,
       output: [
         "--- a/src/App.tsx",
         "+++ b/src/App.tsx",
@@ -83,7 +93,7 @@ describe("主工作区展示适配", () => {
         parts: [
           { id: "thinking-0", type: "thinking", contentIndex: 0, text: "内部过程" },
           { id: "text-1", type: "text", contentIndex: 1, text: "检查完成" },
-          completedTool,
+          completedToolPart,
         ],
       },
     ];

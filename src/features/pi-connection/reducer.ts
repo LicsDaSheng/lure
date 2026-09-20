@@ -68,13 +68,16 @@ export type ThinkingPart = {
 };
 
 /** 工具调用是助手内容里的一个 part，位置由它在 Pi 内容序列中的位置决定。 */
+/** 工具执行在界面上的三种可见状态。 */
+export type ToolStatus = "running" | "completed" | "error";
+
 export type ToolPart = {
   id: string;
   type: "tool";
   contentIndex: number;
   toolCallId: string;
   name: string;
-  status: "running" | "completed" | "error";
+  status: ToolStatus;
   input: string;
   output: string;
   truncatedLines: number | null;

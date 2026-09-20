@@ -244,7 +244,7 @@ function App() {
             <ThreadPrimitive.Viewport className="min-h-0 flex-1 overflow-y-auto">
               <div className="flex min-h-full flex-col gap-4 px-4 py-6 md:px-6">
                 {hasConversation ? (
-                  <ConversationStream messages={messages} />
+                  <ConversationStream />
                 ) : (
                   <EmptyState onPickExample={setDraft} projectName={directoryName} />
                 )}

@@ -2,6 +2,7 @@ import {
   messageText,
   type ConversationMessage,
   type ToolPart,
+  type ToolStatus,
 } from "@/features/pi-connection/reducer";
 
 export type ResultDescriptor = {
@@ -12,13 +13,34 @@ export type ResultDescriptor = {
   content: string;
 };
 
-const statusVerbs: Record<ToolPart["status"], { active: string; done: string; failed: string }> = {
+/** 渲染工具执行所需的最小数据，由工具调用部件直接派生。 */
+export type ToolView = {
+  id: string;
+  name: string;
+  status: ToolStatus;
+  input: string;
+  output: string;
+  truncatedLines: number | null;
+};
+
+/** 随工具调用部件一起传递的界面状态。 */
+export type ToolCallArtifact = {
+  status: ToolStatus;
+  truncatedLines: number | null;
+};
+
+/** 把 Pi 的工具执行事实转换为随部件携带的界面状态。 */
+export function toolArtifact(tool: ToolPart): ToolCallArtifact {
+  return { status: tool.status, truncatedLines: tool.truncatedLines };
+}
+
+const statusVerbs: Record<ToolStatus, { active: string; done: string; failed: string }> = {
   running: { active: "正在", done: "正在", failed: "正在" },
   completed: { active: "已", done: "已", failed: "已" },
   error: { active: "无法", done: "无法", failed: "无法" },
 };
 
-export function formatToolSummary(tool: ToolPart): string {
+export function formatToolSummary(tool: ToolView): string {
   const target = extractToolTarget(tool.input);
   const prefix = statusVerbs[tool.status];
   switch (tool.name) {
@@ -62,12 +84,12 @@ export function extractToolTarget(input: string): string | null {
   return null;
 }
 
-export function getToolOutputLineCount(tool: ToolPart): number {
+export function getToolOutputLineCount(tool: ToolView): number {
   const visible = tool.output ? tool.output.split("\n").length : 0;
   return visible + (tool.truncatedLines ?? 0);
 }
 
-export function createResultDescriptor(tool: ToolPart): ResultDescriptor | null {
+export function createResultDescriptor(tool: ToolView): ResultDescriptor | null {
   if (tool.status !== "completed" || !tool.output) return null;
   const target = extractToolTarget(tool.input);
   if (tool.name === "edit" || tool.name === "write") {
