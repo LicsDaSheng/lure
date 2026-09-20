@@ -7,7 +7,7 @@ import {
 } from "@assistant-ui/react";
 import { useCallback, type ReactNode } from "react";
 
-import type { ConversationMessage, ToolRun } from "@/features/pi-connection/reducer";
+import type { ConversationMessage, ToolPart } from "@/features/pi-connection/reducer";
 
 type AssistantContentPart = Exclude<ThreadMessageLike["content"], string>[number];
 type AssistantToolCallPart = Extract<AssistantContentPart, { type: "tool-call" }>;
@@ -24,7 +24,7 @@ function parseToolArguments(input: string): NonNullable<AssistantToolCallPart["a
   }
 }
 
-function convertTool(tool: ToolRun) {
+function convertTool(tool: ToolPart) {
   return {
     type: "tool-call" as const,
     toolCallId: tool.id,
@@ -59,16 +59,15 @@ export function convertPiMessage(
   isActive: boolean,
 ): ThreadMessageLike {
   const partStatus = { type: isActive ? ("running" as const) : ("complete" as const) };
-  const content: AssistantContentPart[] = message.blocks.map((block) => ({
-    type: block.type === "thinking" ? ("reasoning" as const) : ("text" as const),
-    text: block.text,
-    status: partStatus,
-  }));
-
-  if (content.length === 0 && message.content) {
-    content.push({ type: "text", text: message.content, status: partStatus });
-  }
-  content.push(...message.tools.map(convertTool));
+  // parts 已经是有序的：直接按顺序映射，工具不再被推到消息末尾。
+  const content: AssistantContentPart[] = message.parts.map((part) => {
+    if (part.type === "tool") return convertTool(part);
+    return {
+      type: part.type === "thinking" ? ("reasoning" as const) : ("text" as const),
+      text: part.text,
+      status: partStatus,
+    };
+  });
 
   return {
     id: message.id,

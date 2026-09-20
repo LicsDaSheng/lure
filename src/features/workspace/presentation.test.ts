@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import type { ConversationMessage, ToolRun } from "@/features/pi-connection/reducer";
+import type { ConversationMessage, ToolPart } from "@/features/pi-connection/reducer";
 import {
   createResultDescriptor,
   formatToolSummary,
@@ -8,8 +8,11 @@ import {
   serializeConversation,
 } from "./presentation";
 
-const completedTool: ToolRun = {
+const completedTool: ToolPart = {
   id: "tool-1",
+  type: "tool",
+  contentIndex: 0,
+  toolCallId: "tool-1",
   name: "edit",
   status: "completed",
   input: JSON.stringify({ path: "src/App.tsx" }),
@@ -72,18 +75,16 @@ describe("主工作区展示适配", () => {
       {
         id: "user-1",
         role: "user",
-        content: "检查项目",
-        thinking: "",
-        blocks: [],
-        tools: [],
+        parts: [{ id: "text-0", type: "text", contentIndex: 0, text: "检查项目" }],
       },
       {
         id: "assistant-1",
         role: "assistant",
-        content: "检查完成",
-        thinking: "内部过程",
-        blocks: [],
-        tools: [completedTool],
+        parts: [
+          { id: "thinking-0", type: "thinking", contentIndex: 0, text: "内部过程" },
+          { id: "text-1", type: "text", contentIndex: 1, text: "检查完成" },
+          completedTool,
+        ],
       },
     ];
 

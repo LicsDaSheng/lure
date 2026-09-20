@@ -1,6 +1,7 @@
-import type {
-  ConversationMessage,
-  ToolRun,
+import {
+  messageText,
+  type ConversationMessage,
+  type ToolPart,
 } from "@/features/pi-connection/reducer";
 
 export type ResultDescriptor = {
@@ -11,13 +12,13 @@ export type ResultDescriptor = {
   content: string;
 };
 
-const statusVerbs: Record<ToolRun["status"], { active: string; done: string; failed: string }> = {
+const statusVerbs: Record<ToolPart["status"], { active: string; done: string; failed: string }> = {
   running: { active: "正在", done: "正在", failed: "正在" },
   completed: { active: "已", done: "已", failed: "已" },
   error: { active: "无法", done: "无法", failed: "无法" },
 };
 
-export function formatToolSummary(tool: ToolRun): string {
+export function formatToolSummary(tool: ToolPart): string {
   const target = extractToolTarget(tool.input);
   const prefix = statusVerbs[tool.status];
   switch (tool.name) {
@@ -61,12 +62,12 @@ export function extractToolTarget(input: string): string | null {
   return null;
 }
 
-export function getToolOutputLineCount(tool: ToolRun): number {
+export function getToolOutputLineCount(tool: ToolPart): number {
   const visible = tool.output ? tool.output.split("\n").length : 0;
   return visible + (tool.truncatedLines ?? 0);
 }
 
-export function createResultDescriptor(tool: ToolRun): ResultDescriptor | null {
+export function createResultDescriptor(tool: ToolPart): ResultDescriptor | null {
   if (tool.status !== "completed" || !tool.output) return null;
   const target = extractToolTarget(tool.input);
   if (tool.name === "edit" || tool.name === "write") {
@@ -139,9 +140,10 @@ export function serializeConversation(
   messages: ConversationMessage[],
 ): string {
   const sections = messages.flatMap((message) => {
-    if (!message.content.trim()) return [];
+    const text = messageText(message).trim();
+    if (!text) return [];
     const role = message.role === "user" ? "用户" : "Pi";
-    return [`## ${role}\n\n${message.content.trim()}`];
+    return [`## ${role}\n\n${text}`];
   });
   return [`# ${title}`, ...sections].join("\n\n");
 }

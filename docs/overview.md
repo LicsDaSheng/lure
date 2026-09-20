@@ -99,7 +99,7 @@ React UI ⇄ Tauri command/event ⇄ lure-desktop
 2. Rust 优先使用 `LURE_PI_PATH`，否则从当前 `PATH` 启动 `pi --mode rpc`。
 3. `lure-rpc` 只按 LF 切分 stdout JSONL，以请求 ID 关联 `get_state`、`prompt` 和 `abort` 响应。
 4. Tauri 通过统一的 `lure://pi-event` 推送带序号的规范化事件。
-5. 前端 reducer 保留 Pi 消息事实，assistant-ui `ExternalStoreRuntime` 将文本、thinking 和工具事件映射为线程内容；只有 `agent_settled` 才恢复可发送状态。
+5. 前端 reducer 保留 Pi 消息事实，并把助手内容存为单一有序 `parts` 序列（`text`、`thinking`、`tool`）；assistant-ui `ExternalStoreRuntime` 按该顺序映射为线程内容，工具卡因此出现在它真实发生的位置。
 6. 断开连接或应用退出时，中止活动任务并回收 Pi 子进程。
 
 当前桌面边界只暴露 `connect_pi`、`disconnect_pi`、`send_prompt`、`abort_pi` 四个命令。MVP 不支持图片、消息排队、模型切换和历史会话管理；交互式 extension UI 请求会被安全取消，避免 Pi 持续等待。
@@ -124,6 +124,21 @@ src/
 Feature 内聚自己的组件、状态与测试；只有形成稳定复用需求后才上移到 `components/` 或 `lib/`。通用界面原语优先通过 shadcn/ui CLI 写入 `components/ui/`，样式使用 Tailwind CSS 和 `src/index.css` 中的语义设计令牌。
 
 对话线程统一采用 assistant-ui。`PiAssistantRuntimeProvider` 通过 `ExternalStoreRuntime` 将 Pi reducer 中的消息转换为 assistant-ui 标准内容部件；`ThreadPrimitive`、`MessagePrimitive` 和 `ComposerPrimitive` 分别负责滚动线程、消息上下文与输入行为。Pi reducer 仍是唯一消息事实来源，assistant-ui 不接管 Pi 的会话、模型、工具或运行生命周期。
+
+助手消息的内容模型是**单一有序 parts 序列**：
+
+```ts
+type MessagePart =
+  | { id: string; type: "text"; contentIndex: number; text: string }
+  | { id: string; type: "thinking"; contentIndex: number; text: string }
+  | { id: string; type: "tool"; contentIndex: number; toolCallId: string; name: string;
+      status: "running" | "completed" | "error"; input: string; output: string;
+      truncatedLines: number | null };
+```
+
+- 文本与思考带 Pi 的 `contentIndex`，工具调用在 Pi 内容序列中占一个位置，但其 `tool_execution_*` 事件不携带索引，因此由“当前已见最大索引的下一位”推断，并在 `message_end` 用权威内容校正。
+- 消息文本与思考通过 `messageText()` / `messageThinking()` 从 parts 派生，不再维护重复的聚合字段。
+- 渲染层不再需要把工具堆到消息末尾；导出仅包含真实文本。
 
 `components/ai-elements/` 仅保留适合 Lure 的推理与工具展示组件，Markdown 继续通过 Streamdown 渲染；目录、模型、思考强度、附件和停止操作仍由工作区输入卡按照 Pi RPC 能力提供。
 

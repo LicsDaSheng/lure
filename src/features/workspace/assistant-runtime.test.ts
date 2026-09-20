@@ -4,25 +4,25 @@ import type { ConversationMessage } from "@/features/pi-connection/reducer";
 import { convertPiMessage, readAppendMessageText } from "./assistant-runtime";
 
 describe("assistant-ui Pi 消息适配", () => {
-  it("按原始顺序转换文本、思考和工具调用", () => {
+  it("按 parts 的真实顺序转换文本、思考与工具调用", () => {
     const message: ConversationMessage = {
       id: "assistant-1",
       role: "assistant",
-      content: "检查完成",
-      thinking: "先读取配置",
-      blocks: [
-        { type: "thinking", contentIndex: 0, text: "先读取配置" },
-        { type: "text", contentIndex: 1, text: "检查完成" },
-      ],
-      tools: [
+      parts: [
+        { id: "thinking-0", type: "thinking", contentIndex: 0, text: "先读取配置" },
+        { id: "text-1", type: "text", contentIndex: 1, text: "看配置：", },
         {
           id: "tool-1",
+          type: "tool",
+          contentIndex: 2,
+          toolCallId: "tool-1",
           name: "read",
           status: "completed",
           input: "{\"path\":\"README.md\"}",
           output: "文件内容",
           truncatedLines: null,
         },
+        { id: "text-3", type: "text", contentIndex: 3, text: "读取完成" },
       ],
     };
 
@@ -30,16 +30,8 @@ describe("assistant-ui Pi 消息适配", () => {
       id: "assistant-1",
       role: "assistant",
       content: [
-        {
-          type: "reasoning",
-          text: "先读取配置",
-          status: { type: "complete" },
-        },
-        {
-          type: "text",
-          text: "检查完成",
-          status: { type: "complete" },
-        },
+        { type: "reasoning", text: "先读取配置", status: { type: "complete" } },
+        { type: "text", text: "看配置：", status: { type: "complete" } },
         {
           type: "tool-call",
           toolCallId: "tool-1",
@@ -49,6 +41,7 @@ describe("assistant-ui Pi 消息适配", () => {
           result: "文件内容",
           isError: false,
         },
+        { type: "text", text: "读取完成", status: { type: "complete" } },
       ],
       status: { type: "complete", reason: "stop" },
       metadata: { custom: { sourceMessageId: "assistant-1" } },
@@ -59,12 +52,12 @@ describe("assistant-ui Pi 消息适配", () => {
     const message: ConversationMessage = {
       id: "assistant-2",
       role: "assistant",
-      content: "",
-      thinking: "",
-      blocks: [],
-      tools: [
+      parts: [
         {
           id: "tool-2",
+          type: "tool",
+          contentIndex: 0,
+          toolCallId: "tool-2",
           name: "bash",
           status: "error",
           input: "not-json",
