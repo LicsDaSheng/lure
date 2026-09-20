@@ -53,14 +53,26 @@ export type ExtensionUiRequest = {
   defaultValue: string | null;
 };
 
-export type MessageBlock = {
-  type: "text" | "thinking";
+export type TextPart = {
+  id: string;
+  type: "text";
   contentIndex: number;
   text: string;
 };
 
-export type ToolRun = {
+export type ThinkingPart = {
   id: string;
+  type: "thinking";
+  contentIndex: number;
+  text: string;
+};
+
+/** 工具调用是助手内容里的一个 part，位置由它在 Pi 内容序列中的位置决定。 */
+export type ToolPart = {
+  id: string;
+  type: "tool";
+  contentIndex: number;
+  toolCallId: string;
   name: string;
   status: "running" | "completed" | "error";
   input: string;
@@ -68,16 +80,32 @@ export type ToolRun = {
   truncatedLines: number | null;
 };
 
+/**
+ * 助手消息的单一有序内容序列。
+ *
+ * 文本、思考与工具调用按 Pi 的真实输出顺序交错保存，渲染层不再需要
+ * 把工具堆到消息末尾。工具没有自己的 contentIndex 事件，位置按
+ * “当前已见最大索引的下一位” 推断，并与 message_end 的权威内容对齐。
+ */
+export type MessagePart = TextPart | ThinkingPart | ToolPart;
+
 export type ConversationMessage = {
   id: string;
   role: "assistant" | "user";
-  content: string;
-  thinking: string;
-  blocks: MessageBlock[];
-  tools: ToolRun[];
+  parts: MessagePart[];
   stopReason?: string | null;
   errorMessage?: string | null;
 };
+
+export function messageText(message: ConversationMessage): string {
+  return message.parts.flatMap((part) => (part.type === "text" ? [part.text] : [])).join("");
+}
+
+export function messageThinking(message: ConversationMessage): string {
+  return message.parts
+    .flatMap((part) => (part.type === "thinking" ? [part.text] : []))
+    .join("");
+}
 
 export type PiEvent =
   | { type: "connection_changed"; snapshot: ConnectionSnapshot }
@@ -226,10 +254,7 @@ export function piSessionReducer(
           {
             id: `user-${event.requestId}`,
             role: "user",
-            content: event.message,
-            thinking: "",
-            blocks: [{ type: "text", contentIndex: 0, text: event.message }],
-            tools: [],
+            parts: [{ id: "text-0", type: "text", contentIndex: 0, text: event.message }],
           },
         ],
       };
@@ -239,25 +264,20 @@ export function piSessionReducer(
     case "assistant_text_delta":
       return updateActiveAssistant(state, envelope.sequence, (message) => ({
         ...message,
-        content: message.content + event.delta,
-        blocks: appendBlockDelta(message.blocks, "text", event.contentIndex, event.delta),
+        parts: appendTextDelta(message.parts, "text", event.contentIndex, event.delta),
       }));
     case "assistant_thinking_delta":
       return updateActiveAssistant(state, envelope.sequence, (message) => ({
         ...message,
-        thinking: message.thinking + event.delta,
-        blocks: appendBlockDelta(message.blocks, "thinking", event.contentIndex, event.delta),
+        parts: appendTextDelta(message.parts, "thinking", event.contentIndex, event.delta),
       }));
     case "assistant_message_completed":
       return updateActiveAssistant(state, envelope.sequence, (message) => ({
         ...message,
-        content: event.text,
-        thinking: event.thinking,
-        blocks: event.blocks?.map((block) => ({
-          type: block.kind,
-          contentIndex: block.contentIndex,
-          text: block.text,
-        })) ?? message.blocks,
+        parts:
+          event.blocks && event.blocks.length > 0
+            ? mergeCompletedParts(message.parts, event.blocks)
+            : fallbackCompletedParts(message.parts, event.text, event.thinking),
         stopReason: event.stopReason,
         errorMessage: event.errorMessage,
       }));
@@ -398,10 +418,7 @@ function startAssistantMessage(state: PiSessionState, sequence: number): PiSessi
       {
         id,
         role: "assistant",
-        content: "",
-        thinking: "",
-        blocks: [],
-        tools: [],
+        parts: [],
       },
     ],
   };
@@ -422,44 +439,127 @@ function updateActiveAssistant(
   };
 }
 
-function appendBlockDelta(
-  blocks: MessageBlock[],
-  type: MessageBlock["type"],
+function sortParts(parts: MessagePart[]): MessagePart[] {
+  return [...parts].sort((left, right) => left.contentIndex - right.contentIndex);
+}
+
+function nextContentIndex(parts: MessagePart[]): number {
+  return parts.reduce((max, part) => Math.max(max, part.contentIndex), -1) + 1;
+}
+
+function appendTextDelta(
+  parts: MessagePart[],
+  type: "text" | "thinking",
   contentIndex: number,
   delta: string,
-): MessageBlock[] {
-  const existing = blocks.find((block) => block.contentIndex === contentIndex);
-  if (!existing) {
-    return [...blocks, { type, contentIndex, text: delta }].sort(
-      (left, right) => left.contentIndex - right.contentIndex,
+): MessagePart[] {
+  const existing = parts.find(
+    (part) => part.type === type && part.contentIndex === contentIndex,
+  );
+  if (existing && existing.type !== "tool") {
+    return parts.map((part) =>
+      part === existing ? { ...existing, text: existing.text + delta } : part,
     );
   }
-  return blocks.map((block) =>
-    block.contentIndex === contentIndex ? { ...block, type, text: block.text + delta } : block,
+  const appended: MessagePart = {
+    id: `${type}-${contentIndex}`,
+    type,
+    contentIndex,
+    text: delta,
+  };
+  // Pi 的 contentIndex 单调递增，事件到达顺序就是真实输出顺序；
+  // 这里按到达顺序追加，只在 message_end 用权威内容重排。
+  return [...parts, appended];
+}
+
+/** 用 message_end 的权威内容重建文本与思考，同时保留已执行工具的位置。 */
+function mergeCompletedParts(
+  parts: MessagePart[],
+  blocks: Array<{ contentIndex: number; kind: "text" | "thinking"; text: string }>,
+): MessagePart[] {
+  const rebuilt: MessagePart[] = blocks.map((block) => ({
+    id: `${block.kind}-${block.contentIndex}`,
+    type: block.kind,
+    contentIndex: block.contentIndex,
+    text: block.text,
+  }));
+  const tools = parts.filter((part): part is ToolPart => part.type === "tool");
+  return sortParts([...rebuilt, ...tools]);
+}
+
+/**
+ * message_end 的兜底：Pi 正常会给出块级内容，缺失时用聚合文本重建，
+ * 避免丢掉 Pi 已经返回的完整消息。
+ */
+function fallbackCompletedParts(
+  parts: MessagePart[],
+  text: string,
+  thinking: string,
+): MessagePart[] {
+  const rebuilt: MessagePart[] = [];
+  const base = parts.some((part) => part.type === "tool") ? nextContentIndex(parts) : 0;
+  if (thinking) {
+    rebuilt.push({ id: `thinking-${base}`, type: "thinking", contentIndex: base, text: thinking });
+  }
+  if (text) {
+    const index = base + rebuilt.length;
+    rebuilt.push({ id: `text-${index}`, type: "text", contentIndex: index, text });
+  }
+  if (rebuilt.length === 0) return parts;
+  const tools = parts.filter((part): part is ToolPart => part.type === "tool");
+  return sortParts([...rebuilt, ...tools]);
+}
+
+function upsertToolPart(
+  parts: MessagePart[],
+  toolCallId: string,
+  name: string,
+  status: ToolPart["status"],
+  details: { input?: string; output?: string; truncatedLines?: number | null },
+): MessagePart[] {
+  const existing = parts.find(
+    (part): part is ToolPart => part.type === "tool" && part.toolCallId === toolCallId,
   );
+  if (existing) {
+    return parts.map((part) =>
+      part === existing
+        ? {
+            ...existing,
+            name,
+            status,
+            input: details.input || existing.input,
+            output: details.output ?? existing.output,
+            truncatedLines: details.truncatedLines ?? existing.truncatedLines,
+          }
+        : part,
+    );
+  }
+  // 工具在 assistant 内容里占据自己的位置：Pi 的 contentIndex 单调递增，
+  // 所以新工具的位置就是当前已知最大索引的下一位。
+  const tool: MessagePart = {
+    id: toolCallId,
+    type: "tool",
+    contentIndex: nextContentIndex(parts),
+    toolCallId,
+    name,
+    status,
+    input: details.input ?? "",
+    output: details.output ?? "",
+    truncatedLines: details.truncatedLines ?? null,
+  };
+  return [...parts, tool];
 }
 
 function updateTool(
   state: PiSessionState,
   sequence: number,
-  id: string,
+  toolCallId: string,
   name: string,
-  status: ToolRun["status"],
+  status: ToolPart["status"],
   details: { input?: string; output?: string; truncatedLines?: number | null },
 ): PiSessionState {
-  return updateActiveAssistant(state, sequence, (message) => {
-    const existing = message.tools.find((tool) => tool.id === id);
-    const next: ToolRun = {
-      id,
-      name,
-      status,
-      input: details.input || existing?.input || "",
-      output: details.output ?? existing?.output ?? "",
-      truncatedLines: details.truncatedLines ?? existing?.truncatedLines ?? null,
-    };
-    const tools = existing
-      ? message.tools.map((tool) => (tool.id === id ? next : tool))
-      : [...message.tools, next];
-    return { ...message, tools };
-  });
+  return updateActiveAssistant(state, sequence, (message) => ({
+    ...message,
+    parts: upsertToolPart(message.parts, toolCallId, name, status, details),
+  }));
 }

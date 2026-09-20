@@ -337,6 +337,55 @@ describe("主工作区对话态", () => {
     expect(screen.getByRole("button", { name: "发送消息" })).toBeEnabled();
   });
 
+  it("工具卡按真实顺序渲染在两条助手文本之间", async () => {
+    await renderConnected();
+
+    emit({
+      sequence: 1,
+      event: { type: "user_message_accepted", requestId: "1", message: "检查项目" },
+    });
+    emit({ sequence: 2, event: { type: "assistant_message_started" } });
+    emit({
+      sequence: 3,
+      event: { type: "assistant_text_delta", contentIndex: 0, delta: "先读取配置" },
+    });
+    emit({
+      sequence: 4,
+      event: {
+        type: "tool_started",
+        toolCallId: "tool-1",
+        toolName: "read",
+        input: "{\"path\":\"package.json\"}",
+      },
+    });
+    emit({
+      sequence: 5,
+      event: {
+        type: "tool_completed",
+        toolCallId: "tool-1",
+        toolName: "read",
+        input: "{\"path\":\"package.json\"}",
+        output: "{\"name\":\"lure\"}",
+        truncatedLines: null,
+        isError: false,
+      },
+    });
+    emit({
+      sequence: 6,
+      event: { type: "assistant_text_delta", contentIndex: 2, delta: "再看入口" },
+    });
+
+    const bubble = await screen.findByLabelText("Pi 回复");
+    const rendered = bubble.textContent ?? "";
+    const before = rendered.indexOf("先读取配置");
+    const tool = rendered.indexOf("已读取 package.json");
+    const after = rendered.indexOf("再看入口");
+
+    expect(before).toBeGreaterThanOrEqual(0);
+    expect(tool).toBeGreaterThan(before);
+    expect(after).toBeGreaterThan(tool);
+  });
+
   it("运行中保留可编辑草稿并把主操作切换为停止", async () => {
     await renderConnected();
     fireEvent.change(textbox(), { target: { value: "第一条" } });

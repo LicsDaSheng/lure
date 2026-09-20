@@ -2,12 +2,19 @@ import { describe, expect, it } from "vitest";
 
 import {
   initialPiSessionState,
+  messageText,
+  messageThinking,
   piSessionReducer,
+  type ConversationMessage,
   type EventEnvelope,
 } from "./reducer";
 
 function reduce(events: EventEnvelope[]) {
   return events.reduce(piSessionReducer, initialPiSessionState);
+}
+
+function toolParts(message: ConversationMessage) {
+  return message.parts.flatMap((part) => (part.type === "tool" ? [part] : []));
 }
 
 describe("piSessionReducer", () => {
@@ -24,7 +31,112 @@ describe("piSessionReducer", () => {
     const state = reduce([event, { ...event, sequence: 2 }]);
 
     expect(state.messages).toHaveLength(1);
-    expect(state.messages[0]?.content).toBe("你好");
+    expect(messageText(state.messages[0]!)).toBe("你好");
+  });
+
+  it("按真实顺序交错保存文本、思考与工具调用", () => {
+    const state = reduce([
+      { sequence: 1, event: { type: "assistant_message_started" } },
+      {
+        sequence: 2,
+        event: { type: "assistant_text_delta", contentIndex: 0, delta: "先读取配置" },
+      },
+      {
+        sequence: 3,
+        event: {
+          type: "tool_started",
+          toolCallId: "tool-1",
+          toolName: "read",
+          input: "{\"path\":\"a\"}",
+        },
+      },
+      {
+        sequence: 4,
+        event: {
+          type: "tool_completed",
+          toolCallId: "tool-1",
+          toolName: "read",
+          output: "内容 A",
+          isError: false,
+        },
+      },
+      {
+        sequence: 5,
+        event: { type: "assistant_text_delta", contentIndex: 2, delta: "再看入口" },
+      },
+      {
+        sequence: 6,
+        event: {
+          type: "tool_started",
+          toolCallId: "tool-2",
+          toolName: "read",
+          input: "{\"path\":\"b\"}",
+        },
+      },
+      {
+        sequence: 7,
+        event: { type: "assistant_thinking_delta", contentIndex: 4, delta: "整理结论" },
+      },
+    ]);
+
+    const parts = state.messages[0]?.parts ?? [];
+    expect(parts.map((part) => part.type)).toEqual([
+      "text",
+      "tool",
+      "text",
+      "tool",
+      "thinking",
+    ]);
+    // 工具占据它在 assistant 内容中自己的位置，而不是堆到消息末尾。
+    expect(parts.map((part) => part.contentIndex)).toEqual([0, 1, 2, 3, 4]);
+    expect(parts[0]).toMatchObject({ type: "text", text: "先读取配置" });
+    expect(parts[1]).toMatchObject({
+      type: "tool",
+      toolCallId: "tool-1",
+      name: "read",
+      status: "completed",
+      output: "内容 A",
+    });
+    expect(parts[2]).toMatchObject({ type: "text", text: "再看入口" });
+    expect(parts[3]).toMatchObject({ type: "tool", toolCallId: "tool-2", status: "running" });
+    expect(parts[4]).toMatchObject({ type: "thinking", text: "整理结论" });
+  });
+
+  it("message_end 的权威内容校正文本，同时保留已执行工具的位置", () => {
+    const state = reduce([
+      { sequence: 1, event: { type: "assistant_message_started" } },
+      {
+        sequence: 2,
+        event: { type: "assistant_text_delta", contentIndex: 0, delta: "临时" },
+      },
+      {
+        sequence: 3,
+        event: { type: "tool_started", toolCallId: "tool-1", toolName: "read", input: "{}" },
+      },
+      {
+        sequence: 4,
+        event: { type: "assistant_text_delta", contentIndex: 2, delta: "临时结尾" },
+      },
+      {
+        sequence: 5,
+        event: {
+          type: "assistant_message_completed",
+          text: "正式开头正式结尾",
+          thinking: "",
+          blocks: [
+            { contentIndex: 0, kind: "text", text: "正式开头" },
+            { contentIndex: 2, kind: "text", text: "正式结尾" },
+          ],
+          stopReason: "stop",
+        },
+      },
+    ]);
+
+    const parts = state.messages[0]?.parts ?? [];
+    expect(parts.map((part) => part.type)).toEqual(["text", "tool", "text"]);
+    expect(parts[0]).toMatchObject({ contentIndex: 0, text: "正式开头" });
+    expect(parts[2]).toMatchObject({ contentIndex: 2, text: "正式结尾" });
+    expect(messageText(state.messages[0]!)).toBe("正式开头正式结尾");
   });
 
   it("将文本和思考增量归并到当前助手消息并以最终消息校正", () => {
@@ -48,11 +160,9 @@ describe("piSessionReducer", () => {
       },
     ]);
 
-    expect(state.messages[0]).toMatchObject({
-      role: "assistant",
-      content: "最终结果",
-      thinking: "完整分析",
-    });
+    expect(state.messages[0]?.role).toBe("assistant");
+    expect(messageText(state.messages[0]!)).toBe("最终结果");
+    expect(messageThinking(state.messages[0]!)).toBe("完整分析");
   });
 
   it("运行生命周期只更新独立运行状态，不写入对话消息", () => {
@@ -67,7 +177,7 @@ describe("piSessionReducer", () => {
     expect(running.connection.phase).toBe("running");
     expect(running.run.phase).toBe("running");
     expect(running.messages).toHaveLength(1);
-    expect(running.messages[0]?.content).toBe("检查项目");
+    expect(messageText(running.messages[0]!)).toBe("检查项目");
 
     const settled = piSessionReducer(running, {
       sequence: 4,
@@ -101,9 +211,9 @@ describe("piSessionReducer", () => {
     ]);
 
     expect(state.messages).toHaveLength(2);
-    expect(state.messages[0]?.content).toBe("先读取文件");
-    expect(state.messages[0]?.tools[0]?.name).toBe("read");
-    expect(state.messages[1]?.content).toBe("读取完成");
+    expect(messageText(state.messages[0]!)).toBe("先读取文件");
+    expect(toolParts(state.messages[0]!)[0]?.name).toBe("read");
+    expect(messageText(state.messages[1]!)).toBe("读取完成");
   });
 
   it("按 contentIndex 保留多个思考块与正文的顺序", () => {
@@ -114,11 +224,13 @@ describe("piSessionReducer", () => {
       { sequence: 4, event: { type: "assistant_thinking_delta", contentIndex: 2, delta: "二" } },
     ]);
 
-    expect(state.messages[0]?.blocks).toEqual([
-      { type: "thinking", contentIndex: 0, text: "一" },
-      { type: "text", contentIndex: 1, text: "答案" },
-      { type: "thinking", contentIndex: 2, text: "二" },
+    expect(state.messages[0]?.parts).toEqual([
+      { id: "thinking-0", type: "thinking", contentIndex: 0, text: "一" },
+      { id: "text-1", type: "text", contentIndex: 1, text: "答案" },
+      { id: "thinking-2", type: "thinking", contentIndex: 2, text: "二" },
     ]);
+    expect(messageText(state.messages[0]!)).toBe("答案");
+    expect(messageThinking(state.messages[0]!)).toBe("一二");
   });
 
   it("保留工具参数、输出及截断行数", () => {
@@ -146,7 +258,7 @@ describe("piSessionReducer", () => {
       },
     ]);
 
-    expect(state.messages[0]?.tools[0]).toMatchObject({
+    expect(toolParts(state.messages[0]!)[0]).toMatchObject({
       input: expect.stringContaining("README.md"),
       output: "line 1\nline 2",
       truncatedLines: 12,
@@ -312,7 +424,7 @@ describe("piSessionReducer", () => {
       { sequence: 4, event: { type: "process_exited", code: 1 } },
     ]);
 
-    expect(state.messages[0]?.tools[0]?.status).toBe("completed");
+    expect(toolParts(state.messages[0]!)[0]?.status).toBe("completed");
     expect(state.connection.phase).toBe("failed");
     expect(state.error?.code).toBe("PROCESS_EXITED");
   });

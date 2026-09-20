@@ -5,14 +5,14 @@ import { ScrollTextIcon } from "lucide-react";
 import { Reasoning, ReasoningContent, ReasoningTrigger } from "@/components/ai-elements/reasoning";
 import { Tool, ToolContent, ToolHeader, ToolInput, ToolOutput } from "@/components/ai-elements/tool";
 import { Button } from "@/components/ui/button";
-import type { ConversationMessage, ToolRun } from "@/features/pi-connection/reducer";
+import type { ConversationMessage, ToolPart } from "@/features/pi-connection/reducer";
 
 import { ContentPreviewDialog } from "./content-preview-dialog";
 import { MarkdownResponse } from "./markdown-response";
 import { createResultDescriptor, formatToolSummary, getToolOutputLineCount } from "./presentation";
 import { ResultCard } from "./result-card";
 
-function getToolState(tool: ToolRun) {
+function getToolState(tool: ToolPart) {
   return tool.status === "running"
     ? "input-available"
     : tool.status === "error"
@@ -20,7 +20,7 @@ function getToolState(tool: ToolRun) {
       : "output-available";
 }
 
-function ToolItem({ tool }: { tool: ToolRun }) {
+function ToolItem({ tool }: { tool: ToolPart }) {
   const summary = formatToolSummary(tool);
   const totalLines = getToolOutputLineCount(tool);
   const result = createResultDescriptor(tool);
@@ -119,7 +119,10 @@ function PiMessage({
               return <MarkdownResponse>{part.text}</MarkdownResponse>;
             }
             if (part.type === "tool-call") {
-              const tool = source?.tools.find((item) => item.id === part.toolCallId);
+              const tool = source?.parts.find(
+                (item): item is ToolPart =>
+                  item.type === "tool" && item.toolCallId === part.toolCallId,
+              );
               return tool ? <ToolItem tool={tool} /> : null;
             }
             return null;
