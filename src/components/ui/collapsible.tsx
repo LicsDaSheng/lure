@@ -1,5 +1,7 @@
 import { Collapsible as CollapsiblePrimitive } from "radix-ui"
 
+import { cn } from "@/lib/utils"
+
 function Collapsible({
   ...props
 }: React.ComponentProps<typeof CollapsiblePrimitive.Root>) {
@@ -7,11 +9,16 @@ function Collapsible({
 }
 
 function CollapsibleTrigger({
+  className,
   ...props
 }: React.ComponentProps<typeof CollapsiblePrimitive.CollapsibleTrigger>) {
   return (
     <CollapsiblePrimitive.CollapsibleTrigger
       data-slot="collapsible-trigger"
+      className={cn(
+        "cs-smooth-interaction-fast cs-hover-brighten cs-focus-pop cs-active-scale-98 cs-tap-highlight-none motion-reduce:transform-none",
+        className
+      )}
       {...props}
     />
   )

@@ -8,6 +8,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { piDarkSyntaxTheme, piLightSyntaxTheme } from "@/lib/pi-syntax-theme";
 import { cn } from "@/lib/utils";
 import { CheckIcon, CopyIcon } from "lucide-react";
 import type { ComponentProps, CSSProperties, HTMLAttributes } from "react";
@@ -147,7 +148,7 @@ const getHighlighter = (
 
   const highlighterPromise = createHighlighter({
     langs: [language],
-    themes: ["github-light", "github-dark"],
+    themes: [piLightSyntaxTheme, piDarkSyntaxTheme],
   });
 
   highlighterCache.set(language, highlighterPromise);
@@ -198,8 +199,8 @@ export const highlightCode = (
       const result = highlighter.codeToTokens(code, {
         lang: langToUse,
         themes: {
-          dark: "github-dark",
-          light: "github-light",
+          dark: piDarkSyntaxTheme,
+          light: piLightSyntaxTheme,
         },
       });
 
@@ -254,7 +255,7 @@ const CodeBlockBody = memo(
     return (
       <pre
         className={cn(
-          "dark:!bg-[var(--shiki-dark-bg)] dark:!text-[var(--shiki-dark)] m-0 p-4 text-sm",
+          "dark:!bg-[var(--shiki-dark-bg)] dark:!text-[var(--shiki-dark)] m-0 px-4 pb-3 text-sm",
           className
         )}
         style={preStyle}
@@ -292,7 +293,7 @@ export const CodeBlockContainer = ({
 }: HTMLAttributes<HTMLDivElement> & { language: string }) => (
   <div
     className={cn(
-      "group relative w-full overflow-hidden rounded-md border bg-background text-foreground",
+      "group relative w-full overflow-hidden rounded-none border border-[var(--pi-dim)] bg-muted/30 text-foreground shadow-none",
       className
     )}
     data-language={language}
@@ -417,6 +418,7 @@ export const CodeBlock = ({
   return (
     <CodeBlockContext.Provider value={contextValue}>
       <CodeBlockContainer className={className} language={language} {...props}>
+        <div className="px-4 pt-2 font-mono text-xs text-[var(--pi-muted)]">```{language}</div>
         {children}
         <CodeBlockContent
           code={code}

@@ -123,16 +123,64 @@ describe("App", () => {
     });
     emit({
       sequence: 6,
-      event: { type: "tool_started", toolCallId: "tool-1", toolName: "read" },
+      event: {
+        type: "tool_started",
+        toolCallId: "tool-1",
+        toolName: "read",
+        input: "{\n  \"path\": \"README.md\"\n}",
+      },
     });
 
     expect(screen.getByText("检查项目")).toBeInTheDocument();
     expect(await screen.findByText("完成")).toBeInTheDocument();
-    expect(screen.getByText("查看思考过程")).toBeInTheDocument();
+    expect(screen.getByText("Thinking…")).toBeInTheDocument();
     expect(screen.getByText("read")).toBeInTheDocument();
+    expect(screen.getByText("Parameters")).toBeInTheDocument();
+    expect(screen.getByText(/README\.md/)).toBeInTheDocument();
+
+    emit({
+      sequence: 7,
+      event: {
+        type: "tool_completed",
+        toolCallId: "tool-1",
+        toolName: "read",
+        input: "{\n  \"path\": \"README.md\"\n}",
+        output: "done",
+        truncatedLines: null,
+        isError: false,
+      },
+    });
+    expect(screen.getByText("Completed")).toBeInTheDocument();
+    expect(screen.queryByText("Parameters")).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "停止生成" }));
     await waitFor(() => expect(mocks.invoke).toHaveBeenCalledWith("abort_pi"));
+  });
+
+  it("以可折叠系统色块展示压缩摘要", async () => {
+    render(<App />);
+    await waitFor(() => expect(mocks.listen).toHaveBeenCalled());
+
+    emit({
+      sequence: 1,
+      event: { type: "compaction_changed", active: true, reason: "threshold" },
+    });
+    expect(screen.getAllByText("Compacting context…")).not.toHaveLength(0);
+
+    emit({
+      sequence: 2,
+      event: {
+        type: "compaction_changed",
+        active: false,
+        reason: "threshold",
+        aborted: false,
+        summary: "保留的摘要",
+        tokensBefore: 12000,
+      },
+    });
+    expect(screen.getByText("Compacted from 12000 tokens (click to expand)")).toBeInTheDocument();
+    expect(screen.getByText("[compaction]")).toBeInTheDocument();
+    expect(screen.getByText("保留的摘要")).toBeInTheDocument();
   });
 
   it("卸载时取消 Pi 事件监听", async () => {

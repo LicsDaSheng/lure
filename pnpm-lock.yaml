@@ -8,6 +8,9 @@ importers:
 
   .:
     dependencies:
+      '@casoon/tailwindcss-micro-interactions':
+        specifier: ^0.8.5
+        version: 0.8.5(tailwindcss@4.3.3)
       '@radix-ui/react-use-controllable-state':
         specifier: ^1.2.6
         version: 1.2.6(@types/react@19.3.0)(react@19.3.0)
@@ -165,6 +168,11 @@ packages:
 
   '@braintree/sanitize-url@7.1.2':
     resolution: {integrity: sha512-jigsZK+sMF/cuiB7sERuo9V7N9jx+dhmHHnQyDSVdpZwVutaBu7WvNYqMDLSgFgfB30n452TP3vjDAvFC973mA==}
+
+  '@casoon/tailwindcss-micro-interactions@0.8.5':
+    resolution: {integrity: sha512-dV4NicH4PnurlrDfYAG1b4ETrMposg5VdM2iXdyINz4MKlt8eV4o2WHUGfxLZwA298YAsNO6bi/9nrJSfrcMVA==}
+    peerDependencies:
+      tailwindcss: ^4.0.0
 
   '@chevrotain/types@11.1.2':
     resolution: {integrity: sha512-U+HFai5+zmJCkK86QsaJtoITlboZHBqrVketcO2ROv865xfCMSFpELQoz1GkX5GzME8pTa+3kbKrZHQtI0gdbw==}
@@ -3028,6 +3036,10 @@ snapshots:
   '@babel/runtime@7.29.7': {}
 
   '@braintree/sanitize-url@7.1.2': {}
+
+  '@casoon/tailwindcss-micro-interactions@0.8.5(tailwindcss@4.3.3)':
+    dependencies:
+      tailwindcss: 4.3.3
 
   '@chevrotain/types@11.1.2': {}
 

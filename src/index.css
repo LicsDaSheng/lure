@@ -1,5 +1,6 @@
 @import "tailwindcss";
 @import "tw-animate-css";
+@import "@casoon/tailwindcss-micro-interactions";
 
 @custom-variant dark (&:is(.dark *));
 
@@ -30,7 +31,7 @@
 
 :root {
   color-scheme: light;
-  --radius: 0.625rem;
+  --radius: 0rem;
   --background: oklch(0.985 0 0);
   --foreground: oklch(0.145 0 0);
   --card: oklch(1 0 0);
@@ -47,25 +48,62 @@
   --border: oklch(0.922 0 0);
   --input: oklch(0.922 0 0);
   --ring: oklch(0.708 0 0);
+
+  --pi-user-bg: oklch(0.94 0.01 260);
+  --pi-custom-bg: oklch(0.95 0.02 280);
+  --pi-tool-pending: oklch(0.95 0.01 260);
+  --pi-tool-success: oklch(0.95 0.03 145);
+  --pi-tool-error: oklch(0.95 0.03 10);
+  --pi-accent: oklch(0.48 0.08 185);
+  --pi-success: oklch(0.5 0.1 110);
+  --pi-error: oklch(0.52 0.16 15);
+  --pi-warning: oklch(0.62 0.14 85);
+  --pi-dim: oklch(0.68 0 0);
+  --pi-muted: oklch(0.45 0 0);
+  --pi-syntax-keyword: #569cd6;
+  --pi-syntax-function: #dcdcaa;
+  --pi-syntax-string: #ce9178;
+  --pi-syntax-number: #b5cea8;
+  --pi-syntax-type: #4ec9b0;
+  --pi-syntax-comment: #6a9955;
+  --pi-syntax-variable: #9cdcfe;
+  --pi-syntax-operator: #d4d4d4;
+
+  /* Casoon 微交互沿用 Pi 的低饱和焦点色。 */
+  --cs-color-focus: var(--pi-accent);
+  --cs-color-shadow: oklch(0.15 0.01 260);
 }
 
 .dark {
+  color-scheme: dark;
   --background: oklch(0.12 0.01 265);
   --foreground: oklch(0.96 0.005 265);
   --card: oklch(0.17 0.015 265);
   --card-foreground: oklch(0.96 0.005 265);
-  --primary: oklch(0.72 0.15 264);
-  --primary-foreground: oklch(0.13 0.02 265);
-  --secondary: oklch(0.23 0.018 265);
-  --secondary-foreground: oklch(0.96 0.005 265);
-  --muted: oklch(0.23 0.018 265);
-  --muted-foreground: oklch(0.7 0.015 265);
-  --accent: oklch(0.27 0.03 265);
-  --accent-foreground: oklch(0.96 0.005 265);
-  --destructive: oklch(0.65 0.2 25);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 14%);
-  --ring: oklch(0.62 0.14 264);
+  --primary: oklch(0.72 0.06 185);
+  --primary-foreground: oklch(0.13 0.01 260);
+  --secondary: oklch(0.22 0.012 260);
+  --secondary-foreground: oklch(0.96 0.005 260);
+  --muted: oklch(0.22 0.012 260);
+  --muted-foreground: oklch(0.68 0.012 260);
+  --accent: oklch(0.26 0.025 185);
+  --accent-foreground: oklch(0.96 0.005 260);
+  --destructive: oklch(0.55 0.12 15);
+  --border: oklch(1 0 0 / 12%);
+  --input: oklch(1 0 0 / 16%);
+  --ring: oklch(0.72 0.06 185);
+
+  --pi-user-bg: oklch(0.25 0.01 260);
+  --pi-custom-bg: oklch(0.22 0.02 280);
+  --pi-tool-pending: oklch(0.22 0.01 260);
+  --pi-tool-success: oklch(0.24 0.02 145);
+  --pi-tool-error: oklch(0.26 0.02 10);
+  --pi-accent: oklch(0.72 0.06 185);
+  --pi-success: oklch(0.72 0.08 110);
+  --pi-error: oklch(0.55 0.12 15);
+  --pi-warning: oklch(0.85 0.15 105);
+  --pi-dim: oklch(0.45 0 0);
+  --pi-muted: oklch(0.52 0 0);
 }
 
 @layer base {
@@ -82,5 +120,63 @@
   textarea,
   select {
     font: inherit;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cs-smooth-interaction-fast {
+    transition-duration: 0.01ms !important;
+  }
+
+  .cs-active-scale-98:active {
+    transform: none !important;
+  }
+}
+
+@layer components {
+  .pi-markdown {
+    line-height: 1.55;
+  }
+
+  .pi-markdown :where(p, ul, ol, pre, blockquote, table) {
+    margin-block: 0.5rem;
+  }
+
+  .pi-markdown :where(ul, ol) {
+    padding-left: 1.5rem;
+  }
+
+  .pi-markdown blockquote {
+    border-left: 2px solid var(--pi-dim);
+    padding-left: 1rem;
+  }
+
+  .pi-markdown :not(pre) > code {
+    border-radius: 0;
+    background: var(--muted);
+    padding-inline: 0.25rem;
+    color: var(--pi-accent);
+  }
+
+  .pi-markdown pre {
+    border: 1px solid var(--pi-dim);
+    border-radius: 0;
+    background: color-mix(in oklch, var(--muted) 30%, transparent);
+    box-shadow: none;
+  }
+
+  .pi-markdown table,
+  .pi-markdown th,
+  .pi-markdown td {
+    border: 1px solid var(--pi-dim);
+  }
+
+  .pi-markdown th,
+  .pi-markdown td {
+    padding: 0.25rem 0.5rem;
+  }
+
+  .pi-markdown hr {
+    border-color: var(--pi-dim);
   }
 }

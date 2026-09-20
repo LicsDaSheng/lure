@@ -1,4 +1,4 @@
-use lure_core::LureEvent;
+use lure_core::{LureEvent, MessageBlock, MessageBlockKind};
 use serde_json::{Value, json};
 
 pub(crate) struct NormalizedFrame {
@@ -22,23 +22,25 @@ pub(crate) fn normalize_event(value: &Value) -> NormalizedFrame {
             }
         }
         "message_update" => events.extend(normalize_stream_update(value)),
-        "message_end" => {
-            if value.pointer("/message/role").and_then(Value::as_str) == Some("assistant") {
-                let (text, thinking) = extract_assistant_content(&value["message"]["content"]);
-                events.push(LureEvent::AssistantMessageCompleted { text, thinking });
-            }
-        }
+        "message_end" => events.extend(normalize_assistant_end(value)),
         "tool_execution_start" => events.push(LureEvent::ToolStarted {
             tool_call_id: string_field(value, "toolCallId"),
             tool_name: string_field(value, "toolName"),
+            input: pretty_json(&value["args"]),
         }),
         "tool_execution_update" => events.push(LureEvent::ToolUpdated {
             tool_call_id: string_field(value, "toolCallId"),
             tool_name: string_field(value, "toolName"),
+            input: pretty_json(&value["args"]),
+            output: extract_result_text(&value["partialResult"]),
+            truncated_lines: extract_truncated_lines(&value["partialResult"]),
         }),
         "tool_execution_end" => events.push(LureEvent::ToolCompleted {
             tool_call_id: string_field(value, "toolCallId"),
             tool_name: string_field(value, "toolName"),
+            input: pretty_json(&value["args"]),
+            output: extract_result_text(&value["result"]),
+            truncated_lines: extract_truncated_lines(&value["result"]),
             is_error: value["isError"].as_bool().unwrap_or(false),
         }),
         "agent_end" => events.push(LureEvent::RunFinished {
@@ -49,23 +51,36 @@ pub(crate) fn normalize_event(value: &Value) -> NormalizedFrame {
             active: true,
             attempt: value["attempt"].as_u64(),
             max_attempts: value["maxAttempts"].as_u64(),
+            delay_ms: value["delayMs"].as_u64(),
             message: value["errorMessage"].as_str().map(ToOwned::to_owned),
         }),
         "auto_retry_end" => events.push(LureEvent::RetryChanged {
             active: false,
             attempt: value["attempt"].as_u64(),
             max_attempts: None,
+            delay_ms: None,
             message: value["finalError"].as_str().map(ToOwned::to_owned),
         }),
         "compaction_start" => events.push(LureEvent::CompactionChanged {
             active: true,
             reason: value["reason"].as_str().map(ToOwned::to_owned),
             aborted: None,
+            summary: None,
+            tokens_before: None,
+            error_message: None,
         }),
         "compaction_end" => events.push(LureEvent::CompactionChanged {
             active: false,
             reason: value["reason"].as_str().map(ToOwned::to_owned),
             aborted: value["aborted"].as_bool(),
+            summary: value
+                .pointer("/result/summary")
+                .and_then(Value::as_str)
+                .map(ToOwned::to_owned),
+            tokens_before: value
+                .pointer("/result/tokensBefore")
+                .and_then(Value::as_u64),
+            error_message: value["errorMessage"].as_str().map(ToOwned::to_owned),
         }),
         "extension_ui_request" => {
             let extension = normalize_extension_request(value);
@@ -79,6 +94,24 @@ pub(crate) fn normalize_event(value: &Value) -> NormalizedFrame {
         events,
         automatic_response,
     }
+}
+
+fn normalize_assistant_end(value: &Value) -> Option<LureEvent> {
+    if value.pointer("/message/role").and_then(Value::as_str) != Some("assistant") {
+        return None;
+    }
+    let (text, thinking, blocks) = extract_assistant_content(&value["message"]["content"]);
+    Some(LureEvent::AssistantMessageCompleted {
+        text,
+        thinking,
+        blocks,
+        stop_reason: value["message"]["stopReason"]
+            .as_str()
+            .map(ToOwned::to_owned),
+        error_message: value["message"]["errorMessage"]
+            .as_str()
+            .map(ToOwned::to_owned),
+    })
 }
 
 fn normalize_stream_update(value: &Value) -> Option<LureEvent> {
@@ -124,21 +157,63 @@ fn normalize_extension_request(value: &Value) -> NormalizedFrame {
     }
 }
 
-fn extract_assistant_content(content: &Value) -> (String, String) {
+fn extract_assistant_content(content: &Value) -> (String, String, Vec<MessageBlock>) {
     let mut text = String::new();
     let mut thinking = String::new();
+    let mut blocks = Vec::new();
     if let Some(parts) = content.as_array() {
-        for part in parts {
+        for (content_index, part) in parts.iter().enumerate() {
             match part["type"].as_str() {
-                Some("text") => text.push_str(part["text"].as_str().unwrap_or_default()),
+                Some("text") => {
+                    let value = part["text"].as_str().unwrap_or_default();
+                    text.push_str(value);
+                    blocks.push(MessageBlock {
+                        content_index: content_index as u64,
+                        kind: MessageBlockKind::Text,
+                        text: value.to_owned(),
+                    });
+                }
                 Some("thinking") => {
-                    thinking.push_str(part["thinking"].as_str().unwrap_or_default());
+                    let value = part["thinking"].as_str().unwrap_or_default();
+                    thinking.push_str(value);
+                    blocks.push(MessageBlock {
+                        content_index: content_index as u64,
+                        kind: MessageBlockKind::Thinking,
+                        text: value.to_owned(),
+                    });
                 }
                 _ => {}
             }
         }
     }
-    (text, thinking)
+    (text, thinking, blocks)
+}
+
+fn pretty_json(value: &Value) -> String {
+    if value.is_null() {
+        return String::new();
+    }
+    serde_json::to_string_pretty(value).unwrap_or_default()
+}
+
+fn extract_result_text(result: &Value) -> String {
+    result["content"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|part| part["text"].as_str())
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+fn extract_truncated_lines(result: &Value) -> Option<u64> {
+    let truncation = result.pointer("/details/truncation")?;
+    if !truncation["truncated"].as_bool().unwrap_or(false) {
+        return None;
+    }
+    let total = truncation["totalLines"].as_u64()?;
+    let shown = truncation["outputLines"].as_u64()?;
+    Some(total.saturating_sub(shown))
 }
 
 fn string_field(value: &Value, field: &str) -> String {
@@ -156,6 +231,69 @@ mod tests {
         let frame = normalize_event(&json!({"type":"future_event","data":1}));
         assert!(frame.events.is_empty());
         assert!(frame.automatic_response.is_none());
+    }
+
+    #[test]
+    fn tool_events_preserve_input_output_and_truncation_metadata() {
+        let started = normalize_event(&json!({
+            "type":"tool_execution_start",
+            "toolCallId":"tool-1",
+            "toolName":"bash",
+            "args":{"command":"printf hello"}
+        }));
+        assert!(matches!(
+            started.events.first(),
+            Some(LureEvent::ToolStarted { input, .. }) if input.contains("printf hello")
+        ));
+
+        let ended = normalize_event(&json!({
+            "type":"tool_execution_end",
+            "toolCallId":"tool-1",
+            "toolName":"bash",
+            "result":{
+                "content":[{"type":"text","text":"hello"}],
+                "details":{"truncation":{"truncated":true,"totalLines":30,"outputLines":20}}
+            },
+            "isError":false
+        }));
+        assert!(matches!(
+            ended.events.first(),
+            Some(LureEvent::ToolCompleted { output, truncated_lines: Some(10), .. }) if output == "hello"
+        ));
+    }
+
+    #[test]
+    fn completed_assistant_and_compaction_keep_display_metadata() {
+        let message = normalize_event(&json!({
+            "type":"message_end",
+            "message":{
+                "role":"assistant",
+                "content":[
+                    {"type":"thinking","thinking":"first"},
+                    {"type":"text","text":"answer"},
+                    {"type":"thinking","thinking":"second"}
+                ],
+                "stopReason":"length",
+                "errorMessage":null
+            }
+        }));
+        assert!(matches!(
+            message.events.first(),
+            Some(LureEvent::AssistantMessageCompleted { blocks, stop_reason: Some(reason), .. })
+                if blocks.len() == 3 && reason == "length"
+        ));
+
+        let compaction = normalize_event(&json!({
+            "type":"compaction_end",
+            "reason":"threshold",
+            "result":{"summary":"condensed", "tokensBefore":1200},
+            "aborted":false
+        }));
+        assert!(matches!(
+            compaction.events.first(),
+            Some(LureEvent::CompactionChanged { summary: Some(summary), tokens_before: Some(1200), .. })
+                if summary == "condensed"
+        ));
     }
 
     #[test]
