@@ -11,7 +11,8 @@ use tokio::sync::{broadcast, mpsc, oneshot};
 use tokio::time::{Instant, MissedTickBehavior};
 
 use crate::RpcError;
-use crate::jsonl::read_json_lines;
+use crate::capture::StdoutCapture;
+use crate::jsonl::read_json_lines_with_capture;
 use crate::normalize::normalize_event;
 use crate::protocol::{RequestContext, RpcCommand, RpcImage, RpcModel, RpcSessionState};
 
@@ -25,6 +26,8 @@ pub struct PiProcessConfig {
     pub handshake_timeout: Duration,
     pub command_timeout: Duration,
     pub frame_limit: usize,
+    /// 临时采集：设置后把 Pi stdout 的原始行写入该文件，用于录制 mock 数据。
+    pub stdout_capture: Option<PathBuf>,
 }
 
 impl PiProcessConfig {
@@ -36,7 +39,15 @@ impl PiProcessConfig {
             handshake_timeout: Duration::from_secs(5),
             command_timeout: Duration::from_secs(10),
             frame_limit: DEFAULT_FRAME_LIMIT,
+            stdout_capture: None,
         }
+    }
+
+    /// 打开 stdout 原样采集，写入给定文件。
+    #[must_use]
+    pub fn with_stdout_capture(mut self, path: impl Into<PathBuf>) -> Self {
+        self.stdout_capture = Some(path.into());
+        self
     }
 
     #[must_use]
@@ -126,8 +137,20 @@ impl PiRpcClient {
 
         let reader_system_tx = system_tx.clone();
         let frame_limit = config.frame_limit;
+        let capture = match &config.stdout_capture {
+            Some(path) => Some(StdoutCapture::open(path).await?),
+            None => None,
+        };
         tokio::spawn(async move {
-            match read_json_lines(stdout, frame_limit, frame_tx).await {
+            let mut capture = capture;
+            let result =
+                read_json_lines_with_capture(stdout, frame_limit, frame_tx, capture.as_mut()).await;
+            if let Some(failure) = capture.as_mut().and_then(StdoutCapture::take_failure) {
+                let _ = reader_system_tx.send(SystemMessage::Stderr(format!(
+                    "stdout 采集已中断：{failure}"
+                )));
+            }
+            match result {
                 Ok(()) => {
                     let _ = reader_system_tx.send(SystemMessage::StdoutClosed);
                 }
