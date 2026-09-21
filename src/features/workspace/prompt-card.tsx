@@ -44,7 +44,6 @@ export function PromptCard({
   eventsReady,
   onDraftChange,
   onStop,
-  onChooseDirectory,
   onConnect,
   onAddImages,
   onSelectModel,
@@ -62,7 +61,6 @@ export function PromptCard({
   eventsReady: boolean;
   onDraftChange: (value: string) => void;
   onStop: () => void;
-  onChooseDirectory: () => void;
   onConnect: () => void;
   onAddImages: () => Promise<SelectedImage[]>;
   onSelectModel: (provider: string, modelId: string) => void;
@@ -169,7 +167,7 @@ export function PromptCard({
         >
           <div className="flex items-center gap-2 border-b border-border/50 px-3.5 py-2 text-xs text-muted-foreground">
             <FolderIcon aria-hidden="true" className="size-3.5 shrink-0" />
-            <span className="truncate">{directoryName ?? "尚未选择工作目录"}</span>
+            <span className="truncate">{directoryName ?? "默认工作目录"}</span>
             {branch && (
               <>
                 <span aria-hidden="true">·</span>
@@ -181,26 +179,16 @@ export function PromptCard({
             )}
             <span aria-hidden="true">·</span>
             <span>{connectionLabels[phase]}</span>
-            <div className="ml-auto flex shrink-0 items-center gap-2">
+            {canConnectSession && (
               <Button
-                className="h-6 px-2 text-xs"
-                onClick={onChooseDirectory}
+                className="ml-auto h-6 shrink-0 px-2 text-xs"
+                disabled={!directoryName || !eventsReady}
+                onClick={onConnect}
                 type="button"
-                variant="ghost"
               >
-                {directoryName ? "更换目录" : "选择工作目录"}
+                连接 Pi
               </Button>
-              {canConnectSession && (
-                <Button
-                  className="h-6 px-2 text-xs"
-                  disabled={!directoryName || !eventsReady}
-                  onClick={onConnect}
-                  type="button"
-                >
-                  连接 Pi
-                </Button>
-              )}
-            </div>
+            )}
           </div>
 
           {attachments.length > 0 && (
@@ -256,7 +244,7 @@ export function PromptCard({
                   ? "Pi 正在执行，可继续编辑下一条消息"
                   : phase === "ready"
                     ? "描述你想完成的事情…"
-                    : "选择工作目录并连接 Pi 后即可发送"
+                    : "连接 Pi 后即可发送"
               }
               submitMode="enter"
               unstable_focusOnRunStart={false}

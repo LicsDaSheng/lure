@@ -12,6 +12,7 @@ import {
   readAppendMessageImages,
   readAppendMessageText,
 } from "@/features/workspace/assistant-runtime";
+import { ConnectionLoading } from "@/features/workspace/connection-loading";
 import { ConversationStream } from "@/features/workspace/conversation-stream";
 import { EmptyState } from "@/features/workspace/empty-state";
 import { ErrorPanel } from "@/features/workspace/error-panel";
@@ -70,7 +71,6 @@ function App() {
     error,
     availableModels,
     workspaceContext,
-    chooseDirectory,
     connect,
     newConversation,
     disconnect,
@@ -217,7 +217,6 @@ function App() {
           {hasConversation ? (
             <TaskHeader
               canDisconnect={!canConnectSession}
-              onChooseDirectory={() => void chooseDirectory()}
               onDisconnect={() => void disconnect()}
               onExport={() => setPendingRisk("export")}
               onOpenNavigation={() => setNavigationOpen(true)}
@@ -257,7 +256,9 @@ function App() {
           >
             <ThreadPrimitive.Viewport className="min-h-0 flex-1 overflow-y-auto">
               <div className="mx-auto flex min-h-full w-full max-w-[920px] flex-col gap-4 px-4 py-6 md:px-6">
-                {hasConversation ? (
+                {connection.phase === "connecting" ? (
+                  <ConnectionLoading />
+                ) : hasConversation ? (
                   <ConversationStream />
                 ) : (
                   <ComposerEmptyState
@@ -287,7 +288,6 @@ function App() {
                 model={connection.model}
                 models={availableModels}
                 onAddImages={pickImages}
-                onChooseDirectory={() => void chooseDirectory()}
                 onConnect={() => void connect()}
                 onDraftChange={persistDraft}
                 onSelectModel={(provider, modelId) => void setModel(provider, modelId)}

@@ -12,6 +12,10 @@ fn fake_pi_without_handshake() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/fake-pi-no-handshake.py")
 }
 
+fn fake_pi_rpc_only() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/fake-pi-rpc-only.py")
+}
+
 #[tokio::test]
 async fn connects_with_handshake_in_the_selected_working_directory() {
     let working_directory = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
@@ -30,6 +34,17 @@ async fn connects_with_handshake_in_the_selected_working_directory() {
             .to_string()
     );
 
+    client.stop().await.unwrap();
+}
+
+#[tokio::test]
+async fn connects_without_running_a_separate_version_process() {
+    let config = PiProcessConfig::new(fake_pi_rpc_only(), env!("CARGO_MANIFEST_DIR"));
+
+    let (client, state) = PiRpcClient::connect(config).await.unwrap();
+
+    assert_eq!(state.session_id, "rpc-only-session");
+    assert_eq!(state.model.unwrap().id, "rpc-only-model");
     client.stop().await.unwrap();
 }
 

@@ -15,7 +15,6 @@ import {
   respondToExtensionUi,
   selectModel,
   selectThinkingLevel,
-  selectWorkingDirectory,
   sendPrompt,
   type ImageAttachment,
   type PiCommand,
@@ -89,20 +88,6 @@ export function usePiSession() {
       setWorkspaceContext({ branch: null, workingDirectory: directory });
     }
   }, []);
-
-  const chooseDirectory = useCallback(async () => {
-    setCommandError(null);
-    try {
-      const directory = await selectWorkingDirectory();
-      if (directory) {
-        writeLastDirectory(directory);
-        setSelectedDirectory(directory);
-        await loadWorkspaceContext(directory);
-      }
-    } catch (error) {
-      setCommandError(normalizeError(error, "无法选择工作目录"));
-    }
-  }, [loadWorkspaceContext]);
 
   const refreshCapabilities = useCallback(async () => {
     const [modelsResult, commandsResult] = await Promise.allSettled([
@@ -268,7 +253,6 @@ export function usePiSession() {
     availableModels,
     commands,
     workspaceContext,
-    chooseDirectory,
     connect,
     newConversation,
     disconnect,
