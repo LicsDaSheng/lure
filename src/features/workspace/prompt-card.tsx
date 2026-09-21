@@ -5,9 +5,17 @@ import {
   useAuiState,
 } from "@assistant-ui/react";
 import { CornerDownLeftIcon, FolderIcon, GitBranchIcon, PlusIcon, SquareIcon, XIcon } from "lucide-react";
-import { useRef, useState, type Ref } from "react";
+import { useCallback, useEffect, useRef, useState, type Ref } from "react";
 
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import type { SelectedImage } from "@/features/pi-connection/api";
 import type { ConnectionPhase, ModelSnapshot } from "@/features/pi-connection/reducer";
 import { cn } from "@/lib/utils";
@@ -67,6 +75,9 @@ export function PromptCard({
   const composingRef = useRef(false);
   const [isComposing, setIsComposing] = useState(false);
   const [confirmImages, setConfirmImages] = useState(false);
+  const [modelPickerOpen, setModelPickerOpen] = useState(false);
+  const [activeProvider, setActiveProvider] = useState("");
+  const [pendingModelKey, setPendingModelKey] = useState("");
 
   const addImages = async () => {
     setConfirmImages(false);
@@ -104,6 +115,49 @@ export function PromptCard({
     : modelOptions[0]
       ? `${modelOptions[0].provider}::${modelOptions[0].id}`
       : "";
+
+  const openModelPicker = useCallback(() => {
+    const selected = modelOptions.find(
+      (option) => `${option.provider}::${option.id}` === selectedModelKey,
+    ) ?? modelOptions[0];
+    if (!selected) return;
+
+    setActiveProvider(selected.provider);
+    setPendingModelKey(`${selected.provider}::${selected.id}`);
+    setModelPickerOpen(true);
+  }, [modelOptions, selectedModelKey]);
+
+  const confirmModelSelection = () => {
+    const selected = modelOptions.find(
+      (option) => `${option.provider}::${option.id}` === pendingModelKey,
+    );
+    if (!selected) return;
+
+    setModelPickerOpen(false);
+    onSelectModel(selected.provider, selected.id);
+  };
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (
+        event.repeat ||
+        !event.ctrlKey ||
+        event.altKey ||
+        event.metaKey ||
+        event.key.toLowerCase() !== "l" ||
+        modelPickerOpen ||
+        modelOptions.length === 0
+      ) {
+        return;
+      }
+
+      event.preventDefault();
+      openModelPicker();
+    };
+
+    document.addEventListener("keydown", handleKeyDown, true);
+    return () => document.removeEventListener("keydown", handleKeyDown, true);
+  }, [modelOptions.length, modelPickerOpen, openModelPicker]);
 
   return (
     <>
@@ -263,7 +317,9 @@ export function PromptCard({
               </select>
 
               <span className="ml-auto hidden text-xs text-muted-foreground sm:block">
-                {isRunning ? "可随时停止" : "Enter 发送 · Shift+Enter 换行"}
+                {isRunning
+                  ? "Ctrl+L 选择模型 · 可随时停止"
+                  : "Ctrl+L 选择模型 · Enter 发送 · Shift+Enter 换行"}
               </span>
 
               {isRunning ? (
@@ -286,6 +342,87 @@ export function PromptCard({
           </ComposerPrimitive.Root>
         </div>
       </div>
+
+      <Dialog open={modelPickerOpen} onOpenChange={setModelPickerOpen}>
+        <DialogContent className="rounded-xl" showCloseButton={false}>
+          <DialogHeader>
+            <DialogTitle>选择模型</DialogTitle>
+            <DialogDescription>选择一个模型后，点击确认才会切换。</DialogDescription>
+          </DialogHeader>
+          <div aria-label="模型提供方" className="flex gap-1 overflow-x-auto border-b" role="tablist">
+            {[...modelGroups].map(([provider, options]) => (
+              <button
+                aria-controls={`model-provider-${provider}`}
+                aria-selected={provider === activeProvider}
+                className={cn(
+                  "shrink-0 border-b-2 px-3 py-2 text-sm text-muted-foreground",
+                  provider === activeProvider
+                    ? "border-primary text-foreground"
+                    : "border-transparent hover:text-foreground",
+                )}
+                id={`model-provider-tab-${provider}`}
+                key={provider}
+                onClick={() => {
+                  setActiveProvider(provider);
+                  const selectedInProvider = options.some(
+                    (option) => `${option.provider}::${option.id}` === pendingModelKey,
+                  );
+                  if (!selectedInProvider) {
+                    setPendingModelKey(`${options[0]?.provider}::${options[0]?.id}`);
+                  }
+                }}
+                role="tab"
+                type="button"
+              >
+                {provider}
+              </button>
+            ))}
+          </div>
+          {[...modelGroups].map(([provider, options]) =>
+            provider === activeProvider ? (
+              <div
+                aria-labelledby={`model-provider-tab-${provider}`}
+                className="max-h-72 space-y-2 overflow-y-auto"
+                id={`model-provider-${provider}`}
+                key={provider}
+                role="tabpanel"
+              >
+                <div aria-label="可用模型" className="grid gap-2" role="radiogroup">
+                  {options.map((option) => {
+                    const optionKey = `${option.provider}::${option.id}`;
+                    const selected = optionKey === pendingModelKey;
+                    return (
+                      <button
+                        aria-checked={selected}
+                        className={cn(
+                          "rounded-lg border px-3 py-2 text-left text-sm",
+                          selected
+                            ? "border-primary bg-accent text-foreground"
+                            : "border-border hover:bg-accent/50",
+                        )}
+                        key={optionKey}
+                        onClick={() => setPendingModelKey(optionKey)}
+                        role="radio"
+                        type="button"
+                      >
+                        {option.id}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            ) : null,
+          )}
+          <DialogFooter>
+            <Button onClick={() => setModelPickerOpen(false)} type="button" variant="outline">
+              取消
+            </Button>
+            <Button onClick={confirmModelSelection} type="button">
+              确认选择
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <RiskConfirmDialog
         confirmLabel="继续选择图片"

@@ -219,6 +219,31 @@ describe("主工作区对话态", () => {
     expect(textbox()).toHaveFocus();
   });
 
+  it("按 Ctrl+L 打开模型选择框，并在确认后切换模型", async () => {
+    await renderConnected();
+
+    fireEvent.keyDown(textbox(), { ctrlKey: true, key: "l" });
+
+    const dialog = await screen.findByRole("dialog", { name: "选择模型" });
+    expect(within(dialog).getByRole("tab", { name: "test" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+    fireEvent.click(within(dialog).getByRole("tab", { name: "qwen-token-plan-cn" }));
+    fireEvent.click(
+      within(dialog).getByRole("radio", { name: "deepseek-v4.1-flash" }),
+    );
+    expect(mocks.invoke).not.toHaveBeenCalledWith("set_model", expect.anything());
+
+    fireEvent.click(within(dialog).getByRole("button", { name: "确认选择" }));
+    await waitFor(() =>
+      expect(mocks.invoke).toHaveBeenCalledWith("set_model", {
+        modelId: "deepseek-v4.1-flash",
+        provider: "qwen-token-plan-cn",
+      }),
+    );
+  });
+
   it("连接后在输入卡上下文条带展示目录、分支与操作", async () => {
     await renderConnected();
 
