@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 
 import type { ConversationMessage, ToolPart } from "@/features/pi-connection/reducer";
 import {
-  createResultDescriptor,
   formatToolSummary,
   getToolOutputLineCount,
   serializeConversation,
@@ -38,17 +37,6 @@ describe("主工作区展示适配", () => {
     expect(formatToolSummary(completedView)).toBe("已修改 src/App.tsx");
   });
 
-  it("只为可确定类型的工具结果创建结果卡片", () => {
-    expect(createResultDescriptor(completedView)).toMatchObject({
-      type: "file",
-      title: "src/App.tsx",
-      actionLabel: "预览",
-    });
-    expect(
-      createResultDescriptor({ ...completedView, name: "unknown" }),
-    ).toBeNull();
-  });
-
   it("合并已显示和截断的输出行数", () => {
     expect(
       getToolOutputLineCount({
@@ -57,27 +45,6 @@ describe("主工作区展示适配", () => {
         truncatedLines: 8,
       }),
     ).toBe(10);
-  });
-
-  it("把 Diff 输出识别为变更卡片并统计增删行数", () => {
-    const descriptor = createResultDescriptor({
-      ...completedView,
-      output: [
-        "--- a/src/App.tsx",
-        "+++ b/src/App.tsx",
-        "@@ -1,2 +1,3 @@",
-        "+added one",
-        "-removed one",
-        " context",
-      ].join("\n"),
-    });
-
-    expect(descriptor).toMatchObject({
-      type: "diff",
-      title: "src/App.tsx",
-      description: "新增 1 行，删除 1 行",
-      actionLabel: "查看 Diff",
-    });
   });
 
   it("将可见会话导出为 Markdown", () => {

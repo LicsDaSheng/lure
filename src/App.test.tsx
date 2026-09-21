@@ -458,7 +458,7 @@ describe("主工作区对话态", () => {
     expect(textbox()).toHaveValue("下一条草稿");
   });
 
-  it("settled 后保留真实回复和结果卡片，不生成完成状态消息", async () => {
+  it("settled 后保留真实回复和工具卡片，不生成完成状态消息", async () => {
     await renderConnected();
     fireEvent.change(textbox(), { target: { value: "修改文件" } });
     fireEvent.submit(textbox().closest("form")!);
@@ -494,7 +494,8 @@ describe("主工作区对话态", () => {
     emit({ sequence: 6, event: { type: "run_settled" } });
 
     expect(await screen.findByText("已经改好")).toBeInTheDocument();
-    expect(screen.getByRole("article", { name: "结果：src/App.tsx" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /已修改 src\/App.tsx/ })).toBeInTheDocument();
+    expect(screen.queryByRole("article", { name: /结果：/ })).not.toBeInTheDocument();
     expect(screen.queryByRole("status", { name: "任务状态" })).not.toBeInTheDocument();
     expect(screen.queryByText("任务执行完成")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "发送消息" })).toBeInTheDocument();
@@ -571,11 +572,13 @@ describe("执行流渐进展开", () => {
 });
 
 describe("完整内容预览", () => {
-  it("结果卡片在主区打开预览并恢复触发点焦点", async () => {
+  it("长工具输出在工具卡内打开预览并恢复触发点焦点", async () => {
     await renderConnected();
     fireEvent.change(textbox(), { target: { value: "读取配置" } });
     fireEvent.submit(textbox().closest("form")!);
     await waitFor(() => expect(mocks.invoke).toHaveBeenCalledWith("send_prompt", expect.anything()));
+
+    const output = Array.from({ length: 12 }, (_, index) => `line ${index + 1}`).join("\n");
 
     emit({ sequence: 1, event: { type: "run_started" } });
     emit({ sequence: 2, event: { type: "assistant_message_started" } });
@@ -595,20 +598,20 @@ describe("完整内容预览", () => {
         toolCallId: "tool-1",
         toolName: "bash",
         input: "{\n  \"command\": \"pnpm test\"\n}",
-        output: "all green",
+        output,
         truncatedLines: null,
         isError: false,
       },
     });
 
-    const card = await screen.findByRole("article", { name: "结果：命令执行结果" });
-    const openPreview = within(card).getByRole("button", { name: "查看日志" });
+    fireEvent.click(await screen.findByRole("button", { name: /项目命令执行完成/ }));
+    const openPreview = screen.getByRole("button", { name: "查看完整 12 行输出" });
     openPreview.focus();
     fireEvent.click(openPreview);
 
     const dialog = await screen.findByRole("dialog");
-    expect(within(dialog).getByText("命令执行结果")).toBeInTheDocument();
-    expect(within(dialog).getByText("all green")).toBeInTheDocument();
+    expect(within(dialog).getByText("项目命令执行完成")).toBeInTheDocument();
+    expect(within(dialog).getByText(/line 12/)).toBeInTheDocument();
 
     fireEvent.keyDown(document, { key: "Escape" });
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());

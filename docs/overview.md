@@ -163,6 +163,9 @@ pnpm dev
 # 启动 Tauri 桌面开发应用
 pnpm tauri dev
 
+# 使用录制数据启动 Tauri 桌面开发应用
+LURE_PI_PATH="$PWD/crates/lure-rpc/tests/fixtures/replay-pi.py" pnpm tauri dev
+
 # 前端测试与类型检查
 pnpm test
 pnpm check
