@@ -1,6 +1,6 @@
 import { Button } from "@/components/ui/button";
-import type { ConnectionPhase } from "@/features/pi-connection/reducer";
-import { BotIcon, ChevronRightIcon, PlusIcon, SearchIcon, SettingsIcon, XIcon } from "lucide-react";
+import type { ConnectionPhase } from "@/features/pi-connection";
+import { BotIcon, PlusIcon, SettingsIcon, XIcon } from "lucide-react";
 
 const phaseLabels: Record<ConnectionPhase, string> = {
   disconnected: "未连接",
@@ -12,27 +12,21 @@ const phaseLabels: Record<ConnectionPhase, string> = {
 
 export function TaskNavigation({
   open,
-  query,
   taskTitle,
   phase,
   hasTask,
-  onQueryChange,
   onNewTask,
   onSelectTask,
   onClose,
 }: {
   open: boolean;
-  query: string;
   taskTitle: string;
   phase: ConnectionPhase;
   hasTask: boolean;
-  onQueryChange: (query: string) => void;
   onNewTask: () => void;
   onSelectTask: () => void;
   onClose: () => void;
 }) {
-  const matches = taskTitle.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase());
-
   return (
     <nav
       aria-label="任务导航"
@@ -66,27 +60,12 @@ export function TaskNavigation({
         新建任务
       </Button>
 
-      <label className="relative mt-3 block">
-        <SearchIcon
-          aria-hidden="true"
-          className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
-        />
-        <input
-          aria-label="搜索任务"
-          className="h-9 w-full rounded-lg border border-border/60 bg-background pl-9 pr-3 text-sm outline-none placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring/50"
-          onChange={(event) => onQueryChange(event.target.value)}
-          placeholder="搜索任务"
-          type="search"
-          value={query}
-        />
-      </label>
-
       <div className="mt-5 min-h-0 flex-1 overflow-y-auto px-1">
         <section aria-labelledby="today-tasks">
           <h2 className="px-2 text-xs font-medium text-muted-foreground" id="today-tasks">
             今天
           </h2>
-          {hasTask && matches ? (
+          {hasTask ? (
             <button
               aria-current="page"
               className="mt-1 flex w-full items-center gap-2 rounded-lg bg-accent px-2.5 py-2 text-left text-sm font-medium text-accent-foreground"
@@ -100,29 +79,10 @@ export function TaskNavigation({
               </span>
             </button>
           ) : (
-            <p className="px-2 py-2 text-xs text-muted-foreground">
-              {query ? "没有匹配的任务" : "暂无任务"}
-            </p>
+            <p className="px-2 py-2 text-xs text-muted-foreground">暂无任务</p>
           )}
         </section>
 
-        <section aria-labelledby="recent-tasks" className="mt-5">
-          <h2 className="px-2 text-xs font-medium text-muted-foreground" id="recent-tasks">
-            最近
-          </h2>
-          <p className="px-2 py-2 text-xs text-muted-foreground">暂无最近任务</p>
-        </section>
-
-        <details className="group mt-3">
-          <summary className="flex cursor-pointer list-none items-center gap-1 rounded-lg px-2 py-2 text-xs font-medium text-muted-foreground hover:bg-accent">
-            <ChevronRightIcon
-              aria-hidden="true"
-              className="size-3.5 transition-transform group-open:rotate-90"
-            />
-            <span>已归档</span>
-          </summary>
-          <p className="px-7 py-1 text-xs text-muted-foreground">暂无已归档任务</p>
-        </details>
       </div>
 
       <Button className="mt-3 w-full justify-start" type="button" variant="ghost">

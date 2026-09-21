@@ -2,7 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
 
-import type { ConnectionSnapshot, EventEnvelope, ModelSnapshot } from "./reducer";
+import type { ConnectionSnapshot, EventEnvelope, ModelSnapshot } from "./pi-session-types";
 
 const PI_EVENT_NAME = "lure://pi-event";
 
@@ -39,6 +39,11 @@ export function readImageAttachments(paths: string[]): Promise<SelectedImage[]> 
 
 export function getDefaultWorkspace(): Promise<string> {
   return invoke("get_default_workspace");
+}
+
+/** 读取桌面进程现有会话，以便 WebView 重载后不重复创建 Pi 子进程。 */
+export function getPiState(): Promise<ConnectionSnapshot> {
+  return invoke("get_pi_state");
 }
 
 export function connectPi(workingDirectory: string): Promise<ConnectionSnapshot> {

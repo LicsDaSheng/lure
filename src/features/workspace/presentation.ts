@@ -3,7 +3,7 @@ import {
   type ConversationMessage,
   type ToolPart,
   type ToolStatus,
-} from "@/features/pi-connection/reducer";
+} from "@/features/pi-connection";
 
 /** 渲染工具执行所需的最小数据，由工具调用部件直接派生。 */
 export type ToolView = {

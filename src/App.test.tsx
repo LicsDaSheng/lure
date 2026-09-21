@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { StrictMode } from "react";
 
-import type { EventEnvelope } from "@/features/pi-connection/reducer";
+import type { EventEnvelope } from "@/features/pi-connection";
 import App from "./App";
 
 const mocks = vi.hoisted(() => ({
@@ -61,6 +61,17 @@ beforeEach(() => {
   mocks.listeners.clear();
   mocks.invoke.mockImplementation(async (command: string) => {
     if (command === "get_default_workspace") return defaultWorkspace;
+    if (command === "get_pi_state") {
+      return {
+        phase: "disconnected",
+        workingDirectory: null,
+        sessionId: null,
+        sessionFile: null,
+        model: null,
+        thinkingLevel: null,
+        error: null,
+      };
+    }
     if (command === "connect_pi") return readySnapshot;
     if (command === "new_pi_session") {
       return {
@@ -220,6 +231,15 @@ describe("主工作区初始态", () => {
       "true",
     );
   });
+
+  it("任务导航仅保留当前任务列表，不显示搜索、最近或已归档分组", () => {
+    render(<App />);
+
+    expect(screen.getByRole("button", { name: "新建任务" })).toBeInTheDocument();
+    expect(screen.queryByRole("searchbox", { name: "搜索任务" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "最近" })).not.toBeInTheDocument();
+    expect(screen.queryByText("已归档")).not.toBeInTheDocument();
+  });
 });
 
 describe("主工作区对话态", () => {
@@ -276,6 +296,7 @@ describe("主工作区对话态", () => {
     const card = screen.getByRole("group", { name: "任务输入卡" });
     expect(within(card).getByText("main")).toBeInTheDocument();
     expect(within(card).getByText("lure")).toBeInTheDocument();
+    expect(within(card).queryByText("已连接")).not.toBeInTheDocument();
     const modelSelect = within(card).getByRole("combobox", { name: "模型" });
     expect(modelSelect).toBeInTheDocument();
     const testProvider = within(modelSelect).getByRole("group", { name: "test" });

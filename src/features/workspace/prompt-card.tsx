@@ -16,21 +16,13 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import type { SelectedImage } from "@/features/pi-connection/api";
-import type { ConnectionPhase, ModelSnapshot } from "@/features/pi-connection/reducer";
+import type { SelectedImage } from "@/features/pi-connection";
+import type { ConnectionPhase, ModelSnapshot } from "@/features/pi-connection";
 import { cn } from "@/lib/utils";
 
 import { RiskConfirmDialog } from "./risk-confirm-dialog";
 
 const thinkingLevels = ["off", "minimal", "low", "medium", "high"] as const;
-
-const connectionLabels: Record<ConnectionPhase, string> = {
-  disconnected: "未连接",
-  connecting: "正在连接",
-  ready: "已连接",
-  running: "执行中",
-  failed: "连接失败",
-};
 
 export function PromptCard({
   phase,
@@ -177,8 +169,6 @@ export function PromptCard({
                 </span>
               </>
             )}
-            <span aria-hidden="true">·</span>
-            <span>{connectionLabels[phase]}</span>
             {canConnectSession && (
               <Button
                 className="ml-auto h-6 shrink-0 px-2 text-xs"

@@ -1,5 +1,5 @@
 import { Button } from "@/components/ui/button";
-import type { LureError } from "@/features/pi-connection/reducer";
+import type { LureError } from "@/features/pi-connection";
 import { AlertTriangleIcon } from "lucide-react";
 
 type ErrorCopy = {

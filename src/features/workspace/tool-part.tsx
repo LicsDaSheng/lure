@@ -16,7 +16,7 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
-import type { ToolStatus } from "@/features/pi-connection/reducer";
+import type { ToolStatus } from "@/features/pi-connection";
 import { cn } from "@/lib/utils";
 
 import { ContentPreviewDialog } from "./content-preview-dialog";
