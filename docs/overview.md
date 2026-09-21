@@ -105,6 +105,8 @@ React UI ⇄ Tauri command/event ⇄ lure-desktop
 
 ## 4. 前端组织约定
 
+前端实现同时遵循 [UI 设计规约](./ui-design/index.md) 与 [Redux Toolkit Agent 开发规约](./frontend-rtk-agent-development.md)。后者规定 Redux Toolkit 2.x 的版本基线、feature 文件结构、Pi 事实边界和 API 使用范围。
+
 随着功能增加，`src/` 按产品能力拆分，而不是按通用技术层堆叠：
 
 ```text
