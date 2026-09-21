@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import type { ConversationMessage } from "@/features/pi-connection/reducer";
+import type { ConversationMessage } from "@/features/pi-connection";
 import {
   convertPiMessage,
   readAppendMessageImages,

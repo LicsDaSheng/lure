@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import type { ConversationMessage, ToolPart } from "@/features/pi-connection/reducer";
+import type { ConversationMessage, ToolPart } from "@/features/pi-connection";
 import {
   formatToolSummary,
   getToolOutputLineCount,

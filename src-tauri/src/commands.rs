@@ -63,6 +63,14 @@ async fn ensure_default_workspace(home: &Path) -> Result<PathBuf, LureError> {
     canonical_directory(&workspace.display().to_string())
 }
 
+/// 返回桌面进程当前持有的 Pi 会话快照，供 `WebView` 重载后恢复 UI 状态。
+#[tauri::command]
+pub(crate) async fn get_pi_state(
+    state: State<'_, SharedAppState>,
+) -> Result<ConnectionSnapshot, LureError> {
+    Ok(state.snapshot.read().await.clone())
+}
+
 #[tauri::command]
 pub(crate) async fn connect_pi(
     app: AppHandle,

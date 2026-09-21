@@ -22,6 +22,7 @@ pub fn run() -> tauri::Result<()> {
         .manage(Arc::new(AppState::default()))
         .invoke_handler(tauri::generate_handler![
             commands::get_default_workspace,
+            commands::get_pi_state,
             commands::connect_pi,
             commands::new_pi_session,
             commands::disconnect_pi,

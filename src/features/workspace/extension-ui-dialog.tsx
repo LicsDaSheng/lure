@@ -7,7 +7,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import type { ExtensionUiRequest } from "@/features/pi-connection/reducer";
+import type { ExtensionUiRequest } from "@/features/pi-connection";
 import { useEffect, useRef, useState } from "react";
 
 export function ExtensionUiDialog({

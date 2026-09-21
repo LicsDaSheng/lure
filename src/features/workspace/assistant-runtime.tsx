@@ -10,11 +10,11 @@ import {
 } from "@assistant-ui/react";
 import { useMemo, type ReactNode } from "react";
 
-import type { ImageAttachment } from "@/features/pi-connection/api";
+import type { ImageAttachment } from "@/features/pi-connection";
 import type {
   ConversationMessage,
   MessagePart,
-} from "@/features/pi-connection/reducer";
+} from "@/features/pi-connection";
 import { toolPartToView } from "./presentation";
 
 function parseToolArgs(input: string): ToolCallMessagePart["args"] {

@@ -2,12 +2,9 @@ import { describe, expect, it } from "vitest";
 
 import {
   initialPiSessionState,
-  messageText,
-  messageThinking,
   piSessionReducer,
-  type ConversationMessage,
-  type EventEnvelope,
-} from "./reducer";
+} from "./pi-session-domain";
+import { messageText, messageThinking, type ConversationMessage, type EventEnvelope } from "./pi-session-types";
 
 function reduce(events: EventEnvelope[]) {
   return events.reduce(piSessionReducer, initialPiSessionState);
