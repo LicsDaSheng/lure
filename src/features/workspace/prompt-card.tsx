@@ -151,25 +151,25 @@ export function PromptCard({
 
   return (
     <>
-      <div className="sticky bottom-0 z-10 shrink-0 bg-background px-4 pb-4 pt-2 md:px-6">
+      <div className="sticky bottom-0 z-10 shrink-0 bg-background px-4 pb-5 pt-2 md:px-6">
         <div
           aria-label="任务输入卡"
-          className="mx-auto w-full max-w-[920px] rounded-[20px] border border-border/60 bg-card shadow-sm"
+          className="mx-auto w-full max-w-[720px] rounded-[20px] border border-[#E8E8EB] bg-card shadow-[0_6px_24px_rgba(0,0,0,0.05)]"
           role="group"
         >
-          <div className="flex items-center gap-2 border-b border-border/50 px-3.5 py-2 text-xs text-muted-foreground">
-            <FolderIcon aria-hidden="true" className="size-3.5 shrink-0" />
-            <span className="truncate">{directoryName ?? "默认工作目录"}</span>
-            {branch && (
-              <>
-                <span aria-hidden="true">·</span>
-                <span className="inline-flex items-center gap-1">
-                  <GitBranchIcon aria-hidden="true" className="size-3.5" />
-                  {branch}
-                </span>
-              </>
-            )}
-            {canConnectSession && (
+          {canConnectSession && (
+            <div className="flex h-9 items-center gap-2 border-b border-[#EEEEF0] px-4 text-xs text-muted-foreground">
+              <FolderIcon aria-hidden="true" className="size-3.5 shrink-0" />
+              <span className="truncate">{directoryName ?? "默认工作目录"}</span>
+              {branch && (
+                <>
+                  <span aria-hidden="true">·</span>
+                  <span className="inline-flex items-center gap-1">
+                    <GitBranchIcon aria-hidden="true" className="size-3.5" />
+                    {branch}
+                  </span>
+                </>
+              )}
               <Button
                 className="ml-auto h-6 shrink-0 px-2 text-xs"
                 disabled={!directoryName || !eventsReady}
@@ -178,8 +178,8 @@ export function PromptCard({
               >
                 连接 Pi
               </Button>
-            )}
-          </div>
+            </div>
+          )}
 
           {attachments.length > 0 && (
             <ul className="flex flex-wrap gap-2 px-3.5 pt-2.5">
@@ -241,7 +241,11 @@ export function PromptCard({
               unstable_focusOnScrollToBottom={false}
             />
 
-            <div className="flex flex-wrap items-center gap-2 px-3 pb-2.5">
+            <div
+              aria-label="输入控制栏"
+              className="flex flex-nowrap items-center gap-2 px-3 pb-2.5"
+              role="group"
+            >
               <Button
                 aria-label="添加图片"
                 onClick={() => setConfirmImages(true)}
@@ -256,7 +260,7 @@ export function PromptCard({
                 <select
                   aria-label="模型"
                   className={cn(
-                    "h-7 max-w-48 rounded-lg bg-transparent px-2 text-xs text-muted-foreground outline-none",
+                    "h-7 w-44 min-w-0 max-w-[35%] truncate rounded-lg bg-transparent px-2 text-xs text-muted-foreground outline-none",
                     "hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring/50",
                   )}
                   onChange={(event) => {
@@ -294,28 +298,30 @@ export function PromptCard({
                 ))}
               </select>
 
-              <span className="ml-auto hidden text-xs text-muted-foreground sm:block">
-                {isRunning
-                  ? "Ctrl+L 选择模型 · 可随时停止"
-                  : "Ctrl+L 选择模型 · Enter 发送 · Shift+Enter 换行"}
-              </span>
+              <div className="ml-auto flex min-w-0 shrink items-center gap-2">
+                <span className="hidden min-w-0 truncate text-xs text-muted-foreground/70 lg:block">
+                  {isRunning
+                    ? "Ctrl+L 选择模型 · 可随时停止"
+                    : "Ctrl+L 选择模型 · Enter 发送 · Shift+Enter 换行"}
+                </span>
 
-              {isRunning ? (
-                <Button aria-label="停止生成" onClick={onStop} size="icon-sm" type="button">
-                  <SquareIcon />
-                </Button>
-              ) : (
-                <ComposerPrimitive.Send asChild>
-                  <Button
-                    aria-label="发送消息"
-                    disabled={!canSubmit || isComposing}
-                    size="icon-sm"
-                    type="button"
-                  >
-                    <CornerDownLeftIcon />
+                {isRunning ? (
+                  <Button aria-label="停止生成" onClick={onStop} size="icon-sm" type="button">
+                    <SquareIcon />
                   </Button>
-                </ComposerPrimitive.Send>
-              )}
+                ) : (
+                  <ComposerPrimitive.Send asChild>
+                    <Button
+                      aria-label="发送消息"
+                      disabled={!canSubmit || isComposing}
+                      size="icon-sm"
+                      type="button"
+                    >
+                      <CornerDownLeftIcon />
+                    </Button>
+                  </ComposerPrimitive.Send>
+                )}
+              </div>
             </div>
           </ComposerPrimitive.Root>
         </div>

@@ -70,7 +70,7 @@ export function ErrorPanel({
 
   return (
     <div
-      className="mx-auto w-full max-w-[920px] rounded-xl border border-destructive/40 bg-destructive/5 px-4 py-3 text-sm"
+      className="mx-auto w-full max-w-[720px] rounded-xl border border-destructive/40 bg-destructive/5 px-4 py-3 text-sm"
       role="alert"
     >
       <p className="flex items-center gap-2 font-medium text-destructive">

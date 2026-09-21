@@ -196,7 +196,7 @@ export function MainContent() {
         onNew={handleAssistantNew}
       >
         <ComposerDraftInitializer initialText={readDraft(selectedDirectory)} />
-        <div className="relative flex h-dvh min-h-0 overflow-hidden bg-background text-foreground">
+        <div className="relative flex h-dvh min-h-0 overflow-hidden overscroll-none bg-background text-foreground">
         {navigationOpen && (
           <button
             aria-label="关闭导航遮罩"
@@ -254,11 +254,17 @@ export function MainContent() {
 
           <ThreadPrimitive.Root
             aria-label="对话线程"
-            className="relative mx-auto flex min-h-0 w-full max-w-[920px] flex-1 flex-col"
+            className="relative flex min-h-0 w-full flex-1 flex-col"
             role="log"
           >
-            <ThreadPrimitive.Viewport className="min-h-0 flex-1 overflow-y-auto">
-              <div className="mx-auto flex min-h-full w-full max-w-[920px] flex-col gap-4 px-4 py-6 md:px-6">
+            <ThreadPrimitive.Viewport
+              aria-label="对话滚动区"
+              className="flex min-h-0 flex-1 flex-col overflow-x-hidden overflow-y-auto overscroll-none"
+            >
+              <div
+                aria-label="对话内容列"
+                className="mx-auto flex w-full max-w-[720px] flex-1 flex-col gap-4 px-4 py-6 md:px-6"
+              >
                 {connection.phase === "connecting" ? (
                   <ConnectionLoading />
                 ) : hasConversation ? (
@@ -324,4 +330,3 @@ export function MainContent() {
     </TooltipProvider>
   );
 }
-

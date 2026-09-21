@@ -1,6 +1,8 @@
 import { configureStore } from "@reduxjs/toolkit";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import type { EventEnvelope } from "./pi-session-types";
+
 const mocks = vi.hoisted(() => ({
   connectPi: vi.fn(),
   disconnectPi: vi.fn(),
@@ -148,5 +150,33 @@ describe("Pi session listener middleware", () => {
 
     expect(unlisten).toHaveBeenCalledOnce();
     expect(store.getState().piConnection.eventsReady).toBe(false);
+  });
+
+  it("合并高频文本增量并以单个 Redux 批次更新", async () => {
+    let onEvent: ((event: EventEnvelope) => void) | undefined;
+    mocks.listenToPiEvents.mockImplementation(async (listener) => {
+      onEvent = listener;
+      return vi.fn();
+    });
+    const store = createStore();
+    store.dispatch(piConnectionActions.eventSubscriptionRequested());
+    await flushListeners();
+
+    onEvent?.({ sequence: 1, event: { type: "assistant_message_started" } });
+    let updates = 0;
+    const unsubscribeStore = store.subscribe(() => { updates += 1; });
+    for (let index = 2; index <= 1001; index += 1) {
+      onEvent?.({
+        sequence: index,
+        event: { type: "assistant_text_delta", contentIndex: 0, delta: "x" },
+      });
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, 40));
+    unsubscribeStore();
+
+    const message = store.getState().piConnection.messages[0];
+    expect(message?.parts[0]).toMatchObject({ type: "text", text: "x".repeat(1000) });
+    expect(updates).toBe(1);
   });
 });

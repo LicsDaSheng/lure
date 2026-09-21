@@ -19,7 +19,7 @@ import {
   selectThinkingLevel,
   sendPrompt,
 } from "./api";
-import type { LureError } from "./pi-session-types";
+import type { EventEnvelope, LureError } from "./pi-session-types";
 import { disconnectedSnapshot } from "./pi-session-domain";
 import { piConnectionActions, type PiConnectionState } from "./pi-session-slice";
 
@@ -35,6 +35,56 @@ let subscriptionWanted = false;
 let subscriptionPending = false;
 let lastSequence = 0;
 let startupAttempted = false;
+let streamFlushTimer: ReturnType<typeof setTimeout> | undefined;
+let pendingStreamEvents: EventEnvelope[] = [];
+
+const STREAM_FLUSH_INTERVAL_MS = 32;
+
+function isStreamingDelta(envelope: EventEnvelope) {
+  return (
+    envelope.event.type === "assistant_text_delta" ||
+    envelope.event.type === "assistant_thinking_delta"
+  );
+}
+
+function flushStreamingEvents(api: ListenerApi) {
+  if (streamFlushTimer !== undefined) {
+    clearTimeout(streamFlushTimer);
+    streamFlushTimer = undefined;
+  }
+  if (pendingStreamEvents.length === 0) return;
+  const events = pendingStreamEvents;
+  pendingStreamEvents = [];
+  api.dispatch(piConnectionActions.piEventsReceived(events));
+}
+
+function enqueueStreamingEvent(api: ListenerApi, envelope: EventEnvelope) {
+  const previous = pendingStreamEvents.at(-1);
+  const event = envelope.event;
+  if (
+    previous &&
+    (event.type === "assistant_text_delta" || event.type === "assistant_thinking_delta") &&
+    previous.event.type === event.type &&
+    previous.event.contentIndex === event.contentIndex
+  ) {
+    pendingStreamEvents[pendingStreamEvents.length - 1] = {
+      sequence: envelope.sequence,
+      event: { ...event, delta: previous.event.delta + event.delta },
+    };
+  } else {
+    pendingStreamEvents.push(envelope);
+  }
+
+  streamFlushTimer ??= setTimeout(() => {
+    flushStreamingEvents(api);
+  }, STREAM_FLUSH_INTERVAL_MS);
+}
+
+function clearStreamingEvents() {
+  if (streamFlushTimer !== undefined) clearTimeout(streamFlushTimer);
+  streamFlushTimer = undefined;
+  pendingStreamEvents = [];
+}
 
 function normalizeError(error: unknown, fallback: string): LureError {
   if (typeof error === "object" && error !== null) {
@@ -118,6 +168,12 @@ piSessionListenerMiddleware.startListening({
           if (event.sequence <= lastSequence) return;
           lastSequence = event.sequence;
         }
+        if (isStreamingDelta(event)) {
+          enqueueStreamingEvent(api, event);
+          return;
+        }
+        // 非流式事件必须排在此前已收到的增量之后，保证工具和消息完成事件的顺序。
+        flushStreamingEvents(api);
         api.dispatch(piConnectionActions.piEventReceived(event));
       });
       subscriptionPending = false;
@@ -143,6 +199,7 @@ piSessionListenerMiddleware.startListening({
     subscriptionWanted = false;
     unsubscribe?.();
     unsubscribe = undefined;
+    clearStreamingEvents();
     api.dispatch(piConnectionActions.eventsReadinessChanged(false));
     queueMicrotask(() => {
       if (!subscriptionWanted) {

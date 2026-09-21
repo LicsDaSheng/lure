@@ -15,24 +15,25 @@ export function EmptyState({
   onPickExample: (example: string) => void;
 }) {
   return (
-    <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-4 px-6 pb-[6vh] pt-[12vh] text-center">
-      <div className="grid size-12 place-items-center rounded-xl bg-accent text-accent-foreground">
-        <BotIcon className="size-6" />
+    <div className="flex min-h-0 flex-1 translate-y-16 flex-col items-center justify-center px-6 text-center">
+      <div className="grid size-12 place-items-center rounded-xl bg-[#F7F7F8] text-[#3C3C40]">
+        <BotIcon className="size-5" />
       </div>
-      <h2 className="text-xl font-semibold tracking-tight">开始一个新任务</h2>
-      <p className="max-w-lg text-sm leading-6 text-muted-foreground">
+      <h2 className="mt-6 text-xl font-semibold tracking-tight">开始一个新任务</h2>
+      <p className="mt-5 max-w-lg text-sm leading-6 text-muted-foreground">
         {projectName
           ? `Pi 会在 ${projectName} 中工作，描述你想完成的事情。`
           : "正在准备默认工作目录，然后描述你想完成的事情。"}
       </p>
-      <div className="mt-1 flex flex-wrap justify-center gap-2">
+      <div className="mt-8 flex flex-wrap justify-center gap-2">
         {workflowExamples.map((example) => (
           <Button
             key={example}
             onClick={() => onPickExample(example)}
+            className="h-8 rounded-lg bg-[#F4F4F6] px-3 text-xs hover:bg-[#E9E9ED]"
             size="sm"
             type="button"
-            variant="ghost"
+            variant="secondary"
           >
             {example}
           </Button>
