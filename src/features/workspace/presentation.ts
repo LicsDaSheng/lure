@@ -5,14 +5,6 @@ import {
   type ToolStatus,
 } from "@/features/pi-connection/reducer";
 
-export type ResultDescriptor = {
-  type: "file" | "diff" | "log" | "link";
-  title: string;
-  description: string;
-  actionLabel: string;
-  content: string;
-};
-
 /** 渲染工具执行所需的最小数据，由工具调用部件直接派生。 */
 export type ToolView = {
   id: string;
@@ -88,74 +80,6 @@ export function extractToolTarget(input: string): string | null {
 export function getToolOutputLineCount(tool: ToolView): number {
   const visible = tool.output ? tool.output.split("\n").length : 0;
   return visible + (tool.truncatedLines ?? 0);
-}
-
-export function createResultDescriptor(tool: ToolView): ResultDescriptor | null {
-  if (tool.status !== "completed" || !tool.output) return null;
-  const target = extractToolTarget(tool.input);
-  if (tool.name === "edit" || tool.name === "write") {
-    const summary = summarizeDiff(tool.output);
-    if (summary) {
-      return {
-        type: "diff",
-        title:
-          summary.files > 1
-            ? `${summary.files} 个文件发生修改`
-            : (target ?? "文件发生修改"),
-        description: `新增 ${summary.added} 行，删除 ${summary.removed} 行`,
-        actionLabel: "查看 Diff",
-        content: tool.output,
-      };
-    }
-    return {
-      type: "file",
-      title: target ?? "文件结果",
-      description: tool.name === "edit" ? "文件修改已完成" : "文件创建已完成",
-      actionLabel: "预览",
-      content: tool.output,
-    };
-  }
-  if (tool.name === "bash") {
-    const lines = getToolOutputLineCount(tool);
-    return {
-      type: "log",
-      title: "命令执行结果",
-      description: `${lines} 行输出`,
-      actionLabel: "查看日志",
-      content: tool.output,
-    };
-  }
-  if ((tool.name === "web_search" || tool.name === "fetch_content") && target) {
-    return {
-      type: "link",
-      title: target,
-      description: "外部资料已获取",
-      actionLabel: "查看内容",
-      content: tool.output,
-    };
-  }
-  return null;
-}
-
-function summarizeDiff(output: string) {
-  if (!output.includes("@@") && !/^\+\+\+ /m.test(output) && !/^--- /m.test(output)) {
-    return null;
-  }
-  const files = new Set<string>();
-  let added = 0;
-  let removed = 0;
-  for (const line of output.split("\n")) {
-    if (line.startsWith("+++ ")) {
-      files.add(line.slice(4).replace(/^[ab]\//, "").split("\t")[0] ?? line);
-    } else if (line.startsWith("+")) {
-      added += 1;
-    } else if (line.startsWith("--- ")) {
-      continue;
-    } else if (line.startsWith("-")) {
-      removed += 1;
-    }
-  }
-  return { added, files: files.size, removed };
 }
 
 export function serializeConversation(

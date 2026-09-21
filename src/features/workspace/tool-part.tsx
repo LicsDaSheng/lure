@@ -21,12 +21,10 @@ import { cn } from "@/lib/utils";
 
 import { ContentPreviewDialog } from "./content-preview-dialog";
 import {
-  createResultDescriptor,
   formatToolSummary,
   getToolOutputLineCount,
   type ToolView,
 } from "./presentation";
-import { ResultCard } from "./result-card";
 
 /** 工具执行过程在卡片内直接显示的输出行数。 */
 const PREVIEW_LINES = 10;
@@ -70,21 +68,19 @@ export function readToolView(value: unknown): ToolView | null {
 export function ToolCard({ view }: { view: ToolView }) {
   const summary = formatToolSummary(view);
   const totalLines = getToolOutputLineCount(view);
-  const result = createResultDescriptor(view);
   const lines = view.output ? view.output.split("\n") : [];
   const visible = lines.slice(0, PREVIEW_LINES).join("\n");
   const hidden = Math.max(0, lines.length - PREVIEW_LINES);
 
   return (
-    <>
-      <Collapsible
-        className={cn(
-          "group not-prose w-full rounded-xl border border-border/60 bg-muted/25 shadow-none",
-          view.status === "running" && "border-[var(--pi-accent)]/40",
-          view.status === "error" &&
-            "border-[var(--pi-error)]/40 bg-[var(--pi-tool-error)]/40",
-        )}
-      >
+    <Collapsible
+      className={cn(
+        "group not-prose w-full rounded-xl border border-border/60 bg-muted/25 shadow-none",
+        view.status === "running" && "border-[var(--pi-accent)]/40",
+        view.status === "error" &&
+          "border-[var(--pi-error)]/40 bg-[var(--pi-tool-error)]/40",
+      )}
+    >
         <CollapsibleTrigger className="flex w-full items-center justify-between gap-4 px-4 py-2">
           <div className="flex items-center gap-2">
             <WrenchIcon className="size-4 text-[var(--pi-accent)]" />
@@ -144,9 +140,7 @@ export function ToolCard({ view }: { view: ToolView }) {
             />
           )}
         </CollapsibleContent>
-      </Collapsible>
-      {result && <ResultCard result={result} />}
-    </>
+    </Collapsible>
   );
 }
 
