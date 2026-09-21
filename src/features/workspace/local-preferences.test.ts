@@ -3,9 +3,11 @@ import { beforeEach, describe, expect, it } from "vitest";
 import {
   readDraft,
   readLastDirectory,
+  readRecentConversations,
   readTitle,
   writeDraft,
   writeLastDirectory,
+  writeRecentConversations,
   writeTitle,
 } from "./local-preferences";
 
@@ -38,5 +40,14 @@ describe("本地界面偏好", () => {
     expect(readTitle("/tmp/alpha")).toBe("重构布局");
     expect(readTitle("/tmp/beta")).toBeNull();
     expect(readLastDirectory()).toBe("/tmp/alpha");
+  });
+
+  it("保存最近对话并忽略损坏的本地记录", () => {
+    const conversations = [{ sessionId: "session-1", title: "第一项", updatedAt: 10 }];
+    writeRecentConversations(conversations);
+    expect(readRecentConversations()).toEqual(conversations);
+
+    localStorage.setItem("lure:recent-conversations", "not-json");
+    expect(readRecentConversations()).toEqual([]);
   });
 });

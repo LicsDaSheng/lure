@@ -1,5 +1,7 @@
+import type { ProjectDescriptor, RecentConversation } from "@/features/pi-connection";
+
 /**
- * 本地界面偏好：记住上次工作目录、未发送草稿与任务标题。
+ * 本地界面偏好：记住项目导航、上次工作目录、未发送草稿与任务标题。
  *
  * 这些数据只保存在本机浏览器存储中，不发送给 Pi。
  */
@@ -7,6 +9,8 @@
 const DRAFT_PREFIX = "lure:draft:";
 const TITLE_PREFIX = "lure:title:";
 const LAST_DIRECTORY_KEY = "lure:last-directory";
+const PROJECTS_KEY = "lure:projects";
+const RECENT_CONVERSATIONS_KEY = "lure:recent-conversations";
 
 function storage(): Storage | null {
   try {
@@ -63,4 +67,54 @@ export function readLastDirectory(): string | null {
 
 export function writeLastDirectory(directory: string | null) {
   write(LAST_DIRECTORY_KEY, directory);
+}
+
+export function readProjects(): ProjectDescriptor[] {
+  const value = read(PROJECTS_KEY);
+  if (!value) return [];
+  try {
+    const projects = JSON.parse(value) as unknown;
+    if (!Array.isArray(projects)) return [];
+    return projects.filter(
+      (project): project is ProjectDescriptor =>
+        typeof project === "object" &&
+        project !== null &&
+        typeof project.name === "string" &&
+        project.name.trim().length > 0 &&
+        typeof project.directory === "string" &&
+        project.directory.trim().length > 0,
+    );
+  } catch {
+    return [];
+  }
+}
+
+export function writeProjects(projects: ProjectDescriptor[]) {
+  write(PROJECTS_KEY, JSON.stringify(projects));
+}
+
+export function readRecentConversations(): RecentConversation[] {
+  const value = read(RECENT_CONVERSATIONS_KEY);
+  if (!value) return [];
+  try {
+    const conversations = JSON.parse(value) as unknown;
+    if (!Array.isArray(conversations)) return [];
+    return conversations.filter(
+      (conversation): conversation is RecentConversation =>
+        typeof conversation === "object" &&
+        conversation !== null &&
+        typeof conversation.sessionId === "string" &&
+        conversation.sessionId.length > 0 &&
+        typeof conversation.title === "string" &&
+        conversation.title.trim().length > 0 &&
+        typeof conversation.updatedAt === "number" &&
+        Number.isFinite(conversation.updatedAt),
+    );
+  } catch {
+    return [];
+  }
+}
+
+export function writeRecentConversations(conversations: RecentConversation[]) {
+  write(RECENT_CONVERSATIONS_KEY, JSON.stringify(conversations));
 }

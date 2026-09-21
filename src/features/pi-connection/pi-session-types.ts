@@ -12,6 +12,17 @@ export type LureError = {
 
 export type ModelSnapshot = { provider: string; id: string };
 
+export type ProjectDescriptor = {
+  name: string;
+  directory: string;
+};
+
+export type RecentConversation = {
+  sessionId: string;
+  title: string;
+  updatedAt: number;
+};
+
 export type ConnectionSnapshot = {
   phase: ConnectionPhase;
   workingDirectory: string | null;
@@ -185,4 +196,3 @@ export type PiSessionState = {
   run: RunState;
   extensionRequest: ExtensionUiRequest | null;
 };
-

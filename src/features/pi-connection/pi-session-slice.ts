@@ -6,6 +6,8 @@ import {
   type LureError,
   type ModelSnapshot,
   type PiSessionState,
+  type ProjectDescriptor,
+  type RecentConversation,
 } from "./pi-session-types";
 import { initialPiSessionState, piSessionReducer } from "./pi-session-domain";
 
@@ -17,6 +19,9 @@ export type PiConnectionState = PiSessionState & {
   commands: PiCommand[];
   workspaceContext: WorkspaceContext | null;
   promptSubmissionCount: number;
+  defaultWorkspace: string | null;
+  projects: ProjectDescriptor[];
+  recentConversations: RecentConversation[];
 };
 
 export const initialPiConnectionState: PiConnectionState = {
@@ -28,6 +33,9 @@ export const initialPiConnectionState: PiConnectionState = {
   commands: [],
   workspaceContext: null,
   promptSubmissionCount: 0,
+  defaultWorkspace: null,
+  projects: [],
+  recentConversations: [],
 };
 
 const piConnectionSlice = createSlice({
@@ -41,6 +49,9 @@ const piConnectionSlice = createSlice({
     connectRequested: () => undefined,
     retryRequested: () => undefined,
     newConversationRequested: () => undefined,
+    defaultConversationRequested: () => undefined,
+    projectConversationRequested: (_state, _action: PayloadAction<string>) => undefined,
+    recentConversationTitleChanged: (_state, _action: PayloadAction<string>) => undefined,
     disconnectRequested: () => undefined,
     promptRequested: (_state, _action: PayloadAction<{ message: string; images: ImageAttachment[] }>) => undefined,
     promptAccepted: (state) => {
@@ -67,6 +78,31 @@ const piConnectionSlice = createSlice({
       ),
     selectedDirectoryChanged: (state, action: PayloadAction<string>) => {
       state.selectedDirectory = action.payload;
+    },
+    projectCatalogLoaded: (
+      state,
+      action: PayloadAction<{ defaultWorkspace: string; projects: ProjectDescriptor[] }>,
+    ) => {
+      state.defaultWorkspace = action.payload.defaultWorkspace;
+      state.projects = action.payload.projects;
+    },
+    projectAdded: (state, action: PayloadAction<ProjectDescriptor>) => {
+      const project = action.payload;
+      if (project.directory === state.defaultWorkspace) return;
+      const existing = state.projects.find((item) => item.directory === project.directory);
+      if (existing) existing.name = project.name;
+      else state.projects.push(project);
+    },
+    recentConversationsLoaded: (state, action: PayloadAction<RecentConversation[]>) => {
+      state.recentConversations = action.payload;
+    },
+    recentConversationUpserted: (state, action: PayloadAction<RecentConversation>) => {
+      const conversation = action.payload;
+      const existing = state.recentConversations.find(
+        (item) => item.sessionId === conversation.sessionId,
+      );
+      if (existing) Object.assign(existing, conversation);
+      else state.recentConversations.push(conversation);
     },
     eventsReadinessChanged: (state, action: PayloadAction<boolean>) => {
       state.eventsReady = action.payload;

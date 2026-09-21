@@ -59,7 +59,7 @@ beforeEach(() => {
   mocks.createObjectURL.mockClear();
   mocks.revokeObjectURL.mockClear();
   mocks.listeners.clear();
-  mocks.invoke.mockImplementation(async (command: string) => {
+  mocks.invoke.mockImplementation(async (command: string, args?: Record<string, unknown>) => {
     if (command === "get_default_workspace") return defaultWorkspace;
     if (command === "get_pi_state") {
       return {
@@ -72,7 +72,9 @@ beforeEach(() => {
         error: null,
       };
     }
-    if (command === "connect_pi") return readySnapshot;
+    if (command === "connect_pi") {
+      return { ...readySnapshot, workingDirectory: args?.workingDirectory ?? defaultWorkspace };
+    }
     if (command === "new_pi_session") {
       return {
         ...readySnapshot,
@@ -251,12 +253,13 @@ describe("主工作区初始态", () => {
     );
   });
 
-  it("任务导航仅保留当前任务列表，不显示搜索、最近或已归档分组", () => {
+  it("任务导航展示最近与项目分组，不显示搜索或已归档分组", () => {
     render(<App />);
 
     expect(screen.getByRole("button", { name: "新建任务" })).toBeInTheDocument();
     expect(screen.queryByRole("searchbox", { name: "搜索任务" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("heading", { name: "最近" })).not.toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "最近" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "项目" })).toBeInTheDocument();
     expect(screen.queryByText("已归档")).not.toBeInTheDocument();
   });
 
@@ -266,6 +269,35 @@ describe("主工作区初始态", () => {
     expect(screen.getByRole("navigation", { name: "任务导航" })).toHaveClass("bg-[#F6F6F8]");
     expect(screen.getByText("Lure").parentElement).toHaveClass("h-14");
     expect(screen.getByRole("button", { name: "新建任务" })).toHaveClass("h-11", "px-5");
+  });
+
+  it("默认工作目录只显示在最近中，并可通过弹框添加本地项目", async () => {
+    await renderConnected();
+
+    expect(screen.getByRole("heading", { name: "项目" })).toBeInTheDocument();
+    const recent = screen.getByRole("region", { name: "最近" });
+    expect(within(recent).getByText("lure")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "在 lure 中新建任务" })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "新增项目" }));
+    const dialog = screen.getByRole("dialog", { name: "创建项目" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "选择 Pi 可读取和编辑的文件夹" }));
+
+    await waitFor(() =>
+      expect(mocks.open).toHaveBeenCalledWith({ directory: true, multiple: false }),
+    );
+    expect(within(dialog).getByRole("textbox", { name: "项目名称" })).toHaveValue("lure-project");
+    fireEvent.click(within(dialog).getByRole("button", { name: "创建项目" }));
+
+    await waitFor(() =>
+      expect(mocks.invoke).toHaveBeenCalledWith("connect_pi", {
+        workingDirectory: "/tmp/lure-project",
+      }),
+    );
+    expect(screen.getByRole("button", { name: "在 lure-project 中新建任务" })).toBeInTheDocument();
+    expect(JSON.parse(localStorage.getItem("lure:projects") ?? "[]")).toEqual([
+      { directory: "/tmp/lure-project", name: "lure-project" },
+    ]);
   });
 });
 
@@ -287,9 +319,35 @@ describe("主工作区对话态", () => {
     expect(mocks.invoke).not.toHaveBeenCalledWith("disconnect_pi");
     expect(mocks.open).not.toHaveBeenCalled();
     expect(screen.queryByText("旧对话")).not.toBeInTheDocument();
-    expect(screen.queryByText("旧任务")).not.toBeInTheDocument();
+    expect(within(screen.getByRole("region", { name: "最近" })).getByText("旧任务")).toBeInTheDocument();
     expect(screen.getAllByText("lure").length).toBeGreaterThan(0);
     expect(textbox()).toHaveFocus();
+  });
+
+  it("从其他项目点击顶部新建任务时回到默认 lure 项目", async () => {
+    await renderConnected();
+    fireEvent.click(screen.getByRole("button", { name: "新增项目" }));
+    const dialog = screen.getByRole("dialog", { name: "创建项目" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "选择 Pi 可读取和编辑的文件夹" }));
+    await waitFor(() =>
+      expect(within(dialog).getByRole("textbox", { name: "项目名称" })).toHaveValue("lure-project"),
+    );
+    fireEvent.click(within(dialog).getByRole("button", { name: "创建项目" }));
+    await waitFor(() =>
+      expect(mocks.invoke).toHaveBeenCalledWith("connect_pi", {
+        workingDirectory: "/tmp/lure-project",
+      }),
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "新建任务" }));
+
+    await waitFor(() => {
+      const defaultConnections = mocks.invoke.mock.calls.filter(
+        ([command, args]) =>
+          command === "connect_pi" && args?.workingDirectory === defaultWorkspace,
+      );
+      expect(defaultConnections).toHaveLength(2);
+    });
   });
 
   it("按 Ctrl+L 打开模型选择框，并在确认后切换模型", async () => {

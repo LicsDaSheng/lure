@@ -9,7 +9,8 @@ export {
   selectMessages,
   selectPiConnection,
   selectPiSessionState,
+  selectRecentConversations,
   selectSessionError,
 } from "./pi-session-selectors";
 export type { ImageAttachment, PiCommand, SelectedImage, WorkspaceContext } from "./api";
-export { readImageAttachments, selectImageFiles } from "./api";
+export { readImageAttachments, selectImageFiles, selectProjectDirectory } from "./api";

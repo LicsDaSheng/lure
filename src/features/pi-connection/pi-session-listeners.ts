@@ -1,7 +1,13 @@
 import { createListenerMiddleware } from "@reduxjs/toolkit";
 import type { Dispatch, UnknownAction } from "@reduxjs/toolkit";
 
-import { writeLastDirectory } from "@/features/workspace/local-preferences";
+import {
+  readProjects,
+  readRecentConversations,
+  writeLastDirectory,
+  writeProjects,
+  writeRecentConversations,
+} from "@/features/workspace/local-preferences";
 
 import {
   abortPi,
@@ -121,7 +127,41 @@ async function loadWorkspaceContext(api: ListenerApi, directory: string) {
 
 async function hydrateConnectedSession(api: ListenerApi, snapshot: PiConnectionState["connection"], directory: string) {
   api.dispatch(piConnectionActions.piEventReceived({ sequence: 0, event: { type: "session_ready", snapshot } }));
+  rememberDefaultConversation(api, snapshot, directory);
   await Promise.all([refreshCapabilities(api), loadWorkspaceContext(api, snapshot.workingDirectory ?? directory)]);
+}
+
+function directoryName(directory: string) {
+  return directory.split(/[\\/]/).filter(Boolean).at(-1) ?? directory;
+}
+
+function rememberDefaultConversation(
+  api: ListenerApi,
+  snapshot: PiConnectionState["connection"],
+  directory: string,
+) {
+  const state = api.getState().piConnection;
+  const actualDirectory = snapshot.workingDirectory ?? directory;
+  const sessionId = snapshot.sessionId;
+  if (!sessionId || actualDirectory !== state.defaultWorkspace) return;
+  const existing = state.recentConversations.find((item) => item.sessionId === sessionId);
+  api.dispatch(piConnectionActions.recentConversationUpserted({
+    sessionId,
+    title: existing?.title ?? directoryName(actualDirectory),
+    updatedAt: existing?.updatedAt ?? Date.now(),
+  }));
+}
+
+async function initializeProjectCatalog(api: ListenerApi) {
+  const current = api.getState().piConnection;
+  if (current.defaultWorkspace) return current.defaultWorkspace;
+  const defaultWorkspace = await getDefaultWorkspace();
+  const saved = readProjects();
+  const projects = saved.filter((project) => project.directory !== defaultWorkspace);
+  api.dispatch(piConnectionActions.projectCatalogLoaded({ defaultWorkspace, projects }));
+  api.dispatch(piConnectionActions.recentConversationsLoaded(readRecentConversations()));
+  writeProjects(projects);
+  return defaultWorkspace;
 }
 
 async function restoreOrConnectDefault(api: ListenerApi) {
@@ -145,13 +185,44 @@ async function connectDefault(api: ListenerApi) {
   if (!api.getState().piConnection.eventsReady) return false;
   api.dispatch(piConnectionActions.commandErrorCleared());
   try {
-    const directory = await getDefaultWorkspace();
+    const directory = await initializeProjectCatalog(api);
     api.dispatch(piConnectionActions.selectedDirectoryChanged(directory));
     writeLastDirectory(directory);
     await hydrateConnectedSession(api, await connectPi(directory), directory);
     return true;
   } catch (error) {
     reportError(api, error, "启动默认 Pi RPC 失败");
+    return false;
+  }
+}
+
+async function openProjectConversation(api: ListenerApi, directory: string) {
+  const state = api.getState().piConnection;
+  if (!state.eventsReady || state.connection.phase === "running" || state.connection.phase === "connecting") {
+    return false;
+  }
+  api.dispatch(piConnectionActions.commandErrorCleared());
+  try {
+    const currentDirectory = state.connection.workingDirectory ?? state.selectedDirectory;
+    if (currentDirectory === directory && state.connection.phase === "ready") {
+      await hydrateConnectedSession(api, await newPiSession(), directory);
+      return true;
+    }
+
+    if (state.connection.phase !== "disconnected") {
+      await disconnectPi();
+      api.dispatch(piConnectionActions.piEventReceived({
+        sequence: 0,
+        event: { type: "connection_changed", snapshot: disconnectedSnapshot },
+      }));
+      api.dispatch(piConnectionActions.disconnectedCapabilitiesCleared());
+    }
+    api.dispatch(piConnectionActions.selectedDirectoryChanged(directory));
+    writeLastDirectory(directory);
+    await hydrateConnectedSession(api, await connectPi(directory), directory);
+    return true;
+  } catch (error) {
+    reportError(api, error, "无法在项目中创建对话");
     return false;
   }
 }
@@ -213,7 +284,59 @@ piSessionListenerMiddleware.startListening({
 
 piSessionListenerMiddleware.startListening({
   actionCreator: piConnectionActions.startupRequested,
-  effect: async (_action, api) => { await restoreOrConnectDefault(api); },
+  effect: async (_action, api) => {
+    try {
+      await initializeProjectCatalog(api);
+      await restoreOrConnectDefault(api);
+    } catch (error) {
+      reportError(api, error, "无法加载项目导航");
+    }
+  },
+});
+
+piSessionListenerMiddleware.startListening({
+  actionCreator: piConnectionActions.projectAdded,
+  effect: (_action, api) => {
+    writeProjects(api.getState().piConnection.projects);
+  },
+});
+
+piSessionListenerMiddleware.startListening({
+  actionCreator: piConnectionActions.recentConversationUpserted,
+  effect: (_action, api) => {
+    writeRecentConversations(api.getState().piConnection.recentConversations);
+  },
+});
+
+piSessionListenerMiddleware.startListening({
+  actionCreator: piConnectionActions.recentConversationTitleChanged,
+  effect: (action, api) => {
+    const state = api.getState().piConnection;
+    const sessionId = state.connection.sessionId;
+    const directory = state.connection.workingDirectory ?? state.selectedDirectory;
+    if (!sessionId || directory !== state.defaultWorkspace || !action.payload.trim()) return;
+    api.dispatch(piConnectionActions.recentConversationUpserted({
+      sessionId,
+      title: action.payload.trim(),
+      updatedAt: Date.now(),
+    }));
+  },
+});
+
+piSessionListenerMiddleware.startListening({
+  actionCreator: piConnectionActions.promptAccepted,
+  effect: (_action, api) => {
+    const state = api.getState().piConnection;
+    const sessionId = state.connection.sessionId;
+    const directory = state.connection.workingDirectory ?? state.selectedDirectory;
+    if (!sessionId || !directory || directory !== state.defaultWorkspace) return;
+    const existing = state.recentConversations.find((item) => item.sessionId === sessionId);
+    api.dispatch(piConnectionActions.recentConversationUpserted({
+      sessionId,
+      title: existing?.title ?? directoryName(directory),
+      updatedAt: Date.now(),
+    }));
+  },
 });
 
 piSessionListenerMiddleware.startListening({
@@ -266,6 +389,25 @@ piSessionListenerMiddleware.startListening({
     } catch (error) {
       reportError(api, error, "新建对话失败");
     }
+  },
+});
+
+piSessionListenerMiddleware.startListening({
+  actionCreator: piConnectionActions.defaultConversationRequested,
+  effect: async (_action, api) => {
+    try {
+      const directory = await initializeProjectCatalog(api);
+      await openProjectConversation(api, directory);
+    } catch (error) {
+      reportError(api, error, "无法在 lure 项目中创建对话");
+    }
+  },
+});
+
+piSessionListenerMiddleware.startListening({
+  actionCreator: piConnectionActions.projectConversationRequested,
+  effect: async (action, api) => {
+    await openProjectConversation(api, action.payload);
   },
 });
 
