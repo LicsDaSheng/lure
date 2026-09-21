@@ -6,7 +6,11 @@ import {
 import { useAppDispatch } from "@/app/hooks";
 import { Button } from "@/components/ui/button";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { readImageAttachments, selectImageFiles } from "@/features/pi-connection";
+import {
+  readImageAttachments,
+  selectImageFiles,
+  selectProjectDirectory,
+} from "@/features/pi-connection";
 import { piConnectionActions } from "@/features/pi-connection/pi-session-slice";
 import { usePiSession } from "@/features/pi-connection/use-pi-session";
 import {
@@ -16,6 +20,7 @@ import {
 } from "@/features/workspace/assistant-runtime";
 import { ConnectionLoading } from "@/features/workspace/connection-loading";
 import { ConversationStream } from "@/features/workspace/conversation-stream";
+import { CreateProjectDialog } from "@/features/workspace/create-project-dialog";
 import { EmptyState } from "@/features/workspace/empty-state";
 import { ErrorPanel } from "@/features/workspace/error-panel";
 import { ExtensionUiDialog } from "@/features/workspace/extension-ui-dialog";
@@ -80,7 +85,13 @@ export function MainContent() {
     workspaceContext,
     connect,
     retry,
-    newConversation,
+    newDefaultConversation,
+    newProjectConversation,
+    addProject,
+    defaultWorkspace,
+    projects,
+    recentConversations,
+    renameRecentConversation,
     disconnect,
     prompt,
     abort,
@@ -92,6 +103,7 @@ export function MainContent() {
   const submittedPrompts = useRef(state.promptSubmissionCount);
   const [navigationOpen, setNavigationOpen] = useState(false);
   const [composerGeneration, setComposerGeneration] = useState(0);
+  const [createProjectOpen, setCreateProjectOpen] = useState(false);
   const [pendingRisk, setPendingRisk] = useState<"export" | null>(null);
   const promptInputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -117,8 +129,9 @@ export function MainContent() {
     (value: string) => {
       writeTitle(selectedDirectory, value);
       setTitleState({ scope: selectedDirectory, value });
+      renameRecentConversation(value);
     },
-    [selectedDirectory],
+    [renameRecentConversation, selectedDirectory],
   );
   const hasConversation = messages.length > 0;
   const isRunning = connection.phase === "running";
@@ -152,13 +165,38 @@ export function MainContent() {
   }, []);
 
   const handleNewTask = useCallback(async () => {
-    const created = await newConversation();
-    if (!created) return;
-    persistDraft("");
+    const target = defaultWorkspace ?? selectedDirectory;
+    newDefaultConversation();
+    if (target) {
+      writeDraft(target, "");
+      const nextTitle = directoryNameOf(target) ?? "新任务";
+      writeTitle(target, nextTitle);
+      setTitleState({ scope: target, value: nextTitle });
+    }
     setComposerGeneration((value) => value + 1);
-    setTaskTitle(directoryName ?? "新任务");
     setNavigationOpen(false);
-  }, [directoryName, newConversation, persistDraft, setTaskTitle]);
+  }, [defaultWorkspace, newDefaultConversation, selectedDirectory]);
+
+  const handleNewProjectTask = useCallback(
+    (targetDirectory: string) => {
+      newProjectConversation(targetDirectory);
+      writeDraft(targetDirectory, "");
+      const nextTitle = directoryNameOf(targetDirectory) ?? "新任务";
+      writeTitle(targetDirectory, nextTitle);
+      setTitleState({ scope: targetDirectory, value: nextTitle });
+      setComposerGeneration((value) => value + 1);
+      setNavigationOpen(false);
+    },
+    [newProjectConversation],
+  );
+
+  const handleCreateProject = useCallback(
+    (name: string, targetDirectory: string) => {
+      addProject(name, targetDirectory);
+      handleNewProjectTask(targetDirectory);
+    },
+    [addProject, handleNewProjectTask],
+  );
 
   useEffect(() => {
     if (composerGeneration > 0) promptInputRef.current?.focus();
@@ -207,12 +245,20 @@ export function MainContent() {
         )}
 
         <TaskNavigation
+          activeDirectory={directory}
+          activeSessionId={connection.sessionId}
+          defaultWorkspace={defaultWorkspace}
+          disabled={connection.phase === "running" || connection.phase === "connecting"}
           hasTask={Boolean(directory)}
           onClose={() => setNavigationOpen(false)}
           onNewTask={() => void handleNewTask()}
+          onNewProject={() => setCreateProjectOpen(true)}
+          onNewProjectTask={handleNewProjectTask}
           onSelectTask={() => setNavigationOpen(false)}
           open={navigationOpen}
           phase={connection.phase}
+          projects={projects}
+          recentConversations={recentConversations}
           taskTitle={taskTitle}
         />
 
@@ -312,6 +358,13 @@ export function MainContent() {
         </main>
 
         <ExtensionUiDialog onRespond={(value, cancelled) => { respondToExtension(value, cancelled); return Promise.resolve(); }} request={extensionRequest} />
+
+        <CreateProjectDialog
+          onChooseDirectory={selectProjectDirectory}
+          onCreate={handleCreateProject}
+          onOpenChange={setCreateProjectOpen}
+          open={createProjectOpen}
+        />
 
         <RiskConfirmDialog
           confirmLabel="导出并保存"

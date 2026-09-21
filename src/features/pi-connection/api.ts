@@ -33,6 +33,11 @@ export async function selectImageFiles(): Promise<string[]> {
   return typeof selection === "string" ? [selection] : [];
 }
 
+export async function selectProjectDirectory(): Promise<string | null> {
+  const selection = await open({ directory: true, multiple: false });
+  return typeof selection === "string" ? selection : null;
+}
+
 export function readImageAttachments(paths: string[]): Promise<SelectedImage[]> {
   return invoke("read_image_attachments", { paths });
 }

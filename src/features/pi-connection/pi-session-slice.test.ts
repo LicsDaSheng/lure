@@ -41,4 +41,49 @@ describe("Pi connection Redux slice", () => {
       workspaceContext: { branch: "main" },
     });
   });
+
+  it("加载项目目录，并按文件夹去重更新项目名称", () => {
+    const store = configureStore({ reducer: { piConnection: piConnectionReducer } });
+
+    store.dispatch(piConnectionActions.projectCatalogLoaded({
+      defaultWorkspace: "/home/test/lure",
+      projects: [],
+    }));
+    store.dispatch(piConnectionActions.projectAdded({
+      directory: "/home/test/lure",
+      name: "不应加入的默认目录",
+    }));
+    store.dispatch(piConnectionActions.projectAdded({
+      directory: "/tmp/project",
+      name: "project",
+    }));
+    store.dispatch(piConnectionActions.projectAdded({
+      directory: "/tmp/project",
+      name: "自定义名称",
+    }));
+
+    expect(store.getState().piConnection).toMatchObject({
+      defaultWorkspace: "/home/test/lure",
+      projects: [
+        { directory: "/tmp/project", name: "自定义名称" },
+      ],
+    });
+  });
+
+  it("按 session 标识更新最近对话而不产生重复项", () => {
+    const store = configureStore({ reducer: { piConnection: piConnectionReducer } });
+
+    store.dispatch(piConnectionActions.recentConversationsLoaded([
+      { sessionId: "older", title: "旧会话", updatedAt: 1 },
+    ]));
+    store.dispatch(piConnectionActions.recentConversationUpserted({
+      sessionId: "older",
+      title: "重命名会话",
+      updatedAt: 2,
+    }));
+
+    expect(store.getState().piConnection.recentConversations).toEqual([
+      { sessionId: "older", title: "重命名会话", updatedAt: 2 },
+    ]);
+  });
 });
