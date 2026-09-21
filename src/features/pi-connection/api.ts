@@ -24,11 +24,6 @@ export type WorkspaceContext = {
 
 export type SelectedImage = ImageAttachment & { name: string };
 
-export async function selectWorkingDirectory(): Promise<string | null> {
-  const selection = await open({ directory: true, multiple: false });
-  return typeof selection === "string" ? selection : null;
-}
-
 export async function selectImageFiles(): Promise<string[]> {
   const selection = await open({
     filters: [{ extensions: ["png", "jpg", "jpeg", "gif", "webp"], name: "图片" }],

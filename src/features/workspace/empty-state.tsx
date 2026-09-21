@@ -23,7 +23,7 @@ export function EmptyState({
       <p className="max-w-lg text-sm leading-6 text-muted-foreground">
         {projectName
           ? `Pi 会在 ${projectName} 中工作，描述你想完成的事情。`
-          : "选择工作目录并连接 Pi，然后描述你想完成的事情。"}
+          : "正在准备默认工作目录，然后描述你想完成的事情。"}
       </p>
       <div className="mt-1 flex flex-wrap justify-center gap-2">
         {workflowExamples.map((example) => (

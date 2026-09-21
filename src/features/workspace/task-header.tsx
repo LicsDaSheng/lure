@@ -3,7 +3,6 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { DownloadIcon, FolderIcon, MoreHorizontalIcon, MenuIcon, UnplugIcon } from "lucide-react";
@@ -12,7 +11,6 @@ export function TaskHeader({
   title,
   canDisconnect,
   onTitleChange,
-  onChooseDirectory,
   onDisconnect,
   onExport,
   onOpenNavigation,
@@ -20,7 +18,6 @@ export function TaskHeader({
   title: string;
   canDisconnect: boolean;
   onTitleChange: (title: string) => void;
-  onChooseDirectory: () => void;
   onDisconnect: () => void;
   onExport: () => void;
   onOpenNavigation: () => void;
@@ -49,28 +46,21 @@ export function TaskHeader({
         value={title}
       />
 
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <Button aria-label="更多任务操作" size="icon" type="button" variant="ghost">
-            <MoreHorizontalIcon />
-          </Button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end">
-          <DropdownMenuItem onSelect={onChooseDirectory}>
-            <FolderIcon />
-            更换工作目录
-          </DropdownMenuItem>
-          {canDisconnect && (
-            <>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem onSelect={onDisconnect}>
-                <UnplugIcon />
-                断开 Pi
-              </DropdownMenuItem>
-            </>
-          )}
-        </DropdownMenuContent>
-      </DropdownMenu>
+      {canDisconnect && (
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button aria-label="更多任务操作" size="icon" type="button" variant="ghost">
+              <MoreHorizontalIcon />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem onSelect={onDisconnect}>
+              <UnplugIcon />
+              断开 Pi
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      )}
 
       <Button
         aria-label="导出记录"

@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::time::Duration;
@@ -6,7 +7,7 @@ use std::time::Duration;
 use lure_core::LureEvent;
 use serde_json::{Value, json};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-use tokio::process::{Child, ChildStdin, Command};
+use tokio::process::{Child, ChildStdin};
 use tokio::sync::{broadcast, mpsc, oneshot};
 use tokio::time::{Instant, MissedTickBehavior};
 
@@ -94,9 +95,8 @@ impl PiRpcClient {
     /// 工作目录无效、Pi 无法启动、握手失败或协议错误时返回错误。
     pub async fn connect(mut config: PiProcessConfig) -> Result<(Self, RpcSessionState), RpcError> {
         config.working_directory = canonical_working_directory(&config.working_directory)?;
-        verify_pi(&config.executable).await?;
 
-        let mut child = Command::new(&config.executable)
+        let mut child = tokio::process::Command::new(&config.executable)
             .args(["--mode", "rpc"])
             .current_dir(&config.working_directory)
             .stdin(Stdio::piped())
@@ -104,7 +104,13 @@ impl PiRpcClient {
             .stderr(Stdio::piped())
             .kill_on_drop(true)
             .spawn()
-            .map_err(|error| RpcError::SpawnFailed(error.to_string()))?;
+            .map_err(|error| {
+                if error.kind() == ErrorKind::NotFound {
+                    RpcError::PiNotFound(config.executable.display().to_string())
+                } else {
+                    RpcError::SpawnFailed(error.to_string())
+                }
+            })?;
 
         let stdin = child
             .stdin
@@ -414,21 +420,6 @@ fn canonical_working_directory(path: &Path) -> Result<PathBuf, RpcError> {
         Ok(canonical)
     } else {
         Err(RpcError::InvalidWorkingDirectory(path.to_path_buf()))
-    }
-}
-
-async fn verify_pi(executable: &Path) -> Result<(), RpcError> {
-    let result = tokio::time::timeout(
-        Duration::from_secs(5),
-        Command::new(executable).arg("--version").output(),
-    )
-    .await
-    .map_err(|_| RpcError::PiNotFound(executable.display().to_string()))?;
-    let output = result.map_err(|error| RpcError::PiNotFound(error.to_string()))?;
-    if output.status.success() {
-        Ok(())
-    } else {
-        Err(RpcError::PiNotFound(executable.display().to_string()))
     }
 }
 

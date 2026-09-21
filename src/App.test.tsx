@@ -125,6 +125,24 @@ describe("主工作区初始态", () => {
     expect(mocks.open).not.toHaveBeenCalled();
   });
 
+  it("连接 Pi 时展示加载反馈，并在连接完成后移除", () => {
+    render(<App />);
+
+    emit({
+      sequence: 1,
+      event: {
+        type: "connection_changed",
+        snapshot: { ...readySnapshot, phase: "connecting", model: null, thinkingLevel: null },
+      },
+    });
+    expect(screen.getByRole("status", { name: "正在启动 Pi" })).toHaveTextContent(
+      "正在加载本地工具",
+    );
+
+    emit({ sequence: 2, event: { type: "connection_changed", snapshot: readySnapshot } });
+    expect(screen.queryByRole("status", { name: "正在启动 Pi" })).not.toBeInTheDocument();
+  });
+
   it("不显示会话顶栏，并在底部提供悬浮输入卡", () => {
     render(<App />);
 
@@ -137,6 +155,14 @@ describe("主工作区初始态", () => {
 
     const content = screen.getByRole("log", { name: "对话线程" });
     expect(content.className).toContain("max-w-[920px]");
+  });
+
+  it("固定默认工作目录，不提供选择或更换目录操作", () => {
+    render(<App />);
+
+    expect(screen.queryByRole("button", { name: "更换目录" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "选择工作目录" })).not.toBeInTheDocument();
+    expect(screen.queryByText("更换工作目录")).not.toBeInTheDocument();
   });
 
   it("未连接时可编辑草稿但禁止发送", async () => {
@@ -299,6 +325,7 @@ describe("主工作区对话态", () => {
     expect(within(header).getByRole("textbox", { name: "任务标题" })).toHaveValue("lure");
     expect(within(header).getByRole("button", { name: "导出记录" })).toBeInTheDocument();
     expect(within(header).getByRole("button", { name: "更多任务操作" })).toBeInTheDocument();
+    expect(screen.queryByText("更换工作目录")).not.toBeInTheDocument();
     expect(within(header).queryByText("执行中")).not.toBeInTheDocument();
     expect(within(header).queryByText("fake-model")).not.toBeInTheDocument();
 
