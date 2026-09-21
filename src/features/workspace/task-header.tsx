@@ -25,7 +25,7 @@ export function TaskHeader({
   return (
     <header
       aria-label="任务顶栏"
-      className="flex h-14 shrink-0 items-center gap-2 border-b border-border/60 px-4 md:px-5"
+      className="flex h-14 shrink-0 items-center gap-2 border-b border-[#EEEEF0] bg-background px-4 md:px-5"
     >
       <Button
         aria-label="打开任务导航"

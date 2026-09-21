@@ -1,6 +1,6 @@
 import { Button } from "@/components/ui/button";
 import type { ConnectionPhase } from "@/features/pi-connection";
-import { BotIcon, PlusIcon, SettingsIcon, XIcon } from "lucide-react";
+import { ChevronDownIcon, PlusIcon, SettingsIcon, XIcon } from "lucide-react";
 
 const phaseLabels: Record<ConnectionPhase, string> = {
   disconnected: "未连接",
@@ -30,18 +30,13 @@ export function TaskNavigation({
   return (
     <nav
       aria-label="任务导航"
-      className={`fixed inset-y-0 left-0 z-40 flex w-64 shrink-0 flex-col border-r border-border/60 bg-card p-3 transition-transform duration-200 md:static md:translate-x-0 ${
+      className={`fixed inset-y-0 left-0 z-40 flex w-64 shrink-0 flex-col border-r border-[#E8E8EB] bg-[#F6F6F8] transition-transform duration-200 md:static md:translate-x-0 ${
         open ? "translate-x-0" : "-translate-x-full"
       }`}
     >
-      <div className="flex min-h-12 items-center gap-2 px-2">
-        <div className="grid size-8 place-items-center rounded-lg bg-primary text-primary-foreground">
-          <BotIcon aria-hidden="true" className="size-4" />
-        </div>
-        <div className="min-w-0">
-          <p className="font-semibold tracking-tight">Lure</p>
-          <p className="text-xs text-muted-foreground">个人智能体工作台</p>
-        </div>
+      <div className="flex h-14 items-center gap-1 px-5">
+        <span className="text-sm font-semibold tracking-tight">Lure</span>
+        <ChevronDownIcon aria-hidden="true" className="size-3.5 text-muted-foreground" />
         <Button
           aria-expanded={open}
           aria-label="关闭任务导航"
@@ -55,37 +50,44 @@ export function TaskNavigation({
         </Button>
       </div>
 
-      <Button className="mt-4 w-full justify-start" onClick={onNewTask} type="button">
-        <PlusIcon />
-        新建任务
-      </Button>
+      <div className="border-b border-[#E8E8EB]">
+        <Button
+          className="h-11 w-full justify-start rounded-none px-5"
+          onClick={onNewTask}
+          type="button"
+          variant="ghost"
+        >
+          <PlusIcon />
+          新建任务
+        </Button>
+      </div>
 
-      <div className="mt-5 min-h-0 flex-1 overflow-y-auto px-1">
-        <section aria-labelledby="today-tasks">
-          <h2 className="px-2 text-xs font-medium text-muted-foreground" id="today-tasks">
+      <div className="min-h-0 flex-1 overflow-y-auto px-5">
+        <section aria-labelledby="today-tasks" className="mt-6">
+          <h2 className="text-[13px] font-medium text-muted-foreground" id="today-tasks">
             今天
           </h2>
           {hasTask ? (
             <button
               aria-current="page"
-              className="mt-1 flex w-full items-center gap-2 rounded-lg bg-accent px-2.5 py-2 text-left text-sm font-medium text-accent-foreground"
+              className="mt-1 flex h-10 w-full items-center gap-2 rounded-lg bg-[#E9E9ED] px-3 text-left text-sm font-medium text-accent-foreground"
               onClick={onSelectTask}
               type="button"
             >
               <span aria-hidden="true" className="size-2 shrink-0 rounded-full bg-[var(--pi-accent)]" />
               <span className="min-w-0 flex-1 truncate">{taskTitle}</span>
-              <span className="text-[11px] font-normal text-muted-foreground">
+              <span className="text-[10px] font-normal text-muted-foreground">
                 {phaseLabels[phase]}
               </span>
             </button>
           ) : (
-            <p className="px-2 py-2 text-xs text-muted-foreground">暂无任务</p>
+            <p className="py-2 text-xs text-muted-foreground">暂无任务</p>
           )}
         </section>
 
       </div>
 
-      <Button className="mt-3 w-full justify-start" type="button" variant="ghost">
+      <Button className="mb-3 h-11 w-full justify-start px-5" type="button" variant="ghost">
         <SettingsIcon />
         设置
       </Button>

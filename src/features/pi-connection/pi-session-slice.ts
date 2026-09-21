@@ -57,6 +57,14 @@ const piConnectionSlice = createSlice({
       ...state,
       ...piSessionReducer(state, action.payload),
     }),
+    piEventsReceived: (state, action: PayloadAction<EventEnvelope[]>) =>
+      action.payload.reduce<PiConnectionState>(
+        (nextState, envelope) => ({
+          ...nextState,
+          ...piSessionReducer(nextState, envelope),
+        }),
+        state as PiConnectionState,
+      ),
     selectedDirectoryChanged: (state, action: PayloadAction<string>) => {
       state.selectedDirectory = action.payload;
     },

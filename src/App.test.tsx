@@ -164,8 +164,27 @@ describe("主工作区初始态", () => {
     expect(card.className).toContain("rounded-[20px]");
     expect(card.className).not.toContain("border-t");
 
+    const controls = within(card).getByRole("group", { name: "输入控制栏" });
+    expect(controls.className).toContain("flex-nowrap");
+    expect(within(controls).getByRole("button", { name: "发送消息" }).parentElement?.className).toContain(
+      "ml-auto",
+    );
+
     const content = screen.getByRole("log", { name: "对话线程" });
-    expect(content.className).toContain("max-w-[920px]");
+    expect(content.className).toContain("w-full");
+    expect(content.className).not.toContain("max-w-[720px]");
+    expect(card.className).toContain("max-w-[720px]");
+
+    const viewport = screen.getByLabelText("对话滚动区");
+    expect(viewport.className).toContain("overflow-y-auto");
+    expect(viewport.className).toContain("overflow-x-hidden");
+    expect(viewport.className).toContain("overscroll-none");
+    expect(viewport.className).toContain("flex-col");
+    expect(within(viewport).getByRole("group", { name: "任务输入卡" })).toBe(card);
+
+    const conversationColumn = screen.getByLabelText("对话内容列");
+    expect(conversationColumn.className).toContain("flex-1");
+    expect(conversationColumn.className).not.toContain("min-h-full");
   });
 
   it("固定默认工作目录，不提供选择或更换目录操作", () => {
@@ -240,6 +259,14 @@ describe("主工作区初始态", () => {
     expect(screen.queryByRole("heading", { name: "最近" })).not.toBeInTheDocument();
     expect(screen.queryByText("已归档")).not.toBeInTheDocument();
   });
+
+  it("任务导航采用紧凑的浅灰布局", () => {
+    render(<App />);
+
+    expect(screen.getByRole("navigation", { name: "任务导航" })).toHaveClass("bg-[#F6F6F8]");
+    expect(screen.getByText("Lure").parentElement).toHaveClass("h-14");
+    expect(screen.getByRole("button", { name: "新建任务" })).toHaveClass("h-11", "px-5");
+  });
 });
 
 describe("主工作区对话态", () => {
@@ -290,14 +317,15 @@ describe("主工作区对话态", () => {
     );
   });
 
-  it("连接后在输入卡上下文条带展示目录、分支与操作", async () => {
+  it("连接后移除输入卡中重复的目录与分支条带", async () => {
     await renderConnected();
 
     const card = screen.getByRole("group", { name: "任务输入卡" });
-    expect(within(card).getByText("main")).toBeInTheDocument();
-    expect(within(card).getByText("lure")).toBeInTheDocument();
+    expect(within(card).queryByText("main")).not.toBeInTheDocument();
+    expect(within(card).queryByText("lure")).not.toBeInTheDocument();
     expect(within(card).queryByText("已连接")).not.toBeInTheDocument();
     const modelSelect = within(card).getByRole("combobox", { name: "模型" });
+    expect(modelSelect.className).toContain("truncate");
     expect(modelSelect).toBeInTheDocument();
     const testProvider = within(modelSelect).getByRole("group", { name: "test" });
     const qwenProvider = within(modelSelect).getByRole("group", {
@@ -385,7 +413,7 @@ describe("主工作区对话态", () => {
 
     expect(screen.getAllByLabelText("Pi 回复")).toHaveLength(2);
     expect(screen.getByText("先读取文件")).toBeInTheDocument();
-    expect(screen.getByText("读取完成")).toBeInTheDocument();
+    expect(await screen.findByText("读取完成")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /正在读取 README.md/ })).toBeInTheDocument();
   });
 
@@ -448,6 +476,7 @@ describe("主工作区对话态", () => {
       event: { type: "assistant_text_delta", contentIndex: 2, delta: "再看入口" },
     });
 
+    await screen.findByText("再看入口");
     const bubble = await screen.findByLabelText("Pi 回复");
     const rendered = bubble.textContent ?? "";
     const before = rendered.indexOf("先读取配置");
