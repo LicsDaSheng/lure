@@ -4,6 +4,7 @@ import {
   type PiSessionSummary,
   type ToolPart,
   type ToolStatus,
+  type TurnPhase,
 } from "@/features/pi-connection";
 
 /** 渲染工具执行所需的最小数据，由工具调用部件直接派生。 */
@@ -107,9 +108,63 @@ export function sessionTitle(session: PiSessionSummary, fallback: string): strin
   return fallback;
 }
 
+const SECOND_MS = 1000;
 const MINUTE_MS = 60_000;
 const HOUR_MS = 3_600_000;
 const DAY_MS = 86_400_000;
+
+/** 把运行耗时描述成简短的中文时长。 */
+export function formatDuration(durationMs: number): string {
+  const seconds = Math.round(durationMs / SECOND_MS);
+  if (seconds < 1) return "不到 1 秒";
+  if (seconds < 60) return `${seconds} 秒`;
+
+  const minutes = Math.floor(seconds / 60);
+  const rest = seconds % 60;
+  return rest === 0 ? `${minutes} 分` : `${minutes} 分 ${rest} 秒`;
+}
+
+/**
+ * 执行过程折叠区的触发器文案。
+ *
+ * 同时说明状态和点击后的行为：缺少可靠耗时的历史记录只显示工具数量，
+ * 不用猜测出来的时长误导用户。
+ */
+export function executionProcessLabel({
+  durationMs,
+  expanded,
+  phase,
+  toolCount,
+}: {
+  durationMs: number | null;
+  expanded: boolean;
+  phase: TurnPhase;
+  toolCount: number;
+}): string {
+  if (phase === "running") return expanded ? "执行中" : "执行中 · 展开执行过程";
+
+  const prefix = (() => {
+    switch (phase) {
+      case "aborted":
+        return "已停止";
+      case "truncated":
+        return "响应被截断";
+      case "error":
+        return "执行未完成";
+      default:
+        if (durationMs !== null) return `用时 ${formatDuration(durationMs)}`;
+        return toolCount > 0 ? `${toolCount} 个工具调用` : "执行过程";
+    }
+  })();
+  const action = expanded
+    ? "收起执行过程"
+    : phase === "settled"
+      ? "展开执行过程"
+      : phase === "aborted"
+        ? "查看已完成过程"
+        : "查看过程";
+  return `${prefix} · ${action}`;
+}
 
 /** 把最近活动时间描述成简短的中文相对时间。 */
 export function relativeTimeLabel(timestampMs: number, now: number = Date.now()): string {

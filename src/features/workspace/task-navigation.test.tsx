@@ -64,7 +64,7 @@ function renderNavigation({
 }
 
 describe("任务导航会话列表", () => {
-  it("最近显示后端返回的一页，并从更多消息请求下一页", () => {
+  it("最近显示后端返回的一页，并从显示更多请求下一页", () => {
     const { onLoadMoreSessions } = renderNavigation();
     const recent = screen.getByRole("region", { name: "最近" });
 
@@ -72,7 +72,7 @@ describe("任务导航会话列表", () => {
     expect(within(recent).getByText("会话 1")).toBeInTheDocument();
     expect(within(recent).queryByText("会话 4")).not.toBeInTheDocument();
 
-    fireEvent.click(within(recent).getByRole("button", { name: "更多消息" }));
+    fireEvent.click(within(recent).getByRole("button", { name: "显示更多" }));
     expect(onLoadMoreSessions).toHaveBeenCalledWith("/tmp/lure");
   });
 
@@ -90,7 +90,7 @@ describe("任务导航会话列表", () => {
     expect(screen.getByText("会话 1")).toBeInTheDocument();
   });
 
-  it("展开的项目会话显示更多消息并请求项目下一页", () => {
+  it("展开的项目会话显示更多并请求项目下一页", () => {
     const { onLoadMoreSessions } = renderNavigation({
       recentSessions: [],
       recentSessionsHasMore: false,
@@ -101,7 +101,9 @@ describe("任务导航会话列表", () => {
     const project = screen.getByRole("region", { name: "示例项目历史会话列表" });
 
     expect(within(project).getAllByRole("button", { name: /会话 \d/ })).toHaveLength(3);
-    fireEvent.click(within(project).getByRole("button", { name: "更多消息" }));
+    const showMore = within(project).getByRole("button", { name: "显示更多" });
+    expect(showMore).toHaveTextContent("显示更多");
+    fireEvent.click(showMore);
     expect(onLoadMoreSessions).toHaveBeenCalledWith("/tmp/project");
   });
 });

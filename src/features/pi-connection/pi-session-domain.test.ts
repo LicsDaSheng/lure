@@ -31,6 +31,79 @@ describe("piSessionReducer", () => {
     expect(messageText(state.messages[0]!)).toBe("你好");
   });
 
+  it("对初始 prompt 的 accepted 与 message_end 去重，但保留续跑用户消息", () => {
+    const state = reduce([
+      {
+        sequence: 1,
+        event: { type: "user_message_accepted", requestId: "1", message: "检查项目" },
+      },
+      { sequence: 2, event: { type: "user_message_observed", message: "检查项目" } },
+      { sequence: 3, event: { type: "assistant_message_started" } },
+      {
+        sequence: 4,
+        event: { type: "assistant_message_completed", text: "第一步", thinking: "" },
+      },
+      { sequence: 5, event: { type: "user_message_observed", message: "继续检查" } },
+    ]);
+
+    expect(state.messages.filter((message) => message.role === "user")).toHaveLength(2);
+    expect(state.messages.map(messageText)).toEqual(["检查项目", "第一步", "继续检查"]);
+  });
+
+  it("进程退出会终结当前响应组，不再保留运行中状态", () => {
+    const state = reduce([
+      {
+        sequence: 1,
+        event: { type: "user_message_accepted", requestId: "1", message: "长任务" },
+      },
+      { sequence: 2, event: { type: "run_started" } },
+      { sequence: 3, event: { type: "assistant_message_started" } },
+      {
+        sequence: 4,
+        event: { type: "assistant_text_delta", contentIndex: 0, delta: "已完成一部分" },
+      },
+      { sequence: 5, event: { type: "process_exited", code: 1 } },
+    ]);
+
+    expect(state.connection.phase).toBe("failed");
+    expect(state.activeAssistantId).toBeNull();
+    expect(state.messages[1]).toMatchObject({
+      turnPhase: "error",
+      stopReason: "error",
+      errorMessage: "Pi 进程已退出（退出码 1）",
+    });
+  });
+
+  it("agent_settled 会分别定案同一运行中的多个 follow-up 响应组", () => {
+    const state = reduce([
+      {
+        sequence: 1,
+        event: { type: "user_message_accepted", requestId: "1", message: "第一个问题" },
+      },
+      { sequence: 2, event: { type: "run_started" } },
+      { sequence: 3, event: { type: "assistant_message_started" } },
+      {
+        sequence: 4,
+        event: { type: "assistant_message_completed", text: "第一个回答", thinking: "", stopReason: "stop" },
+      },
+      { sequence: 5, event: { type: "user_message_observed", message: "追加问题" } },
+      { sequence: 6, event: { type: "turn_started" } },
+      { sequence: 7, event: { type: "assistant_message_started" } },
+      {
+        sequence: 8,
+        event: { type: "assistant_message_completed", text: "追加回答", thinking: "", stopReason: "aborted" },
+      },
+      { sequence: 9, event: { type: "run_settled" } },
+    ]);
+
+    const assistants = state.messages.filter((message) => message.role === "assistant");
+    expect(assistants.map((message) => message.turnPhase)).toEqual(["settled", "aborted"]);
+    expect(assistants.map((message) => message.turnId)).toEqual([
+      "user-1",
+      "user-observed-5",
+    ]);
+  });
+
   it("按真实顺序交错保存文本、思考与工具调用", () => {
     const state = reduce([
       { sequence: 1, event: { type: "assistant_message_started" } },
@@ -173,6 +246,7 @@ describe("piSessionReducer", () => {
     ]);
     expect(running.connection.phase).toBe("running");
     expect(running.run.phase).toBe("running");
+    expect(running.run.turnId).toBe("user-1");
     expect(running.messages).toHaveLength(1);
     expect(messageText(running.messages[0]!)).toBe("检查项目");
 
@@ -183,6 +257,179 @@ describe("piSessionReducer", () => {
     expect(settled.connection.phase).toBe("ready");
     expect(settled.run.phase).toBe("idle");
     expect(settled.messages).toEqual(running.messages);
+  });
+
+  it("agent_end 保留 willRetry 但不提前定案响应组", () => {
+    const state = reduce([
+      {
+        sequence: 1,
+        event: { type: "user_message_accepted", requestId: "1", message: "检查项目" },
+      },
+      { sequence: 2, event: { type: "run_started" } },
+      { sequence: 3, event: { type: "assistant_message_started" } },
+      {
+        sequence: 4,
+        event: { type: "assistant_message_completed", text: "第一次尝试", thinking: "", stopReason: "stop" },
+      },
+      { sequence: 5, event: { type: "run_finished", willRetry: true } },
+    ]);
+
+    // 自动重试可能继续，这里不能把响应组当作已定案，也不能丢掉已有回复。
+    expect(state.run.willRetry).toBe(true);
+    expect(state.messages[1]).toMatchObject({ turnId: "user-1", turnPhase: "running" });
+    expect(state.messages[1]?.runDurationMs).toBeUndefined();
+  });
+
+  it("turn_end 提供单次轮次的权威终态，且不定案整次运行", () => {
+    const state = reduce([
+      {
+        sequence: 1,
+        event: { type: "user_message_accepted", requestId: "1", message: "长任务" },
+      },
+      { sequence: 2, event: { type: "run_started" } },
+      { sequence: 3, event: { type: "assistant_message_started" } },
+      { sequence: 4, event: { type: "turn_started" } },
+      {
+        sequence: 5,
+        event: { type: "assistant_text_delta", contentIndex: 0, delta: "写了一半" },
+      },
+      { sequence: 6, event: { type: "turn_ended", stopReason: "aborted" } },
+    ]);
+
+    expect(state.messages[1]?.stopReason).toBe("aborted");
+    expect(state.messages[1]?.turnPhase).toBe("running");
+    expect(state.connection.phase).toBe("running");
+  });
+
+  it("turn_end 携带 pending 时不覆盖 message_end 已给出的真实终态", () => {
+    const state = reduce([
+      { sequence: 1, event: { type: "assistant_message_started" } },
+      {
+        sequence: 2,
+        event: { type: "assistant_message_completed", text: "完整回答", thinking: "", stopReason: "stop" },
+      },
+      { sequence: 3, event: { type: "turn_ended", stopReason: "pending" } },
+    ]);
+
+    expect(state.messages[0]?.stopReason).toBe("stop");
+  });
+
+  it("run_settled 按 Pi 记录的终止原因定案响应组并记录耗时", () => {
+    const settled = reduce([
+      {
+        sequence: 1,
+        event: { type: "user_message_accepted", requestId: "1", message: "检查项目" },
+        receivedAtMs: 1_000,
+      },
+      { sequence: 2, event: { type: "run_started" }, receivedAtMs: 1_000 },
+      { sequence: 3, event: { type: "assistant_message_started" }, receivedAtMs: 1_200 },
+      {
+        sequence: 4,
+        event: { type: "assistant_message_completed", text: "已完成", thinking: "", stopReason: "stop" },
+        receivedAtMs: 50_000,
+      },
+      { sequence: 5, event: { type: "run_finished", willRetry: false }, receivedAtMs: 50_100 },
+      { sequence: 6, event: { type: "run_settled" }, receivedAtMs: 51_000 },
+    ]);
+
+    expect(settled.messages[1]).toMatchObject({
+      turnId: "user-1",
+      turnPhase: "settled",
+      runStartedAtMs: 1_000,
+      runSettledAtMs: 51_000,
+      runDurationMs: 50_000,
+    });
+
+    const aborted = reduce([
+      {
+        sequence: 1,
+        event: { type: "user_message_accepted", requestId: "1", message: "检查项目" },
+      },
+      { sequence: 2, event: { type: "run_started" } },
+      { sequence: 3, event: { type: "assistant_message_started" } },
+      {
+        sequence: 4,
+        event: { type: "assistant_message_completed", text: "一半", thinking: "", stopReason: "aborted" },
+      },
+      { sequence: 5, event: { type: "run_settled" } },
+    ]);
+    expect(aborted.messages[1]?.turnPhase).toBe("aborted");
+
+    const truncated = reduce([
+      {
+        sequence: 1,
+        event: { type: "user_message_accepted", requestId: "1", message: "检查项目" },
+      },
+      { sequence: 2, event: { type: "run_started" } },
+      { sequence: 3, event: { type: "assistant_message_started" } },
+      {
+        sequence: 4,
+        event: { type: "assistant_message_completed", text: "一半", thinking: "", stopReason: "length" },
+      },
+      { sequence: 5, event: { type: "run_settled" } },
+    ]);
+    expect(truncated.messages[1]?.turnPhase).toBe("truncated");
+
+    const failed = reduce([
+      {
+        sequence: 1,
+        event: { type: "user_message_accepted", requestId: "1", message: "检查项目" },
+      },
+      { sequence: 2, event: { type: "run_started" } },
+      { sequence: 3, event: { type: "assistant_message_started" } },
+      {
+        sequence: 4,
+        event: {
+          type: "assistant_message_completed",
+          text: "一半",
+          thinking: "",
+          stopReason: "error",
+          errorMessage: "模型连接中断",
+        },
+      },
+      { sequence: 5, event: { type: "run_settled" } },
+    ]);
+    expect(failed.messages[1]?.turnPhase).toBe("error");
+  });
+
+  it("重试产生的失败响应保留在响应组内，不被后来者覆盖", () => {
+    const state = reduce([
+      {
+        sequence: 1,
+        event: { type: "user_message_accepted", requestId: "1", message: "检查项目" },
+      },
+      { sequence: 2, event: { type: "run_started" }, receivedAtMs: 0 },
+      { sequence: 3, event: { type: "assistant_message_started" } },
+      {
+        sequence: 4,
+        event: {
+          type: "assistant_message_completed",
+          text: "失败响应",
+          thinking: "",
+          stopReason: "error",
+          errorMessage: "超时",
+        },
+      },
+      { sequence: 5, event: { type: "run_finished", willRetry: true } },
+      { sequence: 6, event: { type: "assistant_message_started" } },
+      {
+        sequence: 7,
+        event: { type: "assistant_message_completed", text: "成功响应", thinking: "", stopReason: "stop" },
+      },
+      { sequence: 8, event: { type: "run_finished", willRetry: false } },
+      { sequence: 9, event: { type: "run_settled" }, receivedAtMs: 9_000 },
+    ]);
+
+    expect(state.messages.map(messageText)).toEqual(["检查项目", "失败响应", "成功响应"]);
+    expect(state.messages[1]?.errorMessage).toBe("超时");
+    // 自动重试计入用户感知总耗时：起点是首次 RunStarted。
+    expect(state.messages[2]?.runStartedAtMs).toBe(0);
+    expect(state.messages[2]?.runDurationMs).toBe(9_000);
+    expect(
+      state.messages
+        .filter((message) => message.role === "assistant")
+        .every((message) => message.turnPhase === "settled"),
+    ).toBe(true);
   });
 
   it("工具调用后的新助手轮次保留前一轮内容", () => {

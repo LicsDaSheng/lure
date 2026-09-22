@@ -82,8 +82,22 @@ export type ConnectionSnapshot = {
 
 export type RunPhase = "idle" | "running" | "waiting_input" | "retrying" | "compacting";
 
+/**
+ * 单次用户指令对应响应组的运行阶段。
+ *
+ * `truncated` 对应 Pi 的 `length` 终止原因，与 `aborted`、`error` 一样
+ * 不能作为最终答案，只能呈现为部分结果。
+ */
+export type TurnPhase = "running" | "settled" | "aborted" | "truncated" | "error";
+
 export type RunState = {
   phase: RunPhase;
+  /** 当前响应组：触发它的用户消息 id。 */
+  turnId: string | null;
+  /** 当前响应组首次开始执行的本地事件接收时间。 */
+  startedAtMs: number | null;
+  /** 上一次底层运行结束时 Pi 报告的自动重试标记；不据此定案。 */
+  willRetry: boolean | null;
   retry: {
     active: boolean;
     attempt: number | null;
@@ -156,6 +170,14 @@ export type ConversationMessage = {
   parts: MessagePart[];
   stopReason?: string | null;
   errorMessage?: string | null;
+  /** 该助手内容所属响应组：触发它的用户消息 id。 */
+  turnId?: string | null;
+  /** 该响应组的运行阶段；运行中为 `running`，`run_settled` 后定案。 */
+  turnPhase?: TurnPhase | null;
+  /** 仅当实时运行有可靠起止事件时记录；历史回放不做猜测。 */
+  runStartedAtMs?: number | null;
+  runSettledAtMs?: number | null;
+  runDurationMs?: number | null;
 };
 
 export function messageText(message: ConversationMessage): string {
@@ -172,6 +194,7 @@ export type PiEvent =
   | { type: "connection_changed"; snapshot: ConnectionSnapshot }
   | { type: "session_ready"; snapshot: ConnectionSnapshot }
   | { type: "user_message_accepted"; requestId: string; message: string }
+  | { type: "user_message_observed"; message: string }
   | { type: "assistant_message_started" }
   | { type: "assistant_text_delta"; contentIndex: number; delta: string }
   | { type: "assistant_thinking_delta"; contentIndex: number; delta: string }
@@ -204,6 +227,8 @@ export type PiEvent =
   | { type: "run_started" }
   | { type: "run_finished"; willRetry: boolean }
   | { type: "run_settled" }
+  | { type: "turn_started" }
+  | { type: "turn_ended"; stopReason?: string | null; errorMessage?: string | null }
   | {
       type: "retry_changed";
       active: boolean;
@@ -231,6 +256,8 @@ export type PiEvent =
 export type EventEnvelope = {
   sequence: number;
   event: PiEvent;
+  /** 前端事件入口附加的单调到达时间，reducer 不自行读取时钟。 */
+  receivedAtMs?: number;
 };
 
 export type PiSessionState = {

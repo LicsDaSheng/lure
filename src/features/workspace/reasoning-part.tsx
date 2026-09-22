@@ -1,4 +1,3 @@
-import type { MessagePartStatus } from "@assistant-ui/react";
 import { ChevronDownIcon, ChevronRightIcon } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
@@ -12,7 +11,8 @@ import { MarkdownResponse } from "./markdown-response";
 
 type ReasoningPartProps = {
   text: string;
-  status: MessagePartStatus;
+  /** 该思考内容是否仍在流式输出。 */
+  streaming: boolean;
 };
 
 /**
@@ -21,8 +21,7 @@ type ReasoningPartProps = {
  * Pi 不提供思考耗时，因此耗时按部件从流式到结束的实际时间估算；
  * 历史消息没有这个过程时保留中性文案。
  */
-export function ReasoningPart({ text, status }: ReasoningPartProps) {
-  const streaming = status.type === "running";
+export function ReasoningPart({ streaming, text }: ReasoningPartProps) {
   const [duration, setDuration] = useState<number | undefined>(undefined);
   const startedAt = useRef<number | null>(null);
 

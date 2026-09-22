@@ -3,8 +3,10 @@ export type * from "./pi-session-types";
 export { messageText, messageThinking } from "./pi-session-types";
 export { piConnectionActions, type PiConnectionState } from "./pi-session-slice";
 export {
+  conversationTurns,
   selectCanSend,
   selectConnection,
+  selectConversationTurns,
   selectExpandedProjects,
   selectIsRunning,
   selectLoadingDirectories,
@@ -14,6 +16,11 @@ export {
   selectProjectSessions,
   selectRecentSessions,
   selectSessionError,
+} from "./pi-session-selectors";
+export type {
+  ConversationProcessGroup,
+  ConversationResult,
+  ConversationTurn,
 } from "./pi-session-selectors";
 export type {
   ImageAttachment,

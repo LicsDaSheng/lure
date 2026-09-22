@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 
 import type { ConversationMessage, ToolPart } from "@/features/pi-connection";
 import {
+  executionProcessLabel,
+  formatDuration,
   formatToolSummary,
   getToolOutputLineCount,
   relativeTimeLabel,
@@ -72,6 +74,51 @@ describe("主工作区展示适配", () => {
     expect(markdown).toContain("## 用户\n\n检查项目");
     expect(markdown).toContain("## Pi\n\n检查完成");
     expect(markdown).not.toContain("内部过程");
+  });
+});
+
+describe("执行过程折叠文案", () => {
+  it("用可读的中文时长描述整次运行", () => {
+    expect(formatDuration(400)).toBe("不到 1 秒");
+    expect(formatDuration(50_000)).toBe("50 秒");
+    expect(formatDuration(60_000)).toBe("1 分");
+    expect(formatDuration(80_000)).toBe("1 分 20 秒");
+  });
+
+  it("同时说明状态与点击后的行为", () => {
+    expect(
+      executionProcessLabel({ durationMs: null, expanded: true, phase: "running", toolCount: 2 }),
+    ).toBe("执行中");
+    expect(
+      executionProcessLabel({ durationMs: null, expanded: false, phase: "running", toolCount: 2 }),
+    ).toBe("执行中 · 展开执行过程");
+    expect(
+      executionProcessLabel({ durationMs: 50_000, expanded: false, phase: "settled", toolCount: 1 }),
+    ).toBe("用时 50 秒 · 展开执行过程");
+    expect(
+      executionProcessLabel({ durationMs: 50_000, expanded: true, phase: "settled", toolCount: 1 }),
+    ).toBe("用时 50 秒 · 收起执行过程");
+    expect(
+      executionProcessLabel({ durationMs: null, expanded: false, phase: "settled", toolCount: 3 }),
+    ).toBe("3 个工具调用 · 展开执行过程");
+    expect(
+      executionProcessLabel({ durationMs: null, expanded: false, phase: "settled", toolCount: 0 }),
+    ).toBe("执行过程 · 展开执行过程");
+    expect(
+      executionProcessLabel({ durationMs: null, expanded: false, phase: "aborted", toolCount: 1 }),
+    ).toBe("已停止 · 查看已完成过程");
+    expect(
+      executionProcessLabel({ durationMs: null, expanded: true, phase: "aborted", toolCount: 1 }),
+    ).toBe("已停止 · 收起执行过程");
+    expect(
+      executionProcessLabel({ durationMs: null, expanded: false, phase: "aborted", toolCount: 0 }),
+    ).toBe("已停止 · 查看已完成过程");
+    expect(
+      executionProcessLabel({ durationMs: null, expanded: false, phase: "truncated", toolCount: 1 }),
+    ).toBe("响应被截断 · 查看过程");
+    expect(
+      executionProcessLabel({ durationMs: null, expanded: false, phase: "error", toolCount: 1 }),
+    ).toBe("执行未完成 · 查看过程");
   });
 });
 
