@@ -33,7 +33,6 @@ export function useSessions() {
     toggleProject: useCallback((directory: string) => dispatch(sessionsActions.projectExpansionToggled(directory)), [dispatch]),
     loadMoreSessions: useCallback((directory: string) => dispatch(sessionsActions.sessionPageRequested(directory)), [dispatch]),
     openConversation: useCallback((session: PiSessionSummary) => dispatch(sessionsActions.conversationOpenRequested(session)), [dispatch]),
-    disconnect: useCallback(() => dispatch(sessionsActions.disconnectRequested()), [dispatch]),
     chooseProjectDirectory: useCallback(() => dispatch(sessionsActions.projectDirectorySelectionRequested()), [dispatch]),
     clearProjectDirectory: useCallback(() => dispatch(sessionsActions.projectDirectorySelected(null)), [dispatch]),
   };

@@ -1,43 +1,17 @@
-import { Button } from "@/components/ui/button";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import { DownloadIcon, FolderIcon, MoreHorizontalIcon, MenuIcon, UnplugIcon } from "lucide-react";
+import { FolderIcon } from "lucide-react";
 
 export function TaskHeader({
   title,
-  canDisconnect,
   onTitleChange,
-  onDisconnect,
-  onExport,
-  onOpenNavigation,
 }: {
   title: string;
-  canDisconnect: boolean;
   onTitleChange: (title: string) => void;
-  onDisconnect: () => void;
-  onExport: () => void;
-  onOpenNavigation: () => void;
 }) {
   return (
     <header
       aria-label="任务顶栏"
       className="flex h-14 shrink-0 items-center gap-2 border-b border-[#EEEEF0] bg-background px-4 md:px-5"
     >
-      <Button
-        aria-label="打开任务导航"
-        className="md:hidden"
-        onClick={onOpenNavigation}
-        size="icon"
-        type="button"
-        variant="ghost"
-      >
-        <MenuIcon />
-      </Button>
-
       <FolderIcon aria-hidden="true" className="hidden size-4 shrink-0 text-muted-foreground sm:block" />
       <input
         aria-label="任务标题"
@@ -45,32 +19,6 @@ export function TaskHeader({
         onChange={(event) => onTitleChange(event.target.value)}
         value={title}
       />
-
-      {canDisconnect && (
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button aria-label="更多任务操作" size="icon" type="button" variant="ghost">
-              <MoreHorizontalIcon />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            <DropdownMenuItem onSelect={onDisconnect}>
-              <UnplugIcon />
-              断开 Pi
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
-      )}
-
-      <Button
-        aria-label="导出记录"
-        onClick={onExport}
-        size="icon"
-        type="button"
-        variant="ghost"
-      >
-        <DownloadIcon />
-      </Button>
     </header>
   );
 }

@@ -83,7 +83,6 @@ const sessionsSlice = createSlice({
     defaultConversationRequested: () => undefined,
     projectConversationRequested: (_state, _action: PayloadAction<string>) => undefined,
     conversationOpenRequested: (_state, _action: PayloadAction<PiSessionSummary>) => undefined,
-    disconnectRequested: () => undefined,
     projectDirectorySelectionRequested: () => undefined,
     projectDirectorySelected: (state, action: PayloadAction<string | null>) => {
       state.projectDirectoryCandidate = action.payload;
