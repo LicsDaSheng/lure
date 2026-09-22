@@ -124,6 +124,16 @@
     @apply m-0 min-w-80 bg-background text-foreground antialiased;
   }
 
+  .window-drag-region {
+    app-region: drag;
+    -webkit-app-region: drag;
+  }
+
+  .window-no-drag {
+    app-region: no-drag;
+    -webkit-app-region: no-drag;
+  }
+
   button,
   input,
   textarea,

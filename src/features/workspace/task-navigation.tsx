@@ -8,7 +8,6 @@ import type {
 } from "@/features/pi-connection";
 import { relativeTimeLabel, sessionTitle } from "@/features/workspace/presentation";
 import {
-  ChevronDownIcon,
   ChevronRightIcon,
   FolderIcon,
   MoreHorizontalIcon,
@@ -88,17 +87,15 @@ export function TaskNavigation({
   return (
     <nav
       aria-label="任务导航"
-      className={`fixed inset-y-0 left-0 z-40 flex w-64 shrink-0 flex-col border-r border-[#E8E8EB] bg-[#F6F6F8] transition-transform duration-200 md:static md:translate-x-0 ${
+      className={`fixed top-10 bottom-0 left-0 z-40 flex w-64 shrink-0 flex-col border-r border-[#E8E8EB] bg-[#F6F6F8] transition-transform duration-200 md:static md:translate-x-0 ${
         open ? "translate-x-0" : "-translate-x-full"
       }`}
     >
-      <div className="flex h-14 items-center gap-1 px-5">
-        <span className="text-sm font-semibold tracking-tight">Lure</span>
-        <ChevronDownIcon aria-hidden="true" className="size-3.5 text-muted-foreground" />
+      <div className="flex h-10 items-center px-3 md:hidden">
         <Button
           aria-expanded={open}
           aria-label="关闭任务导航"
-          className="ml-auto md:hidden"
+          className="ml-auto"
           onClick={onClose}
           size="icon"
           type="button"
