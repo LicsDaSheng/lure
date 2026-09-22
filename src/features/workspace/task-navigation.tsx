@@ -10,7 +10,7 @@ import { relativeTimeLabel, sessionTitle } from "@/features/workspace/presentati
 import {
   ChevronRightIcon,
   FolderIcon,
-  MoreHorizontalIcon,
+  FolderOpenIcon,
   PlusIcon,
   SettingsIcon,
   SquarePenIcon,
@@ -172,13 +172,13 @@ export function TaskNavigation({
         </section>
 
         <section aria-labelledby="projects-heading" className="mt-5">
-          <div className="flex h-9 items-center px-2">
+          <div className="group/projects-heading flex h-9 items-center px-2">
             <h2 className="text-[13px] font-medium text-muted-foreground" id="projects-heading">
               项目
             </h2>
             <Button
               aria-label="新增项目"
-              className="ml-auto size-8"
+              className="ml-auto size-8 opacity-0 transition-opacity group-hover/projects-heading:opacity-100 focus-visible:opacity-100"
               disabled={disabled}
               onClick={onNewProject}
               size="icon"
@@ -189,7 +189,7 @@ export function TaskNavigation({
             </Button>
           </div>
 
-          <div className="grid gap-1">
+          <div className="-mx-1 grid gap-0.5">
             {projects.map((project) => {
               const expanded = expandedProjects.includes(project.directory);
               const active = project.directory === activeDirectory;
@@ -200,25 +200,25 @@ export function TaskNavigation({
               );
               return (
                 <div className="group/project" key={project.directory}>
-                  <div className={`flex h-10 items-center rounded-lg px-2 ${expanded ? "bg-[#EEEEF1]" : "hover:bg-[#EEEEF1]"}`}>
+                  <div className="flex h-10 items-center rounded-lg px-2 hover:bg-[#EEEEF1] focus-within:bg-[#EEEEF1]">
                     <button
                       aria-expanded={expanded}
                       aria-label={`${project.name} 历史会话`}
-                      className="flex min-w-0 flex-1 items-center gap-2 text-left text-sm font-medium outline-none"
+                      className="flex h-full min-w-0 flex-1 items-center gap-2.5 rounded-lg text-left text-[15px] font-normal outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
                       disabled={disabled}
                       onClick={() => onToggleProject(project.directory)}
                       type="button"
                     >
-                      <ChevronRightIcon
-                        aria-hidden="true"
-                        className={`size-4 shrink-0 text-muted-foreground transition-transform ${expanded ? "rotate-90" : ""}`}
-                      />
-                      <FolderIcon aria-hidden="true" className="size-4 shrink-0" />
+                      {expanded ? (
+                        <FolderOpenIcon aria-hidden="true" className="size-5 shrink-0" strokeWidth={1.75} />
+                      ) : (
+                        <FolderIcon aria-hidden="true" className="size-5 shrink-0" strokeWidth={1.75} />
+                      )}
                       <span className="truncate">{project.name}</span>
                     </button>
                     <Button
                       aria-label={`在 ${project.name} 中新建任务`}
-                      className="size-8 opacity-0 group-hover/project:opacity-100 focus-visible:opacity-100"
+                      className="size-8 shrink-0 opacity-0 transition-opacity group-hover/project:opacity-100 focus-visible:opacity-100"
                       disabled={disabled}
                       onClick={() => onNewProjectTask(project.directory)}
                       size="icon"
@@ -227,28 +227,18 @@ export function TaskNavigation({
                     >
                       <SquarePenIcon className="size-4" />
                     </Button>
-                    <Button
-                      aria-label={`${project.name} 项目操作`}
-                      className="size-8 opacity-0 group-hover/project:opacity-100 focus-visible:opacity-100"
-                      disabled
-                      size="icon"
-                      type="button"
-                      variant="ghost"
-                    >
-                      <MoreHorizontalIcon className="size-4" />
-                    </Button>
                   </div>
 
                   {expanded && (
                     <div
                       aria-label={`${project.name}历史会话列表`}
-                      className="mt-0.5 grid gap-0.5 pl-6"
+                      className="mt-0.5 grid gap-0.5"
                       role="region"
                     >
                       {active && hasTask && !currentSessionListed && (
                         <button
                           aria-current="page"
-                          className="flex h-9 w-full items-center gap-2 rounded-lg bg-[#E9E9ED] px-3 text-left text-sm text-accent-foreground"
+                          className="flex h-9 w-full items-center gap-2 rounded-lg bg-[#E9E9ED] pr-3 pl-[38px] text-left text-sm font-medium text-accent-foreground"
                           onClick={onSelectTask}
                           type="button"
                         >
@@ -265,20 +255,22 @@ export function TaskNavigation({
                           onOpen={onOpenConversation}
                           onSelectTask={onSelectTask}
                           phase={phase}
+                          nested
                           session={session}
                         />
                       ))}
                       {projectSessionsHasMore[project.directory] && (
                         <MoreSessionsButton
                           disabled={loading}
+                          nested
                           onClick={() => onLoadMoreSessions(project.directory)}
                         />
                       )}
                       {loading && sessions.length === 0 && (
-                        <p className="px-3 py-2 text-xs text-muted-foreground">正在读取历史会话…</p>
+                        <p className="py-2 pr-3 pl-[38px] text-xs text-muted-foreground">正在读取历史会话…</p>
                       )}
                       {!loading && sessions.length === 0 && (
-                        <p className="px-3 py-2 text-xs text-muted-foreground">暂无历史会话</p>
+                        <p className="py-2 pr-3 pl-[38px] text-xs text-muted-foreground">暂无历史会话</p>
                       )}
                     </div>
                   )}
@@ -299,15 +291,17 @@ export function TaskNavigation({
 
 function MoreSessionsButton({
   disabled,
+  nested = false,
   onClick,
 }: {
   disabled: boolean;
+  nested?: boolean;
   onClick: () => void;
 }) {
   return (
     <button
       aria-label="显示更多"
-      className="flex h-9 w-full items-center justify-center rounded-lg px-3 text-xs font-medium text-[#6C6C72] outline-none hover:bg-[#EEEEF1] hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:text-[#6C6C72]"
+      className={`flex h-9 w-full items-center justify-start rounded-lg pr-3 text-sm font-normal text-[#B0B0B5] outline-none hover:bg-[#EEEEF1] hover:text-[#6C6C72] focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:text-[#B0B0B5] ${nested ? "pl-[38px]" : "pl-3"}`}
       disabled={disabled}
       onClick={onClick}
       type="button"
@@ -322,6 +316,7 @@ function SessionRow({
   active,
   canOpen,
   fallbackTitle,
+  nested = false,
   phase,
   onOpen,
   onSelectTask,
@@ -330,6 +325,7 @@ function SessionRow({
   active: boolean;
   canOpen: boolean;
   fallbackTitle: string;
+  nested?: boolean;
   phase: ConnectionPhase;
   onOpen: (session: PiSessionSummary) => void;
   onSelectTask: () => void;
@@ -340,7 +336,7 @@ function SessionRow({
     return (
       <button
         aria-current="page"
-        className="flex h-9 w-full items-center gap-2 rounded-lg bg-[#E9E9ED] px-3 text-left text-sm text-accent-foreground"
+        className={`flex h-9 w-full items-center gap-2 rounded-lg bg-[#E9E9ED] pr-3 text-left text-sm font-medium text-accent-foreground ${nested ? "pl-[38px]" : "pl-3"}`}
         onClick={onSelectTask}
         type="button"
       >
@@ -352,7 +348,7 @@ function SessionRow({
 
   return (
     <button
-      className="flex h-9 w-full items-center gap-2 rounded-lg px-3 text-left text-sm text-muted-foreground enabled:hover:bg-[#EEEEF1] disabled:opacity-60"
+      className={`flex h-9 w-full items-center gap-2 rounded-lg pr-3 text-left text-sm text-foreground enabled:hover:bg-[#EEEEF1] disabled:opacity-60 ${nested ? "pl-[38px]" : "pl-3"}`}
       disabled={!canOpen}
       onClick={() => onOpen(session)}
       title={session.firstMessage ?? undefined}
