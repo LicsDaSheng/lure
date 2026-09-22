@@ -2,6 +2,8 @@ import { fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import type { PiSessionSummary } from "@/lib/pi-rpc/types";
+import type { ConnectionPhase } from "@/lib/pi-rpc/types";
+import type { SessionTransition } from "@/features/sessions/sessions-slice";
 import { TaskNavigation } from "./task-navigation";
 
 function sessions(directory: string, count: number): PiSessionSummary[] {
@@ -24,18 +26,24 @@ function renderNavigation({
   projectSessions = {},
   projectSessionsHasMore = {},
   expandedProjects = [],
+  sessionTransition = null,
+  phase = "ready",
+  activeSessionId = null,
 }: {
   recentSessions?: PiSessionSummary[];
   recentSessionsHasMore?: boolean;
   projectSessions?: Record<string, PiSessionSummary[]>;
   projectSessionsHasMore?: Record<string, boolean>;
   expandedProjects?: string[];
+  sessionTransition?: SessionTransition;
+  phase?: ConnectionPhase;
+  activeSessionId?: string | null;
 } = {}) {
   const onLoadMoreSessions = vi.fn();
   render(
     <TaskNavigation
       activeDirectory="/tmp/lure"
-      activeSessionId={null}
+      activeSessionId={activeSessionId}
       canOpenConversation
       defaultWorkspace="/tmp/lure"
       disabled={false}
@@ -51,12 +59,13 @@ function renderNavigation({
       onSelectTask={vi.fn()}
       onToggleProject={vi.fn()}
       open
-      phase="ready"
+      phase={phase}
       projects={projectSessions["/tmp/project"] ? [{ name: "示例项目", directory: "/tmp/project" }] : []}
       projectSessions={projectSessions}
       projectSessionsHasMore={projectSessionsHasMore}
       recentSessions={recentSessions}
       recentSessionsHasMore={recentSessionsHasMore}
+      sessionTransition={sessionTransition}
       taskTitle="当前任务"
     />,
   );
@@ -105,5 +114,34 @@ describe("任务导航会话列表", () => {
     expect(showMore).toHaveTextContent("显示更多");
     fireEvent.click(showMore);
     expect(onLoadMoreSessions).toHaveBeenCalledWith("/tmp/project");
+  });
+
+  it("切换中的会话保持静默，仅禁止重复点击其他会话", () => {
+    renderNavigation({
+      sessionTransition: "/tmp/lure/sessions/2.jsonl",
+    });
+
+    const recent = screen.getByRole("region", { name: "最近" });
+    const opening = within(recent).getByRole("button", { name: /会话 2/ });
+    expect(opening).toHaveAttribute("aria-busy", "true");
+    // 不再显示“正在打开”这类连接过程提示，条目仍显示最近活动时间。
+    expect(within(recent).queryByText(/正在打开|正在连接/)).not.toBeInTheDocument();
+    expect(opening).toHaveTextContent("刚刚");
+    expect(within(recent).getByRole("button", { name: /会话 1/ })).toBeDisabled();
+    // 切换期间列表本身不消失，仍显示全部已加载记录。
+    expect(within(recent).getAllByRole("button", { name: /会话 \d/ })).toHaveLength(3);
+  });
+
+  it("导航不展示 RPC 连接状态标签", () => {
+    renderNavigation();
+
+    expect(screen.queryByText(/已连接|正在连接|未连接|连接失败/)).not.toBeInTheDocument();
+  });
+
+  it("只在执行中才展示运行状态", () => {
+    renderNavigation({ activeSessionId: "session-1", phase: "running" });
+
+    const recent = screen.getByRole("region", { name: "最近" });
+    expect(within(recent).getByText("执行中")).toBeInTheDocument();
   });
 });

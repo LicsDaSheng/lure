@@ -1,11 +1,11 @@
 export { sessionsActions, sessionsReducer } from "./sessions-slice";
-export type { SessionsState, SessionConnection } from "./sessions-slice";
+export type { SessionsState, SessionConnection, SessionTransition } from "./sessions-slice";
 export { sessionsListenerMiddleware } from "./sessions-listeners";
 export * from "./sessions-selectors";
 export { useSessions } from "./use-sessions";
 export { readProjects, writeLastDirectory, writeProjects, readTitle, writeTitle } from "./sessions-preferences";
-export { relativeTimeLabel, sessionTitle } from "./session-presentation";
-export { ConnectionLoading } from "./components/connection-loading";
+export { relativeTimeLabel, sessionTitle, directoryName } from "./session-presentation";
+export { ConnectionFailureDialog } from "./components/connection-failure-dialog";
 export { CreateProjectDialog } from "./components/create-project-dialog";
 export { ErrorPanel } from "./components/error-panel";
 export { TaskHeader } from "./components/task-header";

@@ -44,7 +44,7 @@ pub fn run() -> tauri::Result<()> {
     app.run(|app_handle, event| {
         if matches!(event, RunEvent::ExitRequested { .. }) {
             let state = app_handle.state::<Arc<AppState>>().inner().clone();
-            let _ = tauri::async_runtime::block_on(commands::disconnect_inner(app_handle, state));
+            let _ = tauri::async_runtime::block_on(commands::disconnect_inner(state));
         }
     });
     Ok(())

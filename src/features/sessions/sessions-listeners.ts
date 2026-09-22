@@ -51,6 +51,8 @@ const sessionFlowActions = {
   ...sessionsActions,
   promptAccepted: conversationActions.promptAccepted,
   historyLoaded: conversationActions.historyLoaded,
+  sessionSwitchDeferred: conversationActions.sessionSwitchDeferred,
+  sessionSwitchSettled: conversationActions.sessionSwitchSettled,
 };
 
 function runtimeState(state: FeatureState): PiSessionState {
@@ -88,6 +90,7 @@ function projectRuntimeEvents(api: ListenerApi, envelopes: EventEnvelope[]) {
 
 function clearCapabilities(api: ListenerApi) {
   api.dispatch(sessionsActions.disconnectedCapabilitiesCleared());
+  api.dispatch(sessionsActions.activeSessionRecorded(null));
   api.dispatch(modelsActions.capabilitiesCleared());
   api.dispatch(conversationActions.capabilitiesCleared());
 }
@@ -117,6 +120,20 @@ function isStreamingDelta(envelope: EventEnvelope) {
     envelope.event.type === "assistant_text_delta" ||
     envelope.event.type === "assistant_thinking_delta"
   );
+}
+
+/**
+ * 判断连接快照事件是否已经过期：会话切换事务已把当前会话锚定为
+ * `activeSessionSummary`，而事件携带的是另一个更早的临时会话。
+ */
+function isStaleConnectionSnapshot(api: ListenerApi, envelope: EventEnvelope): boolean {
+  const event = envelope.event;
+  if (event.type !== "session_ready") return false;
+  const state = api.getState();
+  const active = state.sessions.activeSessionSummary;
+  const sessionId = event.snapshot.sessionId;
+  if (!active || !sessionId) return false;
+  return sessionId !== active.id && sessionId !== state.sessions.connection.sessionId;
 }
 
 function flushStreamingEvents(api: ListenerApi) {
@@ -160,6 +177,11 @@ function clearStreamingEvents() {
 
 function reportError(api: ListenerApi, error: unknown, fallback: string) {
   api.dispatch(sessionFlowActions.commandFailed(normalizeLureError(error, fallback)));
+}
+
+/** 连接失败：连接过程静默执行，只有失败才让界面提醒用户。 */
+function reportConnectionFailure(api: ListenerApi, error: unknown, fallback: string) {
+  api.dispatch(sessionFlowActions.connectionFailed(normalizeLureError(error, fallback)));
 }
 
 async function refreshCapabilities(api: ListenerApi) {
@@ -209,21 +231,28 @@ async function loadSessionsFor(
   }
 }
 
-/** 刷新默认工作目录的“最近”与所有已展开项目的会话列表。 */
-async function refreshSessionLists(api: ListenerApi) {
+/** 刷新指定目录的历史会话：默认工作目录的“最近”、已展开项目，以及正在切换的目标目录。 */
+async function refreshSessionLists(api: ListenerApi, extraDirectories: string[] = []) {
   const state = legacyState(api.getState());
-  const directories: (string | null)[] = [state.defaultWorkspace, ...state.expandedProjects];
-  await Promise.all(directories.map((directory) => loadSessionsFor(api, directory)));
+  const directories = [state.defaultWorkspace, ...state.expandedProjects, ...extraDirectories];
+  const unique = [...new Set(directories.filter((directory): directory is string => Boolean(directory)))];
+  await Promise.all(unique.map((directory) => loadSessionsFor(api, directory)));
 }
 
-async function hydrateConnectedSession(api: ListenerApi, snapshot: ConnectionSnapshot, directory: string) {
+/** 把连接结果投影到运行状态，并刷新连接级能力与工作区上下文。 */
+async function applyConnectedSession(api: ListenerApi, snapshot: ConnectionSnapshot, directory: string) {
   projectRuntimeEvents(api, [{ sequence: 0, event: { type: "session_ready", snapshot } }]);
   const activeDirectory = snapshot.workingDirectory ?? directory;
   await Promise.all([
     refreshCapabilities(api),
     loadWorkspaceContext(api, activeDirectory),
-    refreshSessionLists(api),
   ]);
+}
+
+/** 连接或新建会话后的完整水合：连接能力、上下文与历史会话列表。 */
+async function hydrateConnectedSession(api: ListenerApi, snapshot: ConnectionSnapshot, directory: string) {
+  await applyConnectedSession(api, snapshot, directory);
+  await refreshSessionLists(api);
 }
 
 async function initializeProjectCatalog(api: ListenerApi) {
@@ -261,10 +290,12 @@ async function connectDefault(api: ListenerApi) {
     const directory = await initializeProjectCatalog(api);
     api.dispatch(sessionFlowActions.selectedDirectoryChanged(directory));
     writeLastDirectory(directory);
+    // 连接不一定复用之前的会话，清空活动会话标记，由列表刷新重新呈现。
+    api.dispatch(sessionFlowActions.activeSessionRecorded(null));
     await hydrateConnectedSession(api, await connectPi(directory), directory);
     return true;
   } catch (error) {
-    reportError(api, error, "启动默认 Pi RPC 失败");
+    reportConnectionFailure(api, error, "启动默认 Pi RPC 失败");
     return false;
   }
 }
@@ -278,6 +309,8 @@ async function openProjectConversation(api: ListenerApi, directory: string) {
   try {
     const currentDirectory = state.connection.workingDirectory ?? state.selectedDirectory;
     if (currentDirectory === directory && state.connection.phase === "ready") {
+      // 新会话还没落盘，导航改用“当前任务”行保留它的入口。
+      api.dispatch(sessionFlowActions.activeSessionRecorded(null));
       await hydrateConnectedSession(api, await newPiSession(), directory);
       return true;
     }
@@ -295,7 +328,7 @@ async function openProjectConversation(api: ListenerApi, directory: string) {
     await hydrateConnectedSession(api, await connectPi(directory), directory);
     return true;
   } catch (error) {
-    reportError(api, error, "无法在项目中创建对话");
+    reportConnectionFailure(api, error, "无法在项目中创建对话");
     return false;
   }
 }
@@ -317,6 +350,10 @@ sessionsListenerMiddleware.startListening({
           enqueueStreamingEvent(api, receivedEvent);
           return;
         }
+        // 丢弃迟到的旧连接快照：事件通道与 invoke 响应不保证顺序，
+        // 重建连接时的临时会话快照若在切换完成后才到达，会把已经打开的
+        // 目标会话覆盖回去，造成导航闪现兑底条目、对话被清空。
+        if (isStaleConnectionSnapshot(api, event)) return;
         // 非流式事件必须排在此前已收到的增量之后，保证工具和消息完成事件的顺序。
         flushStreamingEvents(api);
         projectRuntimeEvents(api, [receivedEvent]);
@@ -409,11 +446,15 @@ sessionsListenerMiddleware.startListening({
     const session = action.payload;
     const state = legacyState(api.getState());
     if (state.connection.phase !== "ready") return;
+    // 一个切换事务未结束时忽略新的切换请求，避免并发重建 RPC。
+    if (state.sessionTransition) return;
 
     const currentDirectory = state.connection.workingDirectory ?? state.selectedDirectory;
     const targetDirectory = session.cwd ?? currentDirectory;
     if (!targetDirectory) return;
     api.dispatch(sessionFlowActions.commandErrorCleared());
+    api.dispatch(sessionFlowActions.sessionSwitchDeferred());
+    api.dispatch(sessionFlowActions.sessionSwitchStarted(session.path));
 
     try {
       if (currentDirectory !== targetDirectory) {
@@ -426,7 +467,7 @@ sessionsListenerMiddleware.startListening({
         clearCapabilities(api);
         api.dispatch(sessionFlowActions.selectedDirectoryChanged(targetDirectory));
         writeLastDirectory(targetDirectory);
-        await hydrateConnectedSession(api, await connectPi(targetDirectory), targetDirectory);
+        await applyConnectedSession(api, await connectPi(targetDirectory), targetDirectory);
       }
 
       const outcome = await switchPiSession(session.path);
@@ -438,10 +479,16 @@ sessionsListenerMiddleware.startListening({
         return;
       }
       const activeDirectory = outcome.snapshot.workingDirectory ?? targetDirectory;
-      await hydrateConnectedSession(api, outcome.snapshot, activeDirectory);
+      await applyConnectedSession(api, outcome.snapshot, activeDirectory);
+      api.dispatch(sessionFlowActions.activeSessionRecorded(session));
       api.dispatch(sessionFlowActions.historyLoaded(await getSessionEntries()));
     } catch (error) {
       reportError(api, error, "切换到历史会话失败");
+    } finally {
+      // 历史列表刷新不属于切换关键路径，事务收尾后再在后台静默刷新。
+      api.dispatch(sessionFlowActions.sessionSwitchCleared());
+      api.dispatch(sessionFlowActions.sessionSwitchSettled());
+      void refreshSessionLists(api, [targetDirectory]);
     }
   },
 });
@@ -469,9 +516,10 @@ sessionsListenerMiddleware.startListening({
     if (!selectedDirectory || !eventsReady) return;
     api.dispatch(sessionFlowActions.commandErrorCleared());
     try {
+      api.dispatch(sessionFlowActions.activeSessionRecorded(null));
       await hydrateConnectedSession(api, await connectPi(selectedDirectory), selectedDirectory);
     } catch (error) {
-      reportError(api, error, "连接 Pi 失败");
+      reportConnectionFailure(api, error, "连接 Pi 失败");
     }
   },
 });
@@ -486,7 +534,7 @@ sessionsListenerMiddleware.startListening({
         projectRuntimeEvents(api, [{ sequence: 0, event: { type: "connection_changed", snapshot: disconnectedSnapshot } }]);
         clearCapabilities(api);
       } catch (error) {
-        reportError(api, error, "断开 Pi 失败");
+        reportConnectionFailure(api, error, "断开 Pi 失败");
         return;
       }
     }
@@ -508,6 +556,8 @@ sessionsListenerMiddleware.startListening({
       const snapshot = await newPiSession();
       const directory = snapshot.workingDirectory ?? state.selectedDirectory;
       if (directory) api.dispatch(sessionFlowActions.selectedDirectoryChanged(directory));
+      // 新会话还没落盘，导航改用“当前任务”行保留它的入口。
+      api.dispatch(sessionFlowActions.activeSessionRecorded(null));
       await hydrateConnectedSession(api, snapshot, directory ?? "");
     } catch (error) {
       reportError(api, error, "新建对话失败");

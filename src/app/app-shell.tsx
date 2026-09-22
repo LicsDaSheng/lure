@@ -24,7 +24,7 @@ import {
 import { ExtensionUiDialog, useExtensionUi } from "@/features/extension-ui";
 import { useModels } from "@/features/models";
 import {
-  ConnectionLoading,
+  ConnectionFailureDialog,
   CreateProjectDialog,
   ErrorPanel,
   readTitle,
@@ -86,6 +86,7 @@ export function AppShell() {
     selectedDirectory,
     eventsReady,
     error,
+    connectionError,
     workspaceContext,
     connection,
     connect,
@@ -102,6 +103,8 @@ export function AppShell() {
     loadMoreSessions,
     expandedProjects,
     loadingDirectories,
+    sessionTransition,
+    activeSessionSummary,
     toggleProject,
     openConversation,
     disconnect,
@@ -117,11 +120,15 @@ export function AppShell() {
   const [composerGeneration, setComposerGeneration] = useState(0);
   const [createProjectOpen, setCreateProjectOpen] = useState(false);
   const [pendingRisk, setPendingRisk] = useState<"export" | null>(null);
+  const [dismissedConnectionError, setDismissedConnectionError] = useState<string | null>(null);
   const promptInputRef = useRef<HTMLTextAreaElement>(null);
 
   const directory = connection.workingDirectory ?? selectedDirectory;
   const directoryName = directoryNameOf(directory);
   const branch = workspaceContext?.branch ?? null;
+  // “当前会话”锚定在事务事实（activeSessionSummary）上，而不是连接快照：
+  // 连接快照可能被迟到的事件短暂覆盖，用它判定选中态会让列表闪现兑底条目。
+  const activeSessionId = activeSessionSummary?.id ?? connection.sessionId;
 
   // 草稿与标题按工作目录保存在本机，切换任务或意外关闭后可以恢复。
   const persistDraft = useCallback(
@@ -146,14 +153,22 @@ export function AppShell() {
   );
   const hasConversation = messages.length > 0;
   const isRunning = connection.phase === "running";
-  const canSend = connection.phase === "ready";
+  // 会话切换事务未结束时不能发送：目标会话的内容尚未确定。
+  const canSend = connection.phase === "ready" && !sessionTransition;
+  const switchingSession = Boolean(sessionTransition);
+  // 连接失败只在发生时不请自来地提醒一次，关闭后不反复打扰。
+  const connectionErrorKey = connectionError
+    ? `${connectionError.code}:${connectionError.message}`
+    : null;
+  const connectionFailureOpen =
+    connectionErrorKey !== null && connectionErrorKey !== dismissedConnectionError;
   const canConnectSession =
     connection.phase === "disconnected" ||
     (connection.phase === "failed" && !connection.sessionId);
 
-  const handleRetry = useCallback(() => {
-    retry();
-  }, [retry]);
+  const clearCommandError = useCallback(() => {
+    dispatch(sessionsActions.commandErrorCleared());
+  }, [dispatch]);
 
   const handleAssistantNew = useCallback(
     async (message: AppendMessage) => {
@@ -258,10 +273,10 @@ export function AppShell() {
 
         <TaskNavigation
           activeDirectory={directory}
-          activeSessionId={connection.sessionId}
+          activeSessionId={activeSessionId}
           canOpenConversation={canSend}
           defaultWorkspace={defaultWorkspace}
-          disabled={connection.phase === "running" || connection.phase === "connecting"}
+          disabled={connection.phase === "running" || connection.phase === "connecting" || switchingSession}
           expandedProjects={expandedProjects}
           hasTask={Boolean(directory)}
           loadingDirectories={loadingDirectories}
@@ -283,13 +298,14 @@ export function AppShell() {
           projectSessionsHasMore={projectSessionsHasMore}
           recentSessions={recentSessions}
           recentSessionsHasMore={recentSessionsHasMore}
+          sessionTransition={sessionTransition}
           taskTitle={taskTitle}
         />
 
         <main aria-label="任务工作区" className="flex min-w-0 flex-1 flex-col">
           {hasConversation ? (
             <TaskHeader
-              canDisconnect={!canConnectSession}
+              canDisconnect={!canConnectSession && !switchingSession}
               onDisconnect={() => void disconnect()}
               onExport={() => setPendingRisk("export")}
               onOpenNavigation={() => setNavigationOpen(true)}
@@ -314,11 +330,7 @@ export function AppShell() {
 
           {error && (
             <div className="px-4 pt-3 md:px-6">
-              <ErrorPanel
-                canRetry={connection.phase === "failed"}
-                error={error}
-                onRetry={() => void handleRetry()}
-              />
+              <ErrorPanel error={error} onDismiss={clearCommandError} />
             </div>
           )}
 
@@ -335,9 +347,7 @@ export function AppShell() {
                 aria-label="对话内容列"
                 className="mx-auto flex w-full max-w-[720px] flex-1 flex-col gap-4 px-4 py-6 md:px-6"
               >
-                {connection.phase === "connecting" ? (
-                  <ConnectionLoading />
-                ) : hasConversation ? (
+                {hasConversation ? (
                   <ConversationStream />
                 ) : (
                   <ComposerEmptyState
@@ -364,6 +374,7 @@ export function AppShell() {
                 directoryName={directoryName}
                 eventsReady={eventsReady}
                 isRunning={isRunning}
+                isSwitchingSession={switchingSession}
                 model={currentModel}
                 models={availableModels}
                 onAddImages={pickImages}
@@ -405,6 +416,16 @@ export function AppShell() {
           onConfirm={confirmExport}
           open={pendingRisk === "export"}
           title="导出任务记录前确认"
+        />
+
+        <ConnectionFailureDialog
+          error={connectionError}
+          onDismiss={() => setDismissedConnectionError(connectionErrorKey)}
+          onRetry={() => {
+            setDismissedConnectionError(null);
+            retry();
+          }}
+          open={connectionFailureOpen}
         />
           </div>
         </div>

@@ -6,7 +6,8 @@ import type {
   PiSessionSummary,
   ProjectDescriptor,
 } from "@/lib/pi-rpc/types";
-import { relativeTimeLabel, sessionTitle } from "@/features/sessions/session-presentation";
+import { directoryName, relativeTimeLabel, sessionTitle } from "@/features/sessions/session-presentation";
+import type { SessionTransition } from "@/features/sessions/sessions-slice";
 import {
   ChevronRightIcon,
   FolderIcon,
@@ -16,19 +17,6 @@ import {
   SquarePenIcon,
   XIcon,
 } from "lucide-react";
-
-const phaseLabels: Record<ConnectionPhase, string> = {
-  disconnected: "未连接",
-  connecting: "正在连接",
-  ready: "已连接",
-  running: "执行中",
-  failed: "连接失败",
-};
-
-function directoryName(directory: string | null): string | null {
-  if (!directory) return null;
-  return directory.split(/[\\/]/).filter(Boolean).at(-1) ?? directory;
-}
 
 export function TaskNavigation({
   open,
@@ -55,6 +43,7 @@ export function TaskNavigation({
   disabled,
   onSelectTask,
   onClose,
+  sessionTransition,
 }: {
   open: boolean;
   taskTitle: string;
@@ -80,9 +69,12 @@ export function TaskNavigation({
   disabled: boolean;
   onSelectTask: () => void;
   onClose: () => void;
+  sessionTransition: SessionTransition;
 }) {
   const recentFallback = directoryName(defaultWorkspace) ?? "默认工作目录";
   const [recentExpanded, setRecentExpanded] = useState(true);
+  // 整个切换事务期间不接受新的切换请求，避免并发重建 RPC。
+  const canSwitchSession = canOpenConversation && !sessionTransition;
 
   return (
     <nav
@@ -148,13 +140,14 @@ export function TaskNavigation({
                 return (
                   <SessionRow
                     active={active}
-                    canOpen={canOpenConversation}
+                    canOpen={canSwitchSession}
                     fallbackTitle={recentFallback}
                     key={session.path}
                     onOpen={onOpenConversation}
                     onSelectTask={onSelectTask}
                     phase={phase}
                     session={session}
+                    transitioning={sessionTransition === session.path}
                   />
                 );
               })}
@@ -235,7 +228,9 @@ export function TaskNavigation({
                       className="mt-0.5 grid gap-0.5"
                       role="region"
                     >
-                      {active && hasTask && !currentSessionListed && (
+                      {/* 切换事务进行中不弹“当前任务”兔底行：连接此刻指向的临时会话
+                          不是用户要打开的目标，避免列表闪现一条以项目名命名的条目。 */}
+                      {active && hasTask && !currentSessionListed && !sessionTransition && (
                         <button
                           aria-current="page"
                           className="flex h-9 w-full items-center gap-2 rounded-lg bg-[#E9E9ED] pr-3 pl-[38px] text-left text-sm font-medium text-accent-foreground"
@@ -243,13 +238,15 @@ export function TaskNavigation({
                           type="button"
                         >
                           <span className="min-w-0 flex-1 truncate">{taskTitle}</span>
-                          <span className="text-[10px] text-muted-foreground">{phaseLabels[phase]}</span>
+                          {phase === "running" && (
+                            <span className="text-[10px] text-muted-foreground">执行中</span>
+                          )}
                         </button>
                       )}
                       {sessions.map((session) => (
                         <SessionRow
                           active={active && session.id === activeSessionId}
-                          canOpen={canOpenConversation}
+                          canOpen={canSwitchSession}
                           fallbackTitle={project.name}
                           key={session.path}
                           onOpen={onOpenConversation}
@@ -257,6 +254,7 @@ export function TaskNavigation({
                           phase={phase}
                           nested
                           session={session}
+                          transitioning={sessionTransition === session.path}
                         />
                       ))}
                       {projectSessionsHasMore[project.directory] && (
@@ -320,6 +318,7 @@ function SessionRow({
   phase,
   onOpen,
   onSelectTask,
+  transitioning = false,
 }: {
   session: PiSessionSummary;
   active: boolean;
@@ -329,25 +328,31 @@ function SessionRow({
   phase: ConnectionPhase;
   onOpen: (session: PiSessionSummary) => void;
   onSelectTask: () => void;
+  transitioning?: boolean;
 }) {
   const title = sessionTitle(session, fallbackTitle);
+  // 连接过程静默：导航不展示连接状态，只在当前会话执行中时提示。
+  const activeStatus =
+    phase === "running" ? "执行中" : relativeTimeLabel(session.modifiedAtMs);
 
   if (active) {
     return (
       <button
+        aria-busy={transitioning}
         aria-current="page"
         className={`flex h-9 w-full items-center gap-2 rounded-lg bg-[#E9E9ED] pr-3 text-left text-sm font-medium text-accent-foreground ${nested ? "pl-[38px]" : "pl-3"}`}
         onClick={onSelectTask}
         type="button"
       >
         <span className="min-w-0 flex-1 truncate">{title}</span>
-        <span className="text-[10px] text-muted-foreground">{phaseLabels[phase]}</span>
+        <span className="text-[10px] text-muted-foreground">{activeStatus}</span>
       </button>
     );
   }
 
   return (
     <button
+      aria-busy={transitioning}
       className={`flex h-9 w-full items-center gap-2 rounded-lg pr-3 text-left text-sm text-foreground enabled:hover:bg-[#EEEEF1] disabled:opacity-60 ${nested ? "pl-[38px]" : "pl-3"}`}
       disabled={!canOpen}
       onClick={() => onOpen(session)}

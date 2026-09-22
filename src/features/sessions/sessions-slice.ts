@@ -14,6 +14,12 @@ import { piRuntimeProjected } from "./runtime-events";
 
 export type SessionConnection = Omit<ConnectionSnapshot, "model" | "thinkingLevel">;
 
+/**
+ * 历史会话切换事务：连接重建与会话切换是跨多个 RPC 调用的过程，
+ * 这里只记录正在切换的目标会话（为空表示没有事务在进行）。
+ */
+export type SessionTransition = string | null;
+
 export type SessionsState = {
   connection: SessionConnection;
   error: LureError | null;
@@ -30,6 +36,12 @@ export type SessionsState = {
   projectSessionsHasMore: Record<string, boolean>;
   expandedProjects: string[];
   loadingDirectories: string[];
+  sessionTransition: SessionTransition;
+  /**
+   * 当前打开的历史会话。它可能不在已加载的分页里（分页只取最新几条），
+   * 导航需要它保持可见，所以单独保留事实并由 selector 合并进列表。
+   */
+  activeSessionSummary: PiSessionSummary | null;
 };
 
 function sessionConnection(snapshot: ConnectionSnapshot): SessionConnection {
@@ -53,6 +65,8 @@ export const initialSessionsState: SessionsState = {
   projectSessionsHasMore: {},
   expandedProjects: [],
   loadingDirectories: [],
+  sessionTransition: null,
+  activeSessionSummary: null,
 };
 
 const sessionsSlice = createSlice({
@@ -98,6 +112,15 @@ const sessionsSlice = createSlice({
         : [...state.expandedProjects, directory];
     },
     sessionPageRequested: (_state, _action: PayloadAction<string>) => undefined,
+    sessionSwitchStarted: (state, action: PayloadAction<string>) => {
+      state.sessionTransition = action.payload;
+    },
+    sessionSwitchCleared: (state) => {
+      state.sessionTransition = null;
+    },
+    activeSessionRecorded: (state, action: PayloadAction<PiSessionSummary | null>) => {
+      state.activeSessionSummary = action.payload;
+    },
     sessionsRequested: (state, action: PayloadAction<string>) => {
       if (!state.loadingDirectories.includes(action.payload)) state.loadingDirectories.push(action.payload);
     },
@@ -134,14 +157,16 @@ const sessionsSlice = createSlice({
     commandFailed: (state, action: PayloadAction<LureError>) => {
       state.commandError = action.payload;
     },
+    connectionFailed: (state, action: PayloadAction<LureError>) => {
+      // 连接失败单独入槽：连接过程静默，只有它需要弹窗打扰用户。
+      state.error = action.payload;
+    },
     commandErrorCleared: (state) => {
       state.commandError = null;
     },
     disconnectedCapabilitiesCleared: (state) => {
-      state.recentSessions = [];
-      state.projectSessions = {};
-      state.recentSessionsHasMore = false;
-      state.projectSessionsHasMore = {};
+      // 历史会话列表来自本地 Pi 会话文件，与当前 RPC 连接无关：
+      // 重建连接期间保留已有列表与分页状态，避免导航整片清空又重新出现。
       state.loadingDirectories = [];
     },
   },

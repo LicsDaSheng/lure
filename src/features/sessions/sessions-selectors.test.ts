@@ -54,4 +54,45 @@ describe("sessions selectors", () => {
     store.dispatch(sessionsActions.sessionsLoaded({ append: false, directory: "/tmp/project", hasMore: false, sessions: [] }));
     expect(selectLoadingDirectories(rootState(store))).toEqual([]);
   });
+
+  it("当前打开的会话不在当前页时仍保留在项目列表中", () => {
+    const store = storeWithCatalog();
+    store.dispatch(sessionsActions.sessionsLoaded({
+      append: false,
+      directory: "/tmp/project",
+      hasMore: true,
+      sessions: [summary("newer", 30, "/tmp/project"), summary("newest", 40, "/tmp/project")],
+    }));
+    store.dispatch(sessionsActions.activeSessionRecorded(summary("active", 5, "/tmp/project")));
+
+    expect(selectProjectSessions(rootState(store))["/tmp/project"]?.map((item) => item.id))
+      .toEqual(["newest", "newer", "active"]);
+  });
+
+  it("当前会话已在列表中时不重复出现", () => {
+    const store = storeWithCatalog();
+    const active = summary("active", 30, "/tmp/project");
+    store.dispatch(sessionsActions.sessionsLoaded({
+      append: false,
+      directory: "/tmp/project",
+      hasMore: false,
+      sessions: [active],
+    }));
+    store.dispatch(sessionsActions.activeSessionRecorded(active));
+
+    expect(selectProjectSessions(rootState(store))["/tmp/project"]).toHaveLength(1);
+  });
+
+  it("属于默认工作目录的当前会话保留在最近列表中", () => {
+    const store = storeWithCatalog();
+    store.dispatch(sessionsActions.sessionsLoaded({
+      append: false,
+      directory: "/tmp/lure",
+      hasMore: true,
+      sessions: [summary("newer", 30)],
+    }));
+    store.dispatch(sessionsActions.activeSessionRecorded(summary("active", 5)));
+
+    expect(selectRecentSessions(rootState(store)).map((item) => item.id)).toEqual(["newer", "active"]);
+  });
 });

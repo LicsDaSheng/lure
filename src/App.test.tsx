@@ -55,6 +55,14 @@ async function readBlobText(blob: Blob): Promise<string> {
   });
 }
 
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((complete) => {
+    resolve = complete;
+  });
+  return { promise, resolve };
+}
+
 function textbox() {
   return screen.getByRole("textbox", { name: "任务指令" });
 }
@@ -202,7 +210,7 @@ describe("主工作区初始态", () => {
     expect(mocks.open).not.toHaveBeenCalled();
   });
 
-  it("连接 Pi 时展示加载反馈，并在连接完成后移除", () => {
+  it("连接过程在后台静默进行，不出现等待或连接状态提示", () => {
     render(<App />);
 
     emit({
@@ -212,12 +220,27 @@ describe("主工作区初始态", () => {
         snapshot: { ...readySnapshot, phase: "connecting", model: null, thinkingLevel: null },
       },
     });
-    expect(screen.getByRole("status", { name: "正在启动 Pi" })).toHaveTextContent(
-      "正在加载本地工具",
-    );
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+    expect(screen.queryByText(/正在启动|正在连接|正在打开|正在载入/)).not.toBeInTheDocument();
 
     emit({ sequence: 2, event: { type: "connection_changed", snapshot: readySnapshot } });
-    expect(screen.queryByRole("status", { name: "正在启动 Pi" })).not.toBeInTheDocument();
+    expect(screen.queryByText(/已连接|正在连接|未连接/)).not.toBeInTheDocument();
+  });
+
+  it("连接失败时弹窗说明影响与原因，并提供重新连接", async () => {
+    const baseInvoke = mocks.invoke.getMockImplementation()!;
+    mocks.invoke.mockImplementation(async (command: string, args?: Record<string, unknown>) => {
+      if (command === "connect_pi") throw new Error("pi 进程启动失败");
+      return baseInvoke(command, args);
+    });
+    render(<App />);
+
+    const dialog = await screen.findByRole("dialog");
+    expect(dialog.textContent).toContain("影响：");
+    expect(dialog.textContent).toContain("原因：");
+    expect(within(dialog).getByRole("button", { name: "重新连接" })).toBeInTheDocument();
+    // 连接失败不以内联面板重复提示。
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
   it("不显示会话顶栏，并在底部提供悬浮输入卡", () => {
@@ -818,7 +841,7 @@ describe("历史会话", () => {
 
     const current = await within(recent).findByRole("button", { name: /昨天的工作/ });
     await waitFor(() => expect(current).toHaveAttribute("aria-current", "page"));
-    expect(within(current).getByText("已连接")).toBeInTheDocument();
+    expect(within(current).queryByText(/已连接|正在连接|未连接|连接失败/)).not.toBeInTheDocument();
   });
 
   it("点击项目展开并加载该项目的历史会话，再次点击折叠", async () => {
@@ -863,6 +886,221 @@ describe("历史会话", () => {
 
     const recent = screen.getByRole("region", { name: "最近" });
     expect(within(recent).getByRole("button", { name: /昨天的工作/ })).toBeDisabled();
+  });
+
+  it("打开较早的历史会话后，项目导航保留该会话而不是项目名条目", async () => {
+    const projectSessions = [1, 2, 3, 4].map((index) => ({
+      path: `/tmp/lure-project/sessions/${index}.jsonl`,
+      id: `session-project-${index}`,
+      cwd: "/tmp/lure-project",
+      name: null,
+      parentSessionPath: null,
+      createdAtMs: 1_700_100_000_000 - index * 1_000,
+      modifiedAtMs: 1_700_100_000_000 - index * 1_000,
+      messageCount: 1,
+      firstMessage: index === 4 ? "很早的对话" : `项目会话 ${index}`,
+    }));
+    const baseInvoke = mocks.invoke.getMockImplementation()!;
+    mocks.invoke.mockImplementation(async (command: string, args?: Record<string, unknown>) => {
+      if (command === "list_project_sessions") {
+        const offset = Number(args?.offset ?? 0);
+        const limit = Number(args?.limit ?? 3);
+        return {
+          hasMore: offset + limit < projectSessions.length,
+          sessions: projectSessions.slice(offset, offset + limit),
+        };
+      }
+      if (command === "switch_pi_session") {
+        const sessionPath = String(args?.sessionPath ?? "");
+        const index = sessionPath.match(/(\d+)\.jsonl$/)?.[1] ?? "1";
+        return {
+          switched: true,
+          snapshot: {
+            ...readySnapshot,
+            workingDirectory: "/tmp/lure-project",
+            sessionFile: sessionPath,
+            sessionId: `session-project-${index}`,
+          },
+        };
+      }
+      return baseInvoke(command, args);
+    });
+
+    await renderConnected();
+    fireEvent.click(screen.getByRole("button", { name: "新增项目" }));
+    const dialog = screen.getByRole("dialog", { name: "创建项目" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "选择 Pi 可读取和编辑的文件夹" }));
+    await waitFor(() =>
+      expect(within(dialog).getByRole("textbox", { name: "项目名称" })).toHaveValue("lure-project"),
+    );
+    fireEvent.click(within(dialog).getByRole("button", { name: "创建项目" }));
+    await waitFor(() =>
+      expect(mocks.invoke).toHaveBeenCalledWith("connect_pi", {
+        workingDirectory: "/tmp/lure-project",
+      }),
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "lure-project 历史会话" }));
+    const project = await screen.findByRole("region", { name: "lure-project历史会话列表" });
+    await within(project).findByText("项目会话 1");
+
+    // 加载第 4 条（最旧）会话并打开它：它不会落在刷新后的第一页里。
+    fireEvent.click(within(project).getByRole("button", { name: "显示更多" }));
+    fireEvent.click(await within(project).findByRole("button", { name: /很早的对话/ }));
+
+    await waitFor(() =>
+      expect(mocks.invoke).toHaveBeenCalledWith("switch_pi_session", {
+        sessionPath: "/tmp/lure-project/sessions/4.jsonl",
+      }),
+    );
+    // 打开的会话保持可见且为选中态，不再换成一条以项目名为标题的条目。
+    await waitFor(() =>
+      expect(within(project).getByRole("button", { name: /很早的对话/ })).toHaveAttribute(
+        "aria-current",
+        "page",
+      ),
+    );
+    expect(within(project).queryByRole("button", { name: /^lure-project$/ })).not.toBeInTheDocument();
+    expect(within(project).getByText("项目会话 1")).toBeInTheDocument();
+  });
+
+  it("切换完成后迟到的连接快照不会让项目分组闪现兜底条目", async () => {
+    const testSession = {
+      path: "/tmp/test/sessions/target.jsonl",
+      id: "session-target",
+      cwd: "/tmp/test",
+      name: null,
+      parentSessionPath: null,
+      createdAtMs: 1_700_200_000_000,
+      modifiedAtMs: 1_700_200_000_000,
+      messageCount: 2,
+      firstMessage: "测试会话",
+    };
+    localStorage.setItem(
+      "lure:projects",
+      JSON.stringify([{ name: "test", directory: "/tmp/test" }]),
+    );
+    const baseInvoke = mocks.invoke.getMockImplementation()!;
+    mocks.invoke.mockImplementation(async (command: string, args?: Record<string, unknown>) => {
+      if (command === "list_project_sessions" && args?.workingDirectory === "/tmp/test") {
+        return { hasMore: false, sessions: [testSession] };
+      }
+      if (command === "switch_pi_session") {
+        return {
+          switched: true,
+          snapshot: {
+            ...readySnapshot,
+            workingDirectory: "/tmp/test",
+            sessionFile: testSession.path,
+            sessionId: "session-target",
+          },
+        };
+      }
+      return baseInvoke(command, args);
+    });
+
+    await renderConnected();
+    fireEvent.click(screen.getByRole("button", { name: "test 历史会话" }));
+    const project = await screen.findByRole("region", { name: "test历史会话列表" });
+    await within(project).findByText("测试会话");
+
+    fireEvent.click(within(project).getByRole("button", { name: /测试会话/ }));
+    await waitFor(() =>
+      expect(mocks.invoke).toHaveBeenCalledWith("switch_pi_session", {
+        sessionPath: "/tmp/test/sessions/target.jsonl",
+      }),
+    );
+    expect(await screen.findByText("历史提问")).toBeInTheDocument();
+
+    // 模拟事件通道迟到投递：connect_pi 在目标目录建连时的 SessionReady，
+    // 其 sessionId 是 Pi 新建的临时会话，与最终目标会话不同。
+    emit({
+      sequence: 90,
+      event: {
+        type: "session_ready",
+        snapshot: {
+          ...readySnapshot,
+          workingDirectory: "/tmp/test",
+          sessionFile: "/tmp/test/sessions/temp.jsonl",
+          sessionId: "session-temp",
+        },
+      },
+    });
+
+    // 迟到快照不得把“当前会话”覆盖回临时会话：项目分组不弹兑底行，
+    // 已加载的对话也不被清空。（重新查询：React 会重建列表节点，缓存引用会读到脱档的旧 DOM。）
+    const projectAfterLate = screen.getByRole("region", { name: "test历史会话列表" });
+    expect(
+      within(projectAfterLate).queryByRole("button", { name: /^test$/ }),
+    ).not.toBeInTheDocument();
+    expect(within(projectAfterLate).getByRole("button", { name: /测试会话/ })).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
+    expect(screen.getByText("历史提问")).toBeInTheDocument();
+  });
+
+  it("跨项目打开会话期间保留最近列表，并静默完成切换", async () => {
+    localStorage.setItem(
+      "lure:projects",
+      JSON.stringify([{ name: "lure-project", directory: "/tmp/lure-project" }]),
+    );
+    await renderConnected();
+
+    fireEvent.click(screen.getByRole("button", { name: "lure-project 历史会话" }));
+    await screen.findByText("项目里的对话");
+
+    const baseInvoke = mocks.invoke.getMockImplementation()!;
+    const pendingSwitch = deferred<unknown>();
+    mocks.invoke.mockImplementation(async (command: string, args?: Record<string, unknown>) => {
+      if (command === "switch_pi_session") return pendingSwitch.promise;
+      return baseInvoke(command, args);
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /项目里的对话/ }));
+
+    await waitFor(() =>
+      expect(mocks.invoke).toHaveBeenCalledWith("connect_pi", {
+        workingDirectory: "/tmp/lure-project",
+      }),
+    );
+    const recent = screen.getByRole("region", { name: "最近" });
+    // 重建 Pi RPC 与加载目标会话期间，“最近”不清空、不重新扫描成空列表。
+    expect(within(recent).getByText("昨天的工作")).toBeInTheDocument();
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: /项目里的对话/ })).toHaveAttribute(
+        "aria-busy",
+        "true",
+      ),
+    );
+    // 切换事务进行中：连接指向新目录的临时会话，但项目分组不得以此弹出“当前任务”兔底行。
+    const projectDuringSwitch = screen.getByRole("region", { name: "lure-project历史会话列表" });
+    expect(
+      within(projectDuringSwitch).queryByRole("button", { name: /^lure-project$/ }),
+    ).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /项目里的对话/ })).toHaveAttribute("aria-busy", "true");
+    // 切换过程不显示连接或加载提示。
+    expect(screen.queryByText(/正在打开|正在连接|正在启动/)).not.toBeInTheDocument();
+    // 整个切换事务期间不接受新的切换请求。
+    expect(within(recent).getByRole("button", { name: /昨天的工作/ })).toBeDisabled();
+
+    pendingSwitch.resolve({
+      switched: true,
+      snapshot: {
+        ...readySnapshot,
+        workingDirectory: "/tmp/lure-project",
+        sessionFile: "/tmp/lure-project/sessions/new.jsonl",
+        sessionId: "session-project",
+      },
+    });
+
+    expect(await screen.findByText("历史提问")).toBeInTheDocument();
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: /项目里的对话/ })).toHaveAttribute(
+        "aria-busy",
+        "false",
+      ),
+    );
   });
 });
 
@@ -1288,15 +1526,15 @@ describe("风险与错误处理", () => {
     );
   });
 
-  it("失败时说明影响与原因，并提供可执行操作", async () => {
+  it("连接中断时弹窗说明影响与原因，并提供可执行操作", async () => {
     await renderConnected();
 
     emit({ sequence: 1, event: { type: "process_exited", code: 1 } });
 
-    const alert = await screen.findByRole("alert");
-    expect(alert.textContent).toContain("影响：");
-    expect(alert.textContent).toContain("原因：");
-    expect(within(alert).getByRole("button", { name: "重新连接" })).toBeInTheDocument();
+    const dialog = await screen.findByRole("dialog");
+    expect(dialog.textContent).toContain("影响：");
+    expect(dialog.textContent).toContain("原因：");
+    expect(within(dialog).getByRole("button", { name: "重新连接" })).toBeInTheDocument();
   });
 
   it("导出记录把完整对话写成 Markdown，折叠的执行过程不丢内容", async () => {

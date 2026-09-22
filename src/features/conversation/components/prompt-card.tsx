@@ -23,6 +23,7 @@ export function PromptCard({
   thinkingLevel,
   canConnectSession,
   isRunning,
+  isSwitchingSession = false,
   eventsReady,
   onDraftChange,
   onStop,
@@ -40,6 +41,8 @@ export function PromptCard({
   thinkingLevel: string | null;
   canConnectSession: boolean;
   isRunning: boolean;
+  /** 历史会话切换事务进行中：目标会话尚未就绪，输入区说明原因。 */
+  isSwitchingSession?: boolean;
   eventsReady: boolean;
   onDraftChange: (value: string) => void;
   onStop: () => void;
@@ -160,9 +163,11 @@ export function PromptCard({
               placeholder={
                 isRunning
                   ? "Pi 正在执行，可继续编辑下一条消息"
-                  : phase === "ready"
-                    ? "描述你想完成的事情…"
-                    : "连接 Pi 后即可发送"
+                  : isSwitchingSession
+                    ? "正在打开历史会话，完成后即可发送"
+                    : phase === "ready"
+                      ? "描述你想完成的事情…"
+                      : "连接 Pi 后即可发送"
               }
               submitMode="enter"
               unstable_focusOnRunStart={false}
