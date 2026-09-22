@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { StrictMode } from "react";
 
-import type { EventEnvelope } from "@/features/pi-connection";
+import type { EventEnvelope } from "@/lib/pi-rpc/types";
 import App from "./App";
 
 const mocks = vi.hoisted(() => ({
