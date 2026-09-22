@@ -595,7 +595,7 @@ describe("主工作区对话态", () => {
     const bubble = await screen.findByLabelText("Pi 回复");
     const rendered = bubble.textContent ?? "";
     const before = rendered.indexOf("先读取配置");
-    const tool = rendered.indexOf("已读取 package.json");
+    const tool = rendered.indexOf("工具调用");
     const after = rendered.indexOf("再看入口");
 
     expect(before).toBeGreaterThanOrEqual(0);
@@ -848,12 +848,12 @@ describe("执行流渐进展开", () => {
 
     const summary = screen.getByRole("button", { name: /项目命令执行完成/ });
     expect(summary).toHaveAttribute("aria-expanded", "false");
-    expect(screen.queryByText("工具参数")).not.toBeInTheDocument();
+    expect(screen.queryByText("输入")).not.toBeInTheDocument();
 
     fireEvent.click(summary);
     expect(summary).toHaveAttribute("aria-expanded", "true");
-    expect(screen.getByText("工具参数")).toBeInTheDocument();
-    expect(screen.getByText("工具输出")).toBeInTheDocument();
+    expect(screen.getByText("输入")).toBeInTheDocument();
+    expect(screen.getByText("输出")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /查看完整 30 行输出/ })).toBeInTheDocument();
     expect(screen.getByText("已完成")).toBeInTheDocument();
     expect(screen.queryByText("Completed")).not.toBeInTheDocument();
