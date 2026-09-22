@@ -35,11 +35,18 @@ lure/
 │       ├── src/               # actor、进程、协议和事件规范化
 │       └── tests/             # JSONL、模拟 Pi 与真实 Pi 冒烟测试
 ├── src/                       # React 前端
-│   ├── App.tsx                # 当前应用壳与前端组合入口
+│   ├── App.tsx                # React 根组件
 │   ├── App.test.tsx           # 前端可观察行为测试
+│   ├── app/                   # Store、Provider 与窗口级应用壳
 │   ├── components/
 │   │   └── ui/                # 纳入源码管理的 shadcn/ui 基础组件
-│   ├── features/pi-connection/# Tauri API、事件 reducer 与连接会话 Hook
+│   ├── features/
+│   │   ├── sessions/          # Pi 连接、会话/项目导航与生命周期
+│   │   ├── conversation/      # 消息事实、流式更新、输入与 assistant-ui
+│   │   ├── execution/         # 运行状态、思考与工具调用展示
+│   │   ├── models/            # 模型及 thinking level 选择
+│   │   └── extension-ui/      # extension_ui_request 原生交互映射
+│   ├── lib/pi-rpc/            # Redux 无关的 Tauri IPC 客户端与稳定协议类型
 │   ├── lib/utils.ts           # className 合并工具
 │   ├── index.css              # Tailwind CSS 与设计令牌
 │   ├── main.tsx               # React 挂载入口
@@ -101,7 +108,7 @@ React UI ⇄ Tauri command/event ⇄ lure-desktop
 5. 前端 reducer 保留 Pi 消息事实，并把助手内容存为单一有序 `parts` 序列（`text`、`thinking`、`tool`）；`convertPiMessage()` 按该顺序映射为 assistant-ui 线程内容，工具卡因此出现在它真实发生的位置。
 6. 断开连接或应用退出时，中止活动任务并回收 Pi 子进程。
 
-当前桌面边界只暴露 `connect_pi`、`disconnect_pi`、`send_prompt`、`abort_pi` 四个命令。MVP 不支持图片、消息排队、模型切换和历史会话管理；交互式 extension UI 请求会被安全取消，避免 Pi 持续等待。
+桌面边界在基础连接与运行控制之外，已经支持图片附件、模型与 thinking level、历史会话切换、命令发现和 extension UI 响应；这些能力仍以 Pi RPC 返回的数据为事实来源。
 
 ## 4. 前端组织约定
 
@@ -123,6 +130,8 @@ src/
 ```
 
 Feature 内聚自己的组件、状态与测试；只有形成稳定复用需求后才上移到 `components/` 或 `lib/`。通用界面原语优先通过 shadcn/ui CLI 写入 `components/ui/`，样式使用 Tailwind CSS 和 `src/index.css` 中的语义设计令牌。
+
+Pi 事件只在 `sessions` 的生命周期 listener 中订阅一次。该入口完成序号去重和流式增量合并后，通过公开的 `piRuntimeProjected` action 将同一批事实投影给各 feature reducer；模型、对话和 extension UI 的命令副作用分别由各自 listener 承担。
 
 对话线程统一采用 assistant-ui。`PiAssistantRuntimeProvider` 用 `ExternalThread` 与 `convertPiMessage()` 把 Pi reducer 中的消息转换为 assistant-ui 标准内容部件，并通过 `AuiProvider` 提供给 `ThreadPrimitive`、`MessagePrimitive` 与 `ComposerPrimitive`；三者分别负责滚动线程、消息上下文与输入行为。输入文本与附件由 composer 自身持有，App 只按工作目录持久化草稿。Pi reducer 仍是唯一消息事实来源，assistant-ui 不接管 Pi 的会话、模型、工具或运行生命周期。
 

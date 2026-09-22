@@ -1,13 +1,13 @@
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { AppProviders } from "@/app/providers";
-import { MainContent } from "@/layouts/main-content";
+import { AppShell } from "@/app/app-shell";
 
-/** 应用装配层只提供全局 Provider；页面编排位于 MainContent。 */
+/** 应用装配层只提供全局 Provider；窗口级编排位于 AppShell。 */
 function App() {
   return (
     <AppProviders>
       <TooltipProvider>
-        <MainContent />
+        <AppShell />
       </TooltipProvider>
     </AppProviders>
   );
