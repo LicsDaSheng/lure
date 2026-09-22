@@ -35,6 +35,9 @@ pub fn run() -> tauri::Result<()> {
             commands::respond_extension_ui,
             commands::get_workspace_context,
             commands::read_image_attachments,
+            commands::list_project_sessions,
+            commands::switch_pi_session,
+            commands::get_session_entries,
         ])
         .build(tauri::generate_context!())?;
 

@@ -4,7 +4,9 @@ import type { ConversationMessage, ToolPart } from "@/features/pi-connection";
 import {
   formatToolSummary,
   getToolOutputLineCount,
+  relativeTimeLabel,
   serializeConversation,
+  sessionTitle,
   type ToolView,
 } from "./presentation";
 
@@ -70,5 +72,39 @@ describe("主工作区展示适配", () => {
     expect(markdown).toContain("## 用户\n\n检查项目");
     expect(markdown).toContain("## Pi\n\n检查完成");
     expect(markdown).not.toContain("内部过程");
+  });
+});
+
+describe("历史会话展示", () => {
+  const session = {
+    path: "/home/me/.pi/agent/sessions/--tmp--/2026-09-20T10-00-00-000Z_one.jsonl",
+    id: "one",
+    cwd: "/tmp/lure",
+    name: null,
+    parentSessionPath: null,
+    createdAtMs: 1_789_898_400_000,
+    modifiedAtMs: 1_789_898_400_000,
+    messageCount: 2,
+    firstMessage: null,
+  };
+
+  it("按会话名、首条用户消息、目录名的顺序生成列表标题", () => {
+    expect(sessionTitle({ ...session, name: "重构任务" }, "lure")).toBe("重构任务");
+    expect(sessionTitle({ ...session, firstMessage: "帮我看看\n第二行" }, "lure")).toBe("帮我看看");
+    expect(sessionTitle(session, "lure")).toBe("lure");
+    expect(
+      sessionTitle({ ...session, firstMessage: `很长的首条消息${"啊".repeat(80)}` }, "lure").length,
+    ).toBeLessThanOrEqual(61);
+  });
+
+  it("用可读的中文相对时间描述最近活动", () => {
+    const now = 1_789_898_400_000;
+
+    expect(relativeTimeLabel(now - 5_000, now)).toBe("刚刚");
+    expect(relativeTimeLabel(now - 5 * 60_000, now)).toBe("5 分钟前");
+    expect(relativeTimeLabel(now - 3 * 3_600_000, now)).toBe("3 小时前");
+    expect(relativeTimeLabel(now - 2 * 86_400_000, now)).toBe("2 天前");
+    expect(relativeTimeLabel(now - 30 * 86_400_000, now)).toBe("2026-08-21");
+    expect(relativeTimeLabel(now + 60_000, now)).toBe("刚刚");
   });
 });

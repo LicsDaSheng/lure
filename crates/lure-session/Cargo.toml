@@ -1,0 +1,16 @@
+[package]
+name = "lure-session"
+description = "Pi 本地会话存储（JSONL）的只读读取与扫描"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+
+[lints]
+workspace = true

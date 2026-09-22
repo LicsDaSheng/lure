@@ -37,6 +37,7 @@ pub(crate) enum Operation {
     NewSession,
     Prompt,
     Abort,
+    SwitchSession,
 }
 
 pub(crate) fn ensure_operation_allowed(
@@ -45,7 +46,10 @@ pub(crate) fn ensure_operation_allowed(
 ) -> Result<(), LureError> {
     match (phase, operation) {
         (ConnectionPhase::Disconnected | ConnectionPhase::Failed, Operation::Connect)
-        | (ConnectionPhase::Ready, Operation::NewSession | Operation::Prompt)
+        | (
+            ConnectionPhase::Ready,
+            Operation::NewSession | Operation::Prompt | Operation::SwitchSession,
+        )
         | (ConnectionPhase::Running, Operation::Abort) => Ok(()),
         (
             ConnectionPhase::Connecting | ConnectionPhase::Ready | ConnectionPhase::Running,
@@ -54,13 +58,17 @@ pub(crate) fn ensure_operation_allowed(
             ErrorCode::AlreadyConnected,
             "Pi 已连接或正在连接",
         )),
-        (ConnectionPhase::Running, Operation::NewSession | Operation::Prompt) => {
-            Err(LureError::new(
-                ErrorCode::RunAlreadyActive,
-                "Pi 正在执行任务，请先停止当前运行",
-            ))
-        }
-        (_, Operation::NewSession | Operation::Prompt | Operation::Abort) => Err(LureError::new(
+        (
+            ConnectionPhase::Running,
+            Operation::NewSession | Operation::Prompt | Operation::SwitchSession,
+        ) => Err(LureError::new(
+            ErrorCode::RunAlreadyActive,
+            "Pi 正在执行任务，请先停止当前运行",
+        )),
+        (
+            _,
+            Operation::NewSession | Operation::Prompt | Operation::Abort | Operation::SwitchSession,
+        ) => Err(LureError::new(
             ErrorCode::NotConnected,
             "当前没有可用的 Pi RPC 会话",
         )),
@@ -102,6 +110,18 @@ mod tests {
         assert!(ensure_operation_allowed(ConnectionPhase::Running, Operation::NewSession).is_err());
         assert!(
             ensure_operation_allowed(ConnectionPhase::Disconnected, Operation::NewSession).is_err()
+        );
+    }
+
+    #[test]
+    fn only_idle_ready_sessions_can_switch_to_a_recorded_session() {
+        assert!(ensure_operation_allowed(ConnectionPhase::Ready, Operation::SwitchSession).is_ok());
+        assert!(
+            ensure_operation_allowed(ConnectionPhase::Running, Operation::SwitchSession).is_err()
+        );
+        assert!(
+            ensure_operation_allowed(ConnectionPhase::Disconnected, Operation::SwitchSession)
+                .is_err()
         );
     }
 }

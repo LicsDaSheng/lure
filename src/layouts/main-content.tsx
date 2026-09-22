@@ -90,8 +90,15 @@ export function MainContent() {
     addProject,
     defaultWorkspace,
     projects,
-    recentConversations,
-    renameRecentConversation,
+    recentSessions,
+    projectSessions,
+    recentSessionsHasMore,
+    projectSessionsHasMore,
+    loadMoreSessions,
+    expandedProjects,
+    loadingDirectories,
+    toggleProject,
+    openConversation,
     disconnect,
     prompt,
     abort,
@@ -129,9 +136,8 @@ export function MainContent() {
     (value: string) => {
       writeTitle(selectedDirectory, value);
       setTitleState({ scope: selectedDirectory, value });
-      renameRecentConversation(value);
     },
-    [renameRecentConversation, selectedDirectory],
+    [selectedDirectory],
   );
   const hasConversation = messages.length > 0;
   const isRunning = connection.phase === "running";
@@ -247,18 +253,30 @@ export function MainContent() {
         <TaskNavigation
           activeDirectory={directory}
           activeSessionId={connection.sessionId}
+          canOpenConversation={canSend}
           defaultWorkspace={defaultWorkspace}
           disabled={connection.phase === "running" || connection.phase === "connecting"}
+          expandedProjects={expandedProjects}
           hasTask={Boolean(directory)}
+          loadingDirectories={loadingDirectories}
           onClose={() => setNavigationOpen(false)}
           onNewTask={() => void handleNewTask()}
           onNewProject={() => setCreateProjectOpen(true)}
           onNewProjectTask={handleNewProjectTask}
+          onOpenConversation={(session) => {
+            openConversation(session);
+            setNavigationOpen(false);
+          }}
           onSelectTask={() => setNavigationOpen(false)}
+          onToggleProject={toggleProject}
+          onLoadMoreSessions={loadMoreSessions}
           open={navigationOpen}
           phase={connection.phase}
           projects={projects}
-          recentConversations={recentConversations}
+          projectSessions={projectSessions}
+          projectSessionsHasMore={projectSessionsHasMore}
+          recentSessions={recentSessions}
+          recentSessionsHasMore={recentSessionsHasMore}
           taskTitle={taskTitle}
         />
 

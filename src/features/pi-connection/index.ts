@@ -5,12 +5,28 @@ export { piConnectionActions, type PiConnectionState } from "./pi-session-slice"
 export {
   selectCanSend,
   selectConnection,
+  selectExpandedProjects,
   selectIsRunning,
+  selectLoadingDirectories,
   selectMessages,
   selectPiConnection,
   selectPiSessionState,
-  selectRecentConversations,
+  selectProjectSessions,
+  selectRecentSessions,
   selectSessionError,
 } from "./pi-session-selectors";
-export type { ImageAttachment, PiCommand, SelectedImage, WorkspaceContext } from "./api";
-export { readImageAttachments, selectImageFiles, selectProjectDirectory } from "./api";
+export type {
+  ImageAttachment,
+  PiCommand,
+  SelectedImage,
+  SessionSwitchOutcome,
+  WorkspaceContext,
+} from "./api";
+export {
+  getSessionEntries,
+  listProjectSessions,
+  readImageAttachments,
+  selectImageFiles,
+  selectProjectDirectory,
+  switchPiSession,
+} from "./api";

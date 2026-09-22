@@ -3,11 +3,11 @@ import { beforeEach, describe, expect, it } from "vitest";
 import {
   readDraft,
   readLastDirectory,
-  readRecentConversations,
+  readProjects,
   readTitle,
   writeDraft,
   writeLastDirectory,
-  writeRecentConversations,
+  writeProjects,
   writeTitle,
 } from "./local-preferences";
 
@@ -42,12 +42,12 @@ describe("本地界面偏好", () => {
     expect(readLastDirectory()).toBe("/tmp/alpha");
   });
 
-  it("保存最近对话并忽略损坏的本地记录", () => {
-    const conversations = [{ sessionId: "session-1", title: "第一项", updatedAt: 10 }];
-    writeRecentConversations(conversations);
-    expect(readRecentConversations()).toEqual(conversations);
+  it("保存项目列表并忽略损坏的本地记录", () => {
+    const projects = [{ directory: "/tmp/lure-project", name: "lure-project" }];
+    writeProjects(projects);
+    expect(readProjects()).toEqual(projects);
 
-    localStorage.setItem("lure:recent-conversations", "not-json");
-    expect(readRecentConversations()).toEqual([]);
+    localStorage.setItem("lure:projects", "not-json");
+    expect(readProjects()).toEqual([]);
   });
 });

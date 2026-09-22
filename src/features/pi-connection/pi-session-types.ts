@@ -23,6 +23,53 @@ export type RecentConversation = {
   updatedAt: number;
 };
 
+/** Pi 会话文件的只读摘要，来自桌面端对 Pi 会话目录的扫描。 */
+export type PiSessionSummary = {
+  path: string;
+  id: string;
+  cwd: string | null;
+  name: string | null;
+  parentSessionPath: string | null;
+  createdAtMs: number;
+  modifiedAtMs: number;
+  messageCount: number;
+  firstMessage: string | null;
+};
+
+export type PiSessionPage = {
+  sessions: PiSessionSummary[];
+  hasMore: boolean;
+};
+
+/** Pi 会话条目的消息主体；桌面端只读取展示所需字段。 */
+export type SessionEntryMessage = {
+  role?: string;
+  content?: unknown;
+  timestamp?: number;
+  stopReason?: string | null;
+  errorMessage?: string | null;
+  toolCallId?: string;
+  toolName?: string;
+  isError?: boolean;
+  details?: unknown;
+};
+
+/** Pi 会话文件中的一条原始条目（消息、会话信息、压缩摘要等）。 */
+export type SessionEntry = {
+  type?: string;
+  id?: string;
+  parentId?: string | null;
+  timestamp?: string;
+  name?: string;
+  message?: SessionEntryMessage;
+};
+
+/** `get_entries` 的响应：当前会话的全部条目与活动分支叶子。 */
+export type SessionEntries = {
+  entries: SessionEntry[];
+  leafId: string | null;
+};
+
 export type ConnectionSnapshot = {
   phase: ConnectionPhase;
   workingDirectory: string | null;

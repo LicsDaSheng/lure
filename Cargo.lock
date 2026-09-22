@@ -1686,6 +1686,7 @@ version = "0.1.0"
 dependencies = [
  "lure-core",
  "lure-rpc",
+ "lure-session",
  "serde",
  "serde_json",
  "tauri",
@@ -1700,6 +1701,16 @@ version = "0.1.0"
 dependencies = [
  "lure-core",
  "nix",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.20",
+ "tokio",
+]
+
+[[package]]
+name = "lure-session"
+version = "0.1.0"
+dependencies = [
  "serde",
  "serde_json",
  "thiserror 2.0.20",

@@ -10,8 +10,11 @@ const mocks = vi.hoisted(() => ({
   getDefaultWorkspace: vi.fn(),
   getPiCommands: vi.fn(),
   getPiState: vi.fn(),
+  getSessionEntries: vi.fn(),
   getWorkspaceContext: vi.fn(),
+  listProjectSessions: vi.fn(),
   listenToPiEvents: vi.fn(),
+  switchPiSession: vi.fn(),
 }));
 
 vi.mock("./api", async (importOriginal) => {
@@ -49,8 +52,11 @@ beforeEach(() => {
   mocks.getDefaultWorkspace.mockReset();
   mocks.getPiCommands.mockReset();
   mocks.getPiState.mockReset();
+  mocks.getSessionEntries.mockReset();
   mocks.getWorkspaceContext.mockReset();
+  mocks.listProjectSessions.mockReset();
   mocks.listenToPiEvents.mockReset();
+  mocks.switchPiSession.mockReset();
   mocks.getDefaultWorkspace.mockResolvedValue("/tmp/lure");
   mocks.getPiState.mockResolvedValue({
     error: null,
@@ -73,6 +79,7 @@ beforeEach(() => {
   mocks.getAvailableModels.mockResolvedValue([{ id: "gpt-5", provider: "openai" }]);
   mocks.getPiCommands.mockResolvedValue([]);
   mocks.getWorkspaceContext.mockResolvedValue({ branch: "main", workingDirectory: "/tmp/lure" });
+  mocks.listProjectSessions.mockResolvedValue({ hasMore: false, sessions: [] });
 });
 
 afterEach(async () => {
@@ -178,5 +185,206 @@ describe("Pi session listener middleware", () => {
     const message = store.getState().piConnection.messages[0];
     expect(message?.parts[0]).toMatchObject({ type: "text", text: "x".repeat(1000) });
     expect(updates).toBe(1);
+  });
+});
+
+describe("历史会话", () => {
+  const recordedSession = {
+    path: "/tmp/lure/sessions/old.jsonl",
+    id: "session-old",
+    cwd: "/tmp/lure",
+    name: null,
+    parentSessionPath: null,
+    createdAtMs: 1_700_000_000_000,
+    modifiedAtMs: 1_700_000_000_000,
+    messageCount: 2,
+    firstMessage: "昨天的工作",
+  };
+
+  it("连接后只加载默认工作目录的历史会话到最近", async () => {
+    mocks.listenToPiEvents.mockResolvedValue(vi.fn());
+    mocks.listProjectSessions.mockResolvedValue({ hasMore: false, sessions: [recordedSession] });
+    const store = createStore();
+
+    store.dispatch(piConnectionActions.eventSubscriptionRequested());
+    await flushListeners();
+
+    expect(mocks.listProjectSessions).toHaveBeenCalledWith("/tmp/lure", 0, 3);
+    expect(store.getState().piConnection.recentSessions).toEqual([recordedSession]);
+    expect(store.getState().piConnection.projectSessions).toEqual({});
+    expect(store.getState().piConnection.loadingDirectories).toEqual([]);
+  });
+
+  it("展开项目时查询该项目的历史会话，折叠后不再查询", async () => {
+    mocks.listenToPiEvents.mockResolvedValue(vi.fn());
+    mocks.listProjectSessions.mockImplementation(async (directory: string) => ({
+      hasMore: false,
+      sessions: directory === "/tmp/project" ? [projectSession] : [recordedSession],
+    }),
+    );
+    const store = createStore();
+    store.dispatch(piConnectionActions.eventSubscriptionRequested());
+    await flushListeners();
+
+    store.dispatch(piConnectionActions.projectExpansionToggled("/tmp/project"));
+    await flushListeners();
+
+    expect(mocks.listProjectSessions).toHaveBeenCalledWith("/tmp/project", 0, 3);
+    expect(store.getState().piConnection.projectSessions["/tmp/project"]).toEqual([
+      projectSession,
+    ]);
+    // 展开项目不会改变“最近”的内容。
+    expect(store.getState().piConnection.recentSessions).toEqual([recordedSession]);
+
+    mocks.listProjectSessions.mockClear();
+    store.dispatch(piConnectionActions.projectExpansionToggled("/tmp/project"));
+    await flushListeners();
+
+    expect(store.getState().piConnection.expandedProjects).toEqual([]);
+    expect(mocks.listProjectSessions).not.toHaveBeenCalled();
+  });
+
+  it("更多消息从后端读取下一页并追加到项目列表", async () => {
+    mocks.listenToPiEvents.mockResolvedValue(vi.fn());
+    mocks.listProjectSessions.mockResolvedValue({ hasMore: false, sessions: [] });
+    const store = createStore();
+    store.dispatch(piConnectionActions.eventSubscriptionRequested());
+    await flushListeners();
+    store.dispatch(piConnectionActions.projectExpansionToggled("/tmp/project"));
+    await flushListeners();
+
+    store.dispatch(piConnectionActions.sessionsLoaded({
+      append: false,
+      directory: "/tmp/project",
+      hasMore: true,
+      sessions: [projectSession],
+    }));
+    mocks.listProjectSessions.mockResolvedValue({
+      hasMore: false,
+      sessions: [{ ...projectSession, id: "session-older", path: "/tmp/project/older.jsonl" }],
+    });
+    store.dispatch(piConnectionActions.sessionPageRequested("/tmp/project"));
+    await flushListeners();
+
+    expect(mocks.listProjectSessions).toHaveBeenLastCalledWith("/tmp/project", 1, 5);
+    expect(store.getState().piConnection.projectSessions["/tmp/project"]).toHaveLength(2);
+    expect(store.getState().piConnection.projectSessionsHasMore["/tmp/project"]).toBe(false);
+  });
+
+  it("打开其他项目的会话时先在该目录重建 RPC，再加载该会话", async () => {
+    mocks.listenToPiEvents.mockResolvedValue(vi.fn());
+    mocks.switchPiSession.mockResolvedValue({
+      switched: true,
+      snapshot: {
+        error: null,
+        model: null,
+        phase: "ready",
+        sessionFile: projectSession.path,
+        sessionId: "session-project",
+        thinkingLevel: "medium",
+        workingDirectory: "/tmp/project",
+      },
+    });
+    mocks.getSessionEntries.mockResolvedValue({ entries: [], leafId: null });
+    const store = createStore();
+    store.dispatch(piConnectionActions.eventSubscriptionRequested());
+    await flushListeners();
+
+    store.dispatch(piConnectionActions.conversationOpenRequested(projectSession));
+    await flushListeners();
+
+    expect(mocks.disconnectPi).toHaveBeenCalled();
+    expect(mocks.connectPi).toHaveBeenLastCalledWith("/tmp/project");
+    expect(mocks.switchPiSession).toHaveBeenCalledWith(projectSession.path);
+    expect(store.getState().piConnection.connection.sessionId).toBe("session-project");
+  });
+
+  const projectSession = {
+    path: "/tmp/project/sessions/new.jsonl",
+    id: "session-project",
+    cwd: "/tmp/project",
+    name: null,
+    parentSessionPath: null,
+    createdAtMs: 1_700_000_000_000,
+    modifiedAtMs: 1_700_000_000_000,
+    messageCount: 1,
+    firstMessage: "在项目里的对话",
+  };
+
+  it("打开历史会话时切换 Pi 会话并用条目重建对话", async () => {
+    mocks.listenToPiEvents.mockResolvedValue(vi.fn());
+    mocks.switchPiSession.mockResolvedValue({
+      switched: true,
+      snapshot: {
+        error: null,
+        model: null,
+        phase: "ready",
+        sessionFile: recordedSession.path,
+        sessionId: "session-old",
+        thinkingLevel: "medium",
+        workingDirectory: "/tmp/lure",
+      },
+    });
+    mocks.getSessionEntries.mockResolvedValue({
+      entries: [
+        { type: "message", id: "e1", parentId: null, message: { role: "user", content: "历史提问" } },
+        {
+          type: "message",
+          id: "e2",
+          parentId: "e1",
+          message: { role: "assistant", content: [{ type: "text", text: "历史回复" }] },
+        },
+      ],
+      leafId: "e2",
+    });
+    const store = createStore();
+    store.dispatch(piConnectionActions.eventSubscriptionRequested());
+    await flushListeners();
+
+    store.dispatch(piConnectionActions.conversationOpenRequested(recordedSession));
+    await flushListeners();
+
+    expect(mocks.switchPiSession).toHaveBeenCalledWith(recordedSession.path);
+    expect(store.getState().piConnection.connection.sessionId).toBe("session-old");
+    expect(
+      store.getState().piConnection.messages.map((message) => message.parts[0]),
+    ).toMatchObject([
+      { type: "text", text: "历史提问" },
+      { type: "text", text: "历史回复" },
+    ]);
+  });
+
+  it("切换被 Pi 扩展取消时保留当前对话并说明原因", async () => {
+    mocks.listenToPiEvents.mockResolvedValue(vi.fn());
+    mocks.switchPiSession.mockResolvedValue({
+      switched: false,
+      snapshot: {
+        error: null,
+        model: null,
+        phase: "ready",
+        sessionFile: "/tmp/session.jsonl",
+        sessionId: "session-1",
+        thinkingLevel: "medium",
+        workingDirectory: "/tmp/lure",
+      },
+    });
+    const store = createStore();
+    store.dispatch(piConnectionActions.eventSubscriptionRequested());
+    await flushListeners();
+    store.dispatch(piConnectionActions.piEventReceived({
+      sequence: 0,
+      event: { type: "user_message_accepted", requestId: "keep", message: "当前对话" },
+    }));
+
+    store.dispatch(piConnectionActions.conversationOpenRequested(recordedSession));
+    await flushListeners();
+
+    expect(mocks.getSessionEntries).not.toHaveBeenCalled();
+    expect(store.getState().piConnection.connection.sessionId).toBe("session-1");
+    expect(store.getState().piConnection.messages).toHaveLength(1);
+    expect(store.getState().piConnection.commandError).toEqual({
+      code: "SESSION_SWITCH_CANCELLED",
+      message: "Pi 扩展取消了这次会话切换，当前对话保持不变。",
+    });
   });
 });

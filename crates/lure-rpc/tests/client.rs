@@ -2,7 +2,7 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use lure_core::LureEvent;
-use lure_rpc::{PiProcessConfig, PiRpcClient, RpcError, RpcImage};
+use lure_rpc::{PiProcessConfig, PiRpcClient, RpcError, RpcImage, SessionSwitch};
 
 fn fake_pi() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/fake-pi.py")
@@ -206,6 +206,60 @@ async fn creates_a_new_session_on_the_existing_rpc_client() {
 
     assert_ne!(next_state.session_id, state.session_id);
     assert_eq!(next_state.session_id, "fake-session-2");
+    client.stop().await.unwrap();
+}
+
+#[tokio::test]
+async fn switches_to_a_recorded_session_and_reports_the_new_state() {
+    let config = PiProcessConfig::new(fake_pi(), env!("CARGO_MANIFEST_DIR"));
+    let (client, state) = PiRpcClient::connect(config).await.unwrap();
+
+    let switched = client
+        .switch_session("/tmp/recorded-session.jsonl")
+        .await
+        .unwrap();
+
+    let SessionSwitch::Switched(next) = switched else {
+        panic!("应当完成切换");
+    };
+    assert_eq!(
+        next.session_file.as_deref(),
+        Some("/tmp/recorded-session.jsonl")
+    );
+    assert_eq!(next.session_id, "switched-session");
+    assert_ne!(next.session_id, state.session_id);
+    client.stop().await.unwrap();
+}
+
+#[tokio::test]
+async fn reports_a_session_switch_cancelled_by_an_extension() {
+    let config = PiProcessConfig::new(fake_pi(), env!("CARGO_MANIFEST_DIR"));
+    let (client, _state) = PiRpcClient::connect(config).await.unwrap();
+
+    let switched = client.switch_session("/tmp/cancelled.jsonl").await.unwrap();
+
+    assert_eq!(switched, SessionSwitch::Cancelled);
+    client.stop().await.unwrap();
+}
+
+#[tokio::test]
+async fn reads_session_entries_with_an_optional_cursor() {
+    let config = PiProcessConfig::new(fake_pi(), env!("CARGO_MANIFEST_DIR"));
+    let (client, _state) = PiRpcClient::connect(config).await.unwrap();
+
+    let all = client.get_entries(None).await.unwrap();
+    assert_eq!(all.leaf_id.as_deref(), Some("entry-2"));
+    assert_eq!(all.entries.len(), 2);
+    assert_eq!(all.entries[0]["id"], "entry-1");
+
+    let after_cursor = client.get_entries(Some("entry-1")).await.unwrap();
+    assert_eq!(after_cursor.entries.len(), 1);
+    assert_eq!(after_cursor.entries[0]["id"], "entry-2");
+
+    assert!(matches!(
+        client.get_entries(Some("missing")).await,
+        Err(RpcError::CommandRejected { command, .. }) if command == "get_entries"
+    ));
     client.stop().await.unwrap();
 }
 

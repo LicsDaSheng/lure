@@ -70,20 +70,55 @@ describe("Pi connection Redux slice", () => {
     });
   });
 
-  it("按 session 标识更新最近对话而不产生重复项", () => {
+  it("保存 Pi 记录的会话列表，并从会话条目重建历史对话", () => {
     const store = configureStore({ reducer: { piConnection: piConnectionReducer } });
+    const sessions = [
+      {
+        path: "/home/me/.pi/agent/sessions/--tmp--/one.jsonl",
+        id: "one",
+        cwd: "/tmp/lure",
+        name: null,
+        parentSessionPath: null,
+        createdAtMs: 1,
+        modifiedAtMs: 2,
+        messageCount: 2,
+        firstMessage: "历史提问",
+      },
+    ];
 
-    store.dispatch(piConnectionActions.recentConversationsLoaded([
-      { sessionId: "older", title: "旧会话", updatedAt: 1 },
-    ]));
-    store.dispatch(piConnectionActions.recentConversationUpserted({
-      sessionId: "older",
-      title: "重命名会话",
-      updatedAt: 2,
+    store.dispatch(
+      piConnectionActions.projectCatalogLoaded({ defaultWorkspace: "/tmp/lure", projects: [] }),
+    );
+    store.dispatch(piConnectionActions.sessionsLoaded({
+      append: false,
+      directory: "/tmp/lure",
+      hasMore: false,
+      sessions,
     }));
+    store.dispatch(
+      piConnectionActions.historyLoaded({
+        entries: [
+          {
+            type: "message",
+            id: "e1",
+            parentId: null,
+            message: { role: "user", content: "历史提问" },
+          },
+          {
+            type: "message",
+            id: "e2",
+            parentId: "e1",
+            message: { role: "assistant", content: [{ type: "text", text: "历史回复" }] },
+          },
+        ],
+        leafId: "e2",
+      }),
+    );
 
-    expect(store.getState().piConnection.recentConversations).toEqual([
-      { sessionId: "older", title: "重命名会话", updatedAt: 2 },
+    expect(store.getState().piConnection.recentSessions).toEqual(sessions);
+    expect(store.getState().piConnection.messages.map((message) => message.parts[0])).toMatchObject([
+      { type: "text", text: "历史提问" },
+      { type: "text", text: "历史回复" },
     ]);
   });
 });
