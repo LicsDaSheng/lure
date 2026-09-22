@@ -322,7 +322,7 @@ describe("主工作区初始态", () => {
     render(<App />);
 
     expect(screen.getByRole("navigation", { name: "任务导航" })).toHaveClass("bg-[#F6F6F8]");
-    expect(screen.getByText("Lure").parentElement).toHaveClass("h-14");
+    expect(screen.getByRole("banner", { name: "应用标题栏" })).toHaveClass("h-10");
     expect(screen.getByRole("button", { name: "新建任务" })).toHaveClass("h-11", "px-5");
   });
 

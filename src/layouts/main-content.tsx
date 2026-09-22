@@ -30,6 +30,7 @@ import { PromptCard } from "@/features/workspace/prompt-card";
 import { RiskConfirmDialog } from "@/features/workspace/risk-confirm-dialog";
 import { TaskHeader } from "@/features/workspace/task-header";
 import { TaskNavigation } from "@/features/workspace/task-navigation";
+import { WindowTitleBar } from "@/features/workspace/window-title-bar";
 import { ArrowDownIcon, MenuIcon } from "lucide-react";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 
@@ -240,8 +241,10 @@ export function MainContent() {
         onNew={handleAssistantNew}
       >
         <ComposerDraftInitializer initialText={readDraft(selectedDirectory)} />
-        <div className="relative flex h-dvh min-h-0 overflow-hidden overscroll-none bg-background text-foreground">
-        {navigationOpen && (
+        <div className="flex h-dvh min-h-0 flex-col overflow-hidden overscroll-none bg-background text-foreground">
+          <WindowTitleBar />
+          <div className="relative flex min-h-0 flex-1 overflow-hidden overscroll-none">
+          {navigationOpen && (
           <button
             aria-label="关闭导航遮罩"
             className="fixed inset-0 z-30 bg-black/20 md:hidden"
@@ -396,6 +399,7 @@ export function MainContent() {
           open={pendingRisk === "export"}
           title="导出任务记录前确认"
         />
+          </div>
         </div>
       </PiAssistantRuntimeProvider>
     </TooltipProvider>

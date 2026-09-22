@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title description">
+  <title id="title">Lure</title>
+  <desc id="description">青蓝 L 形吸引轨迹环绕橙色 Pi 符号与三个智能体节点</desc>
+  <defs>
+    <linearGradient id="lure" x1="130" y1="110" x2="382" y2="390" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#58A9B0"/>
+      <stop offset="1" stop-color="#4C7FA6"/>
+    </linearGradient>
+    <linearGradient id="pi" x1="205" y1="190" x2="306" y2="326" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#F2A24E"/>
+      <stop offset="1" stop-color="#DD7639"/>
+    </linearGradient>
+  </defs>
+
+  <!-- A quiet neutral tile that blends into Lure's light interface. -->
+  <rect x="40" y="40" width="432" height="432" rx="108" fill="#F6F6F8"/>
+  <rect x="40.75" y="40.75" width="430.5" height="430.5" rx="107.25" fill="none" stroke="#E8E8EB" stroke-width="1.5"/>
+
+  <!-- Lure: one continuous L-shaped collector with a magnetic return. -->
+  <path d="M142 164v164c0 35 27 62 62 62h146" fill="none" stroke="url(#lure)" stroke-width="18" stroke-linecap="round"/>
+  <path d="M142 164c0-31 25-56 56-56h120c35 0 62 27 62 62v76" fill="none" stroke="url(#lure)" stroke-width="12" stroke-linecap="round"/>
+  <path d="m359 224 21 25 21-25" fill="none" stroke="#4E8E9E" stroke-width="12" stroke-linecap="round" stroke-linejoin="round"/>
+
+  <!-- Three lightweight Agent nodes. -->
+  <path d="M207 151c28-16 67-19 99-5 20 9 36 23 49 42" fill="none" stroke="#78AEB4" stroke-width="5" stroke-linecap="round" stroke-dasharray="2 15"/>
+  <g fill="#F6F6F8" stroke="#58A2AA" stroke-width="7">
+    <circle cx="207" cy="151" r="12"/>
+    <circle cx="280" cy="137" r="12"/>
+    <circle cx="345" cy="174" r="12"/>
+  </g>
+
+  <!-- Pi: the warm engine at the center. -->
+  <g fill="none" stroke="url(#pi)" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M202 216c31-14 78-15 108 0" stroke-width="25"/>
+    <path d="M230 214c-2 38-8 75-25 106-8 13-18 17-28 10" stroke-width="24"/>
+    <path d="M283 213c-2 38 0 77 17 107 7 13 18 17 28 9" stroke-width="24"/>
+  </g>
+</svg>
