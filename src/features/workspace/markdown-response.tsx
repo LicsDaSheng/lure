@@ -16,12 +16,13 @@ const streamdownPlugins = {
 };
 
 export const MarkdownResponse = memo(
-  ({ className, ...props }: ComponentProps<typeof Streamdown>) => (
+  ({ className, lineNumbers = false, ...props }: ComponentProps<typeof Streamdown>) => (
     <Streamdown
       className={cn(
-        "pi-markdown size-full [&>*:first-child]:mt-0 [&>*:last-child]:mb-0",
+        "pi-markdown w-full min-w-0 [&>*:first-child]:mt-0 [&>*:last-child]:mb-0",
         className,
       )}
+      lineNumbers={lineNumbers}
       plugins={streamdownPlugins}
       {...props}
     />

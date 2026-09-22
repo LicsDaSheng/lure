@@ -73,9 +73,24 @@ describe("工具执行展示", () => {
       "aria-expanded",
       "true",
     );
-    expect(screen.getByText("工具参数")).toBeInTheDocument();
-    expect(screen.getByText("工具输出")).toBeInTheDocument();
+    expect(screen.getByText("输入")).toBeInTheDocument();
+    expect(screen.getByText("输出")).toBeInTheDocument();
     expect(screen.getByText("文件内容")).toBeInTheDocument();
+  });
+
+  it("工具摘要使用紧凑行，并把操作名与工具名对齐展示", () => {
+    const { container } = render(
+      <ToolCard
+        view={view({
+          name: "str_replace_editor",
+          input: JSON.stringify({ command: "str_replace", path: "test.md" }),
+        })}
+      />,
+    );
+
+    expect(screen.getByText("工具调用")).toBeInTheDocument();
+    expect(screen.getByText("str_replace_editor · str_replace")).toBeInTheDocument();
+    expect(container.firstElementChild).not.toHaveClass("rounded-xl", "border");
   });
 
   it("运行中的工具显示执行中状态", () => {
@@ -91,7 +106,7 @@ describe("工具执行展示", () => {
     fireEvent.click(screen.getByRole("button", { name: /无法读取 README.md/ }));
 
     expect(screen.getByText("失败")).toBeInTheDocument();
-    expect(screen.getByText("错误信息")).toBeInTheDocument();
+    expect(screen.getByText("错误")).toBeInTheDocument();
     expect(screen.getByText("读取失败")).toBeInTheDocument();
   });
 

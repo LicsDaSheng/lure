@@ -1,6 +1,13 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 @import "@casoon/tailwindcss-micro-interactions";
+@import "streamdown/styles.css";
+
+@source "../node_modules/streamdown/dist/*.js";
+@source "../node_modules/@streamdown/code/dist/*.js";
+@source "../node_modules/@streamdown/cjk/dist/*.js";
+@source "../node_modules/@streamdown/math/dist/*.js";
+@source "../node_modules/@streamdown/mermaid/dist/*.js";
 
 @custom-variant dark (&:is(.dark *));
 
@@ -154,11 +161,12 @@
 
 @layer components {
   .pi-markdown {
-    line-height: 1.55;
+    min-width: 0;
+    line-height: 1.65;
   }
 
-  .pi-markdown :where(p, ul, ol, pre, blockquote, table) {
-    margin-block: 0.5rem;
+  .pi-markdown :where(p, ul, ol, blockquote) {
+    margin-block: 0.625rem;
   }
 
   .pi-markdown :where(ul, ol) {
@@ -166,33 +174,110 @@
   }
 
   .pi-markdown blockquote {
-    border-left: 2px solid var(--pi-dim);
+    border-left: 2px solid color-mix(in oklch, var(--pi-accent) 45%, transparent);
     padding-left: 1rem;
   }
 
   .pi-markdown :not(pre) > code {
-    border-radius: 0;
-    background: var(--muted);
-    padding-inline: 0.25rem;
+    border-radius: 0.3rem;
+    background: color-mix(in oklch, var(--muted) 78%, transparent);
+    padding: 0.08rem 0.32rem;
     color: var(--pi-accent);
   }
 
   .pi-markdown pre {
-    border: 1px solid var(--pi-dim);
-    border-radius: 0;
-    background: color-mix(in oklch, var(--muted) 30%, transparent);
+    margin: 0;
+    border: 0;
+    border-radius: inherit;
+    background: transparent;
     box-shadow: none;
+  }
+}
+
+@layer utilities {
+  /* Streamdown 已经为表格和代码提供结构容器，这里只保留一层柔和表面。 */
+  .pi-markdown [data-streamdown="table-wrapper"] {
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    padding: 0;
+  }
+
+  .pi-markdown [data-streamdown="table-wrapper"] > :last-child {
+    border-color: color-mix(in oklch, var(--border) 82%, transparent);
+    border-radius: 0.75rem;
+    background: color-mix(in oklch, var(--card) 88%, var(--muted));
   }
 
   .pi-markdown table,
   .pi-markdown th,
   .pi-markdown td {
-    border: 1px solid var(--pi-dim);
+    border: 0;
   }
 
   .pi-markdown th,
   .pi-markdown td {
-    padding: 0.25rem 0.5rem;
+    padding: 0.65rem 0.85rem;
+  }
+
+  .pi-markdown [data-streamdown="table-header"] {
+    background: color-mix(in oklch, var(--muted) 62%, transparent);
+  }
+
+  .pi-markdown [data-streamdown="table-row"] {
+    border-color: color-mix(in oklch, var(--border) 75%, transparent);
+  }
+
+  .pi-markdown [data-streamdown="code-block"] {
+    gap: 0.5rem;
+    border-color: color-mix(in oklch, var(--border) 72%, transparent);
+    border-radius: 1rem;
+    background: color-mix(in oklch, var(--muted) 72%, var(--card));
+    padding: 0.75rem 1rem 1rem;
+    box-shadow: none;
+  }
+
+  .pi-markdown [data-streamdown="code-block-header"] {
+    height: 2rem;
+    padding-inline: 0.25rem;
+    color: var(--foreground);
+    font-size: 0.8125rem;
+    font-weight: 600;
+  }
+
+  .pi-markdown [data-streamdown="code-block-header"]::before {
+    content: "</>";
+    font-family: var(--font-mono, ui-monospace, monospace);
+    font-size: 0.75rem;
+    font-weight: 700;
+    letter-spacing: -0.08em;
+  }
+
+  .pi-markdown [data-streamdown="code-block-header"] > span {
+    margin-left: 0.65rem;
+    font-family: var(--font-sans);
+    text-transform: capitalize;
+  }
+
+  .pi-markdown [data-streamdown="code-block-body"] {
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    padding: 0.5rem 0.25rem 0.25rem;
+  }
+
+  .pi-markdown [data-streamdown="code-block-body"] pre {
+    background: transparent;
+    line-height: 1.65;
+  }
+
+  .pi-markdown [data-streamdown="code-block-actions"] {
+    gap: 0.25rem;
+    border: 0;
+    background: transparent;
+    padding: 0;
+    box-shadow: none;
+    backdrop-filter: none;
   }
 
   .pi-markdown hr {
