@@ -2,6 +2,7 @@
 members = [
   "crates/lure-core",
   "crates/lure-rpc",
+  "crates/lure-session",
   "src-tauri",
 ]
 resolver = "3"

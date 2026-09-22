@@ -13,6 +13,7 @@ if sys.argv[1:] != ["--mode", "rpc"]:
     raise SystemExit(2)
 
 session_number = 1
+switched_path = None
 
 for raw_line in sys.stdin:
     command = json.loads(raw_line)
@@ -32,11 +33,15 @@ for raw_line in sys.stdin:
                 "isCompacting": False,
                 "steeringMode": "one-at-a-time",
                 "followUpMode": "one-at-a-time",
-                "sessionFile": os.path.join(
+                "sessionFile": switched_path
+                if switched_path
+                else os.path.join(
                     os.getcwd(),
                     "session.jsonl" if session_number == 1 else f"session-{session_number}.jsonl",
                 ),
-                "sessionId": "fake-session" if session_number == 1 else f"fake-session-{session_number}",
+                "sessionId": "switched-session"
+                if switched_path
+                else ("fake-session" if session_number == 1 else f"fake-session-{session_number}"),
                 "autoCompactionEnabled": True,
                 "messageCount": 0,
                 "pendingMessageCount": 0,
@@ -51,6 +56,42 @@ for raw_line in sys.stdin:
             "success": True,
             "data": {"cancelled": False},
         }), flush=True)
+    elif command_type == "switch_session":
+        path = command["sessionPath"]
+        if "cancelled" in path:
+            print(json.dumps({
+                "id": request_id,
+                "type": "response",
+                "command": command_type,
+                "success": True,
+                "data": {"cancelled": True},
+            }), flush=True)
+        else:
+            switched_path = path
+            print(json.dumps({
+                "id": request_id,
+                "type": "response",
+                "command": command_type,
+                "success": True,
+                "data": {"cancelled": False},
+            }), flush=True)
+    elif command_type == "get_entries":
+        since = command.get("since")
+        recorded = [
+            {"type": "message", "id": "entry-1", "parentId": None, "message": {"role": "user", "content": "历史提问"}},
+            {"type": "message", "id": "entry-2", "parentId": "entry-1", "message": {"role": "assistant", "content": [{"type": "text", "text": "历史回复"}]}},
+        ]
+        if since is not None and since not in {entry["id"] for entry in recorded}:
+            print(json.dumps({"id": request_id, "type": "response", "command": command_type, "success": False, "error": f"Entry not found: {since}"}), flush=True)
+        else:
+            entries = recorded if since is None else recorded[[entry["id"] for entry in recorded].index(since) + 1:]
+            print(json.dumps({
+                "id": request_id,
+                "type": "response",
+                "command": command_type,
+                "success": True,
+                "data": {"entries": entries, "leafId": "entry-2"},
+            }), flush=True)
     elif command_type == "get_available_models":
         print(json.dumps({
             "id": request_id,

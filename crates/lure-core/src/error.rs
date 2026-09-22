@@ -26,6 +26,8 @@ pub enum ErrorCode {
     ProcessExited,
     #[serde(rename = "ATTACHMENT_UNREADABLE")]
     AttachmentUnreadable,
+    #[serde(rename = "SESSION_LIST_FAILED")]
+    SessionListFailed,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

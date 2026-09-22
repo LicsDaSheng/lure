@@ -6,7 +6,9 @@ use lure_core::{
 };
 use lure_rpc::{
     PiProcessConfig, PiRpcClient, RpcCommand, RpcError, RpcImage, RpcModel, RpcSessionState,
+    SessionEntries, SessionSwitch,
 };
+use lure_session::agent_directory;
 use serde::Serialize;
 use serde_json::Value;
 use tauri::{AppHandle, Manager, State};
@@ -452,6 +454,133 @@ async fn session_client(state: &State<'_, SharedAppState>) -> Result<PiRpcClient
         .ok_or_else(|| LureError::new(ErrorCode::NotConnected, "Pi 尚未连接"))
 }
 
+/// 列出某个工作目录中已记录的 Pi 会话，供任务导航展示与恢复。
+///
+/// 只读取 Pi 写入的会话目录，不要求 Pi 已连接。
+///
+/// # Errors
+///
+/// 工作目录无效或会话目录不可读时返回错误。
+pub(crate) async fn list_sessions_in(
+    working_directory: &Path,
+    home: &Path,
+    offset: usize,
+    limit: usize,
+) -> Result<lure_session::SessionPage, LureError> {
+    let directory = canonical_path(working_directory)?;
+    lure_session::list_sessions_page(&directory, &agent_directory(home), offset, limit)
+        .await
+        .map_err(|error| LureError::new(ErrorCode::SessionListFailed, error.to_string()))
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct SessionSwitchResult {
+    switched: bool,
+    snapshot: ConnectionSnapshot,
+}
+
+/// 列出当前工作目录中已记录的 Pi 会话。
+///
+/// # Errors
+///
+/// 无法确定家目录、工作目录无效或会话目录不可读时返回错误。
+#[tauri::command]
+pub(crate) async fn list_project_sessions(
+    app: AppHandle,
+    working_directory: String,
+    offset: usize,
+    limit: usize,
+) -> Result<lure_session::SessionPage, LureError> {
+    let home = app.path().home_dir().map_err(|error| {
+        LureError::new(
+            ErrorCode::InvalidWorkingDirectory,
+            format!("无法确定用户家目录：{error}"),
+        )
+    })?;
+    list_sessions_in(Path::new(&working_directory), &home, offset, limit).await
+}
+
+/// 切换到已记录的 Pi 会话，并以新的会话状态刷新桌面端快照。
+///
+/// # Errors
+///
+/// Pi 未连接、当前正在运行、切换失败或会话状态无效时返回错误。
+#[tauri::command]
+pub(crate) async fn switch_pi_session(
+    app: AppHandle,
+    state: State<'_, SharedAppState>,
+    session_path: String,
+) -> Result<SessionSwitchResult, LureError> {
+    let state = state.inner().clone();
+    let _command_guard = state.command_lock.lock().await;
+    ensure_operation_allowed(state.snapshot.read().await.phase, Operation::SwitchSession)?;
+
+    let client = state
+        .session
+        .lock()
+        .await
+        .as_ref()
+        .map(|session| session.client.clone())
+        .ok_or_else(|| LureError::new(ErrorCode::NotConnected, "Pi 尚未连接"))?;
+    let working_directory = state
+        .snapshot
+        .read()
+        .await
+        .working_directory
+        .clone()
+        .ok_or_else(|| LureError::new(ErrorCode::NotConnected, "Pi 工作目录不可用"))?;
+
+    let outcome = client
+        .switch_session(&session_path)
+        .await
+        .map_err(|error| map_rpc_error(&error))?;
+    match outcome {
+        SessionSwitch::Cancelled => Ok(SessionSwitchResult {
+            switched: false,
+            snapshot: state.snapshot.read().await.clone(),
+        }),
+        SessionSwitch::Switched(rpc_state) => {
+            let ready = ready_snapshot(*rpc_state, working_directory);
+            *state.snapshot.write().await = ready.clone();
+            emit_lure_event(
+                &app,
+                &state,
+                LureEvent::SessionReady {
+                    snapshot: ready.clone(),
+                },
+            );
+            emit_lure_event(
+                &app,
+                &state,
+                LureEvent::ConnectionChanged {
+                    snapshot: ready.clone(),
+                },
+            );
+            Ok(SessionSwitchResult {
+                switched: true,
+                snapshot: ready,
+            })
+        }
+    }
+}
+
+/// 读取当前会话的完整条目，供桌面端重建历史对话。
+///
+/// # Errors
+///
+/// Pi 未连接或返回无效条目时返回错误。
+#[tauri::command]
+pub(crate) async fn get_session_entries(
+    state: State<'_, SharedAppState>,
+) -> Result<SessionEntries, LureError> {
+    session_client(&state)
+        .await?
+        .get_entries(None)
+        .await
+        .map_err(|error| map_rpc_error(&error))
+}
+
 #[tauri::command]
 pub(crate) async fn read_image_attachments(
     paths: Vec<String>,
@@ -507,11 +636,14 @@ fn image_mime_type(path: &Path) -> &'static str {
 }
 
 fn canonical_directory(path: &str) -> Result<PathBuf, LureError> {
-    let original = PathBuf::from(path);
-    let canonical = original.canonicalize().map_err(|_| {
+    canonical_path(Path::new(path))
+}
+
+fn canonical_path(path: &Path) -> Result<PathBuf, LureError> {
+    let canonical = path.canonicalize().map_err(|_| {
         LureError::new(
             ErrorCode::InvalidWorkingDirectory,
-            format!("工作目录不存在：{}", original.display()),
+            format!("工作目录不存在：{}", path.display()),
         )
     })?;
     if canonical.is_dir() {
@@ -519,7 +651,7 @@ fn canonical_directory(path: &str) -> Result<PathBuf, LureError> {
     } else {
         Err(LureError::new(
             ErrorCode::InvalidWorkingDirectory,
-            format!("路径不是目录：{}", original.display()),
+            format!("路径不是目录：{}", path.display()),
         ))
     }
 }
@@ -550,23 +682,120 @@ fn map_rpc_error(error: &RpcError) -> LureError {
 
 #[cfg(test)]
 mod tests {
+    use std::path::{Path, PathBuf};
     use std::time::{SystemTime, UNIX_EPOCH};
 
-    use super::ensure_default_workspace;
+    use lure_core::ErrorCode;
+    use lure_session::session_directory;
+    use serde_json::json;
 
-    #[tokio::test]
-    async fn creates_the_lure_directory_under_the_home_directory() {
+    use super::{ensure_default_workspace, list_sessions_in};
+
+    fn temporary_directory(label: &str) -> PathBuf {
         let suffix = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_nanos();
-        let home = std::env::temp_dir().join(format!("lure-home-{}-{suffix}", std::process::id()));
-        tokio::fs::create_dir_all(&home).await.unwrap();
+        let directory = std::env::temp_dir().join(format!(
+            "lure-command-{label}-{}-{suffix}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&directory).unwrap();
+        directory
+    }
+
+    fn write_session(home: &Path, workspace: &Path, file_name: &str, lines: &[serde_json::Value]) {
+        let directory = session_directory(workspace, &home.join(".pi").join("agent"));
+        std::fs::create_dir_all(&directory).unwrap();
+        let body: String = lines.iter().map(|line| line.to_string() + "\n").collect();
+        std::fs::write(directory.join(file_name), body).unwrap();
+    }
+
+    #[tokio::test]
+    async fn creates_the_lure_directory_under_the_home_directory() {
+        let home = temporary_directory("home");
 
         let workspace = ensure_default_workspace(&home).await.unwrap();
 
         assert_eq!(workspace, home.join("lure").canonicalize().unwrap());
         assert!(workspace.is_dir());
+        tokio::fs::remove_dir_all(home).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn lists_recorded_sessions_of_a_working_directory() {
+        let home = temporary_directory("list-home");
+        let workspace = temporary_directory("list-workspace");
+        let canonical = workspace.canonicalize().unwrap();
+        write_session(
+            &home,
+            &canonical,
+            "2026-09-20T10-00-00-000Z_one.jsonl",
+            &[
+                json!({
+                    "type": "session",
+                    "version": 3,
+                    "id": "one",
+                    "timestamp": "2026-09-20T10:00:00.000Z",
+                    "cwd": canonical.to_string_lossy(),
+                }),
+                json!({
+                    "type": "session_info",
+                    "id": "info-1",
+                    "parentId": null,
+                    "timestamp": "2026-09-20T10:00:01.000Z",
+                    "name": "昨天的工作",
+                }),
+                json!({
+                    "type": "message",
+                    "id": "m1",
+                    "parentId": null,
+                    "timestamp": "2026-09-20T10:00:02.000Z",
+                    "message": {"role": "user", "content": "继续昨天的事情", "timestamp": 1_789_898_402_000_i64},
+                }),
+            ],
+        );
+
+        let page = list_sessions_in(&canonical, &home, 0, 3).await.unwrap();
+
+        assert_eq!(page.sessions.len(), 1);
+        assert!(!page.has_more);
+        assert_eq!(page.sessions[0].id, "one");
+        assert_eq!(page.sessions[0].name.as_deref(), Some("昨天的工作"));
+        assert_eq!(
+            page.sessions[0].first_message.as_deref(),
+            Some("继续昨天的事情")
+        );
+        assert_eq!(page.sessions[0].modified_at_ms, 1_789_898_402_000);
+
+        tokio::fs::remove_dir_all(home).await.unwrap();
+        tokio::fs::remove_dir_all(workspace).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn reports_no_sessions_for_a_working_directory_without_history() {
+        let home = temporary_directory("empty-home");
+        let workspace = temporary_directory("empty-workspace");
+
+        let page = list_sessions_in(&workspace.canonicalize().unwrap(), &home, 0, 3)
+            .await
+            .unwrap();
+
+        assert!(page.sessions.is_empty());
+        assert!(!page.has_more);
+        tokio::fs::remove_dir_all(home).await.unwrap();
+        tokio::fs::remove_dir_all(workspace).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn rejects_a_missing_working_directory_before_listing() {
+        let home = temporary_directory("missing-home");
+
+        let error = list_sessions_in(Path::new("/definitely/missing/lure-workspace"), &home, 0, 3)
+            .await
+            .unwrap_err();
+
+        assert_eq!(error.code, ErrorCode::InvalidWorkingDirectory);
         tokio::fs::remove_dir_all(home).await.unwrap();
     }
 }

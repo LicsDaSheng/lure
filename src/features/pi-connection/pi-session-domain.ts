@@ -5,8 +5,155 @@ import type {
   MessagePart,
   PiSessionState,
   RunState,
+  SessionEntry,
   ToolPart,
 } from "./pi-session-types";
+
+/**
+ * 把 Pi 会话条目重建为可展示的历史对话。
+ *
+ * 条目是 append-only 树，这里只沿 `leafId` 回溯出的活动分支重建，
+ * 并让 `toolResult` 回填到同一 `toolCallId` 的工具 part，保持 Pi 记录的内容顺序。
+ */
+export function conversationFromEntries(
+  entries: SessionEntry[],
+  leafId: string | null,
+): ConversationMessage[] {
+  const messages: ConversationMessage[] = [];
+  const tools = new Map<string, ToolPart>();
+
+  for (const entry of activeBranch(entries, leafId)) {
+    const message = entry.message;
+    if (entry.type !== "message" || !message) continue;
+
+    if (message.role === "user") {
+      messages.push({
+        id: `user-${entry.id}`,
+        role: "user",
+        parts: [
+          { id: "text-0", type: "text", contentIndex: 0, text: contentText(message.content) },
+        ],
+      });
+      continue;
+    }
+
+    if (message.role === "assistant") {
+      const parts = assistantParts(message.content);
+      for (const part of parts) {
+        if (part.type === "tool") tools.set(part.toolCallId, part);
+      }
+      messages.push({
+        id: `assistant-${entry.id}`,
+        role: "assistant",
+        parts,
+        stopReason: message.stopReason ?? null,
+        errorMessage: message.errorMessage ?? null,
+      });
+      continue;
+    }
+
+    if (message.role === "toolResult" && message.toolCallId) {
+      const part = tools.get(message.toolCallId);
+      if (!part) continue;
+      part.output = contentText(message.content);
+      part.truncatedLines = truncatedLines(message.details);
+      part.status = message.isError ? "error" : "completed";
+    }
+  }
+
+  return messages;
+}
+
+/** 沿 parentId 回溯活动分支；缺少叶子信息时保守地按追加顺序返回。 */
+function activeBranch(entries: SessionEntry[], leafId: string | null): SessionEntry[] {
+  if (!leafId) return entries;
+
+  const byId = new Map<string, SessionEntry>();
+  for (const entry of entries) {
+    if (entry.id) byId.set(entry.id, entry);
+  }
+
+  const branch: SessionEntry[] = [];
+  const visited = new Set<string>();
+  let cursor: string | null | undefined = leafId;
+  while (cursor && !visited.has(cursor)) {
+    visited.add(cursor);
+    const entry = byId.get(cursor);
+    if (!entry) break;
+    branch.push(entry);
+    cursor = entry.parentId ?? null;
+  }
+  return branch.reverse();
+}
+
+function assistantParts(content: unknown): MessagePart[] {
+  if (!Array.isArray(content)) return [];
+
+  const parts: MessagePart[] = [];
+  content.forEach((block, contentIndex) => {
+    if (!isRecord(block)) return;
+    if (block.type === "text" && typeof block.text === "string") {
+      parts.push({ id: `text-${contentIndex}`, type: "text", contentIndex, text: block.text });
+      return;
+    }
+    if (block.type === "thinking" && typeof block.thinking === "string") {
+      parts.push({
+        id: `thinking-${contentIndex}`,
+        type: "thinking",
+        contentIndex,
+        text: block.thinking,
+      });
+      return;
+    }
+    if (block.type === "toolCall" && typeof block.id === "string") {
+      // 历史条目里的工具调用已经结束，状态按“已完成”展示，等待 toolResult 回填输出。
+      parts.push({
+        id: block.id,
+        type: "tool",
+        contentIndex,
+        toolCallId: block.id,
+        name: typeof block.name === "string" ? block.name : "",
+        status: "completed",
+        input: formatInput(block.arguments),
+        output: "",
+        truncatedLines: null,
+      });
+    }
+  });
+  return parts;
+}
+
+/** 消息内容既可能是纯文本，也可能是文本与图片块混排。 */
+function contentText(content: unknown): string {
+  if (typeof content === "string") return content;
+  if (!Array.isArray(content)) return "";
+  return content
+    .flatMap((block) => (isRecord(block) && block.type === "text" && typeof block.text === "string" ? [block.text] : []))
+    .join("\n");
+}
+
+function formatInput(arguments_: unknown): string {
+  if (arguments_ === undefined || arguments_ === null) return "";
+  try {
+    return JSON.stringify(arguments_, null, 2) ?? "";
+  } catch {
+    return "";
+  }
+}
+
+/** 读取 Pi 在工具结果里记录的截断行数，与 RPC 归一化保持同一口径。 */
+function truncatedLines(details: unknown): number | null {
+  if (!isRecord(details) || !isRecord(details.truncation)) return null;
+  const { truncated, totalLines, outputLines } = details.truncation;
+  if (truncated !== true || typeof totalLines !== "number" || typeof outputLines !== "number") {
+    return null;
+  }
+  return Math.max(totalLines - outputLines, 0);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
 
 export const disconnectedSnapshot: ConnectionSnapshot = {
   phase: "disconnected",

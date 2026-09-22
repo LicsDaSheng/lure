@@ -2,7 +2,13 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
 
-import type { ConnectionSnapshot, EventEnvelope, ModelSnapshot } from "./pi-session-types";
+import type {
+  ConnectionSnapshot,
+  EventEnvelope,
+  ModelSnapshot,
+  PiSessionPage,
+  SessionEntries,
+} from "./pi-session-types";
 
 const PI_EVENT_NAME = "lure://pi-event";
 
@@ -101,6 +107,30 @@ export function respondToExtensionUi(
 export function getWorkspaceContext(workingDirectory: string): Promise<WorkspaceContext> {
   return invoke("get_workspace_context", { workingDirectory });
 }
+
+/** 列出某个工作目录中已记录的 Pi 会话，只读扫描，不要求 Pi 已连接。 */
+export function listProjectSessions(
+  workingDirectory: string,
+  offset: number,
+  limit: number,
+): Promise<PiSessionPage> {
+  return invoke("list_project_sessions", { limit, offset, workingDirectory });
+}
+
+/** 切换到已记录的 Pi 会话；`switched` 为 false 表示 Pi 扩展取消了这次切换。 */
+export function switchPiSession(sessionPath: string): Promise<SessionSwitchOutcome> {
+  return invoke("switch_pi_session", { sessionPath });
+}
+
+/** 读取当前会话的完整条目，用于重建历史对话。 */
+export function getSessionEntries(): Promise<SessionEntries> {
+  return invoke("get_session_entries");
+}
+
+export type SessionSwitchOutcome = {
+  switched: boolean;
+  snapshot: ConnectionSnapshot;
+};
 
 export function listenToPiEvents(
   onEvent: (event: EventEnvelope) => void,

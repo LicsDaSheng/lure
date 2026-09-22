@@ -3,10 +3,8 @@ import type { Dispatch, UnknownAction } from "@reduxjs/toolkit";
 
 import {
   readProjects,
-  readRecentConversations,
   writeLastDirectory,
   writeProjects,
-  writeRecentConversations,
 } from "@/features/workspace/local-preferences";
 
 import {
@@ -17,13 +15,16 @@ import {
   getDefaultWorkspace,
   getPiCommands,
   getPiState,
+  getSessionEntries,
   getWorkspaceContext,
+  listProjectSessions,
   listenToPiEvents,
   newPiSession,
   respondToExtensionUi,
   selectModel,
   selectThinkingLevel,
   sendPrompt,
+  switchPiSession,
 } from "./api";
 import type { EventEnvelope, LureError } from "./pi-session-types";
 import { disconnectedSnapshot } from "./pi-session-domain";
@@ -45,6 +46,8 @@ let streamFlushTimer: ReturnType<typeof setTimeout> | undefined;
 let pendingStreamEvents: EventEnvelope[] = [];
 
 const STREAM_FLUSH_INTERVAL_MS = 32;
+const INITIAL_SESSION_PAGE_SIZE = 3;
+const SESSION_PAGE_SIZE = 5;
 
 function isStreamingDelta(envelope: EventEnvelope) {
   return (
@@ -125,31 +128,49 @@ async function loadWorkspaceContext(api: ListenerApi, directory: string) {
   }
 }
 
+async function loadSessionsFor(
+  api: ListenerApi,
+  directory: string | null,
+  { append = false, limit = INITIAL_SESSION_PAGE_SIZE }: { append?: boolean; limit?: number } = {},
+) {
+  if (!directory) return;
+  const state = api.getState().piConnection;
+  const offset = append
+    ? directory === state.defaultWorkspace
+      ? state.recentSessions.length
+      : (state.projectSessions[directory] ?? []).length
+    : 0;
+  api.dispatch(piConnectionActions.sessionsRequested(directory));
+  try {
+    const page = await listProjectSessions(directory, offset, limit);
+    api.dispatch(piConnectionActions.sessionsLoaded({
+      append,
+      directory,
+      hasMore: Boolean(page?.hasMore),
+      sessions: Array.isArray(page?.sessions) ? page.sessions : [],
+    }));
+  } catch (error) {
+    // 读取失败不清空已有页或 hasMore，用户可再次点击重试。
+    api.dispatch(piConnectionActions.sessionsRequestFailed(directory));
+    reportError(api, error, "读取历史会话失败");
+  }
+}
+
+/** 刷新默认工作目录的“最近”与所有已展开项目的会话列表。 */
+async function refreshSessionLists(api: ListenerApi) {
+  const state = api.getState().piConnection;
+  const directories: (string | null)[] = [state.defaultWorkspace, ...state.expandedProjects];
+  await Promise.all(directories.map((directory) => loadSessionsFor(api, directory)));
+}
+
 async function hydrateConnectedSession(api: ListenerApi, snapshot: PiConnectionState["connection"], directory: string) {
   api.dispatch(piConnectionActions.piEventReceived({ sequence: 0, event: { type: "session_ready", snapshot } }));
-  rememberDefaultConversation(api, snapshot, directory);
-  await Promise.all([refreshCapabilities(api), loadWorkspaceContext(api, snapshot.workingDirectory ?? directory)]);
-}
-
-function directoryName(directory: string) {
-  return directory.split(/[\\/]/).filter(Boolean).at(-1) ?? directory;
-}
-
-function rememberDefaultConversation(
-  api: ListenerApi,
-  snapshot: PiConnectionState["connection"],
-  directory: string,
-) {
-  const state = api.getState().piConnection;
-  const actualDirectory = snapshot.workingDirectory ?? directory;
-  const sessionId = snapshot.sessionId;
-  if (!sessionId || actualDirectory !== state.defaultWorkspace) return;
-  const existing = state.recentConversations.find((item) => item.sessionId === sessionId);
-  api.dispatch(piConnectionActions.recentConversationUpserted({
-    sessionId,
-    title: existing?.title ?? directoryName(actualDirectory),
-    updatedAt: existing?.updatedAt ?? Date.now(),
-  }));
+  const activeDirectory = snapshot.workingDirectory ?? directory;
+  await Promise.all([
+    refreshCapabilities(api),
+    loadWorkspaceContext(api, activeDirectory),
+    refreshSessionLists(api),
+  ]);
 }
 
 async function initializeProjectCatalog(api: ListenerApi) {
@@ -159,7 +180,6 @@ async function initializeProjectCatalog(api: ListenerApi) {
   const saved = readProjects();
   const projects = saved.filter((project) => project.directory !== defaultWorkspace);
   api.dispatch(piConnectionActions.projectCatalogLoaded({ defaultWorkspace, projects }));
-  api.dispatch(piConnectionActions.recentConversationsLoaded(readRecentConversations()));
   writeProjects(projects);
   return defaultWorkspace;
 }
@@ -302,40 +322,78 @@ piSessionListenerMiddleware.startListening({
 });
 
 piSessionListenerMiddleware.startListening({
-  actionCreator: piConnectionActions.recentConversationUpserted,
-  effect: (_action, api) => {
-    writeRecentConversations(api.getState().piConnection.recentConversations);
+  actionCreator: piConnectionActions.projectExpansionToggled,
+  effect: async (action, api) => {
+    // 折叠时不重复查询，展开时才读取该项目最新的历史会话。
+    if (!api.getState().piConnection.expandedProjects.includes(action.payload)) return;
+    await loadSessionsFor(api, action.payload);
   },
 });
 
 piSessionListenerMiddleware.startListening({
-  actionCreator: piConnectionActions.recentConversationTitleChanged,
-  effect: (action, api) => {
+  actionCreator: piConnectionActions.sessionPageRequested,
+  effect: async (action, api) => {
+    if (api.getState().piConnection.loadingDirectories.includes(action.payload)) return;
+    await loadSessionsFor(api, action.payload, { append: true, limit: SESSION_PAGE_SIZE });
+  },
+});
+
+piSessionListenerMiddleware.startListening({
+  actionCreator: piConnectionActions.conversationOpenRequested,
+  effect: async (action, api) => {
+    const session = action.payload;
     const state = api.getState().piConnection;
-    const sessionId = state.connection.sessionId;
-    const directory = state.connection.workingDirectory ?? state.selectedDirectory;
-    if (!sessionId || directory !== state.defaultWorkspace || !action.payload.trim()) return;
-    api.dispatch(piConnectionActions.recentConversationUpserted({
-      sessionId,
-      title: action.payload.trim(),
-      updatedAt: Date.now(),
-    }));
+    if (state.connection.phase !== "ready") return;
+
+    const currentDirectory = state.connection.workingDirectory ?? state.selectedDirectory;
+    const targetDirectory = session.cwd ?? currentDirectory;
+    if (!targetDirectory) return;
+    api.dispatch(piConnectionActions.commandErrorCleared());
+
+    try {
+      if (currentDirectory !== targetDirectory) {
+        // 会话属于另一个工作目录：Pi 必须在该目录下运行，先重建 RPC 进程。
+        await disconnectPi();
+        api.dispatch(piConnectionActions.piEventReceived({
+          sequence: 0,
+          event: { type: "connection_changed", snapshot: disconnectedSnapshot },
+        }));
+        api.dispatch(piConnectionActions.disconnectedCapabilitiesCleared());
+        api.dispatch(piConnectionActions.selectedDirectoryChanged(targetDirectory));
+        writeLastDirectory(targetDirectory);
+        await hydrateConnectedSession(api, await connectPi(targetDirectory), targetDirectory);
+      }
+
+      const outcome = await switchPiSession(session.path);
+      if (!outcome.switched) {
+        api.dispatch(piConnectionActions.commandFailed({
+          code: "SESSION_SWITCH_CANCELLED",
+          message: "Pi 扩展取消了这次会话切换，当前对话保持不变。",
+        }));
+        return;
+      }
+      const activeDirectory = outcome.snapshot.workingDirectory ?? targetDirectory;
+      await hydrateConnectedSession(api, outcome.snapshot, activeDirectory);
+      api.dispatch(piConnectionActions.historyLoaded(await getSessionEntries()));
+    } catch (error) {
+      reportError(api, error, "切换到历史会话失败");
+    }
   },
 });
 
 piSessionListenerMiddleware.startListening({
   actionCreator: piConnectionActions.promptAccepted,
-  effect: (_action, api) => {
+  effect: async (_action, api) => {
     const state = api.getState().piConnection;
     const sessionId = state.connection.sessionId;
     const directory = state.connection.workingDirectory ?? state.selectedDirectory;
-    if (!sessionId || !directory || directory !== state.defaultWorkspace) return;
-    const existing = state.recentConversations.find((item) => item.sessionId === sessionId);
-    api.dispatch(piConnectionActions.recentConversationUpserted({
-      sessionId,
-      title: existing?.title ?? directoryName(directory),
-      updatedAt: Date.now(),
-    }));
+    if (!sessionId || !directory) return;
+    // 会话文件要在第一条消息写入后才落盘，所以只在它尚未出现在列表时补一次扫描。
+    const known = directory === state.defaultWorkspace
+      ? state.recentSessions.some((session) => session.id === sessionId)
+      : (state.projectSessions[directory] ?? []).some((session) => session.id === sessionId);
+    if (known) return;
+    await loadSessionsFor(api, directory);
   },
 });
 

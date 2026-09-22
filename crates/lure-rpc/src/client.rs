@@ -14,7 +14,9 @@ use tokio::time::{Instant, MissedTickBehavior};
 use crate::RpcError;
 use crate::jsonl::read_json_lines;
 use crate::normalize::normalize_event;
-use crate::protocol::{RequestContext, RpcCommand, RpcImage, RpcModel, RpcSessionState};
+use crate::protocol::{
+    RequestContext, RpcCommand, RpcImage, RpcModel, RpcSessionState, SessionEntries, SessionSwitch,
+};
 
 const DEFAULT_FRAME_LIMIT: usize = 16 * 1024 * 1024;
 const STDERR_EVENT_LIMIT: usize = 512;
@@ -207,6 +209,60 @@ impl PiRpcClient {
     #[must_use]
     pub fn subscribe(&self) -> broadcast::Receiver<LureEvent> {
         self.events.subscribe()
+    }
+
+    /// 切换到已有的 Pi 会话文件。
+    ///
+    /// 返回 `SessionSwitch::Cancelled` 表示 Pi 扩展取消了本次切换，此时当前会话保持不变。
+    ///
+    /// # Errors
+    ///
+    /// Pi 拒绝切换、返回无效状态或请求失败时返回错误。
+    pub async fn switch_session(&self, session_path: &str) -> Result<SessionSwitch, RpcError> {
+        let response = self
+            .request(
+                json!({"type":"switch_session","sessionPath":session_path}),
+                RequestContext::Plain,
+                self.command_timeout,
+            )
+            .await?;
+        if response
+            .pointer("/data/cancelled")
+            .and_then(Value::as_bool)
+            .unwrap_or(false)
+        {
+            return Ok(SessionSwitch::Cancelled);
+        }
+        let state = self.read_state(self.command_timeout).await?;
+        Ok(SessionSwitch::Switched(Box::new(state)))
+    }
+
+    /// 读取当前会话的条目，`since` 为上次已见条目 id 时可只取增量。
+    ///
+    /// # Errors
+    ///
+    /// Pi 返回无效响应、游标不存在或请求失败时返回错误。
+    pub async fn get_entries(&self, since: Option<&str>) -> Result<SessionEntries, RpcError> {
+        let body = match since {
+            Some(cursor) => json!({"type":"get_entries","since":cursor}),
+            None => json!({"type":"get_entries"}),
+        };
+        let response = self
+            .request(body, RequestContext::Plain, self.command_timeout)
+            .await?;
+        let data = &response["data"];
+        let entries = data
+            .get("entries")
+            .and_then(Value::as_array)
+            .cloned()
+            .ok_or_else(|| RpcError::Protocol("get_entries 响应缺少 entries 数组".into()))?;
+        Ok(SessionEntries {
+            entries,
+            leaf_id: data
+                .get("leafId")
+                .and_then(Value::as_str)
+                .map(ToOwned::to_owned),
+        })
     }
 
     /// 发送文本提示词并等待 Pi 接受。

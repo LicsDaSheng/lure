@@ -93,6 +93,61 @@ beforeEach(() => {
     if (command === "get_commands") {
       return [{ name: "review", description: "审查改动", source: "extension" }];
     }
+    if (command === "list_project_sessions") {
+      const directory = args?.workingDirectory;
+      if (directory === "/tmp/lure-project") {
+        return { hasMore: false, sessions: [
+          {
+            path: "/tmp/lure-project/sessions/new.jsonl",
+            id: "session-project",
+            cwd: "/tmp/lure-project",
+            name: null,
+            parentSessionPath: null,
+            createdAtMs: 1_700_100_000_000,
+            modifiedAtMs: 1_700_100_000_000,
+            messageCount: 1,
+            firstMessage: "项目里的对话",
+          },
+        ] };
+      }
+      return { hasMore: false, sessions: [
+        {
+          path: "/tmp/lure/sessions/old.jsonl",
+          id: "session-old",
+          cwd: defaultWorkspace,
+          name: null,
+          parentSessionPath: null,
+          createdAtMs: 1_700_000_000_000,
+          modifiedAtMs: 1_700_000_000_000,
+          messageCount: 2,
+          firstMessage: "昨天的工作",
+        },
+      ] };
+    }
+    if (command === "switch_pi_session") {
+      return {
+        switched: true,
+        snapshot: {
+          ...readySnapshot,
+          sessionFile: "/tmp/lure/sessions/old.jsonl",
+          sessionId: "session-old",
+        },
+      };
+    }
+    if (command === "get_session_entries") {
+      return {
+        entries: [
+          { type: "message", id: "e1", parentId: null, message: { role: "user", content: "历史提问" } },
+          {
+            type: "message",
+            id: "e2",
+            parentId: "e1",
+            message: { role: "assistant", content: [{ type: "text", text: "历史回复" }] },
+          },
+        ],
+        leafId: "e2",
+      };
+    }
     if (command === "get_workspace_context") {
       return { workingDirectory: defaultWorkspace, branch: "main" };
     }
@@ -220,13 +275,13 @@ describe("主工作区初始态", () => {
 
   it("意外关闭后恢复默认工作目录中的未发送草稿", async () => {
     const view = render(<App />);
-    expect(await screen.findAllByText("lure")).not.toHaveLength(0);
+    await screen.findByRole("combobox", { name: "模型" });
     fireEvent.change(textbox(), { target: { value: "还没发送的草稿" } });
     view.unmount();
 
     render(<App />);
 
-    expect(await screen.findAllByText("lure")).not.toHaveLength(0);
+    await screen.findByRole("combobox", { name: "模型" });
     expect(textbox()).toHaveValue("还没发送的草稿");
   });
 
@@ -276,7 +331,7 @@ describe("主工作区初始态", () => {
 
     expect(screen.getByRole("heading", { name: "项目" })).toBeInTheDocument();
     const recent = screen.getByRole("region", { name: "最近" });
-    expect(within(recent).getByText("lure")).toBeInTheDocument();
+    expect(within(recent).getByText("昨天的工作")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "在 lure 中新建任务" })).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "新增项目" }));
@@ -319,8 +374,10 @@ describe("主工作区对话态", () => {
     expect(mocks.invoke).not.toHaveBeenCalledWith("disconnect_pi");
     expect(mocks.open).not.toHaveBeenCalled();
     expect(screen.queryByText("旧对话")).not.toBeInTheDocument();
-    expect(within(screen.getByRole("region", { name: "最近" })).getByText("旧任务")).toBeInTheDocument();
-    expect(screen.getAllByText("lure").length).toBeGreaterThan(0);
+    // 历史会话来自 Pi 记录的会话文件，而不是本地记忆。
+    expect(
+      within(screen.getByRole("region", { name: "最近" })).getByText("昨天的工作"),
+    ).toBeInTheDocument();
     expect(textbox()).toHaveFocus();
   });
 
@@ -683,6 +740,78 @@ describe("主工作区对话态", () => {
     expect(screen.getByText("任务已由你停止，已完成的内容仍然保留。")).toBeInTheDocument();
     expect(screen.queryByRole("status", { name: "任务状态" })).not.toBeInTheDocument();
     expect(screen.queryByText("任务执行完成")).not.toBeInTheDocument();
+  });
+});
+
+describe("历史会话", () => {
+  it("从最近打开历史会话并显示 Pi 记录的历史对话", async () => {
+    await renderConnected();
+
+    const recent = screen.getByRole("region", { name: "最近" });
+    fireEvent.click(within(recent).getByRole("button", { name: /昨天的工作/ }));
+
+    await waitFor(() =>
+      expect(mocks.invoke).toHaveBeenCalledWith("switch_pi_session", {
+        sessionPath: "/tmp/lure/sessions/old.jsonl",
+      }),
+    );
+    expect(await screen.findByText("历史提问")).toBeInTheDocument();
+    expect(screen.getByText("历史回复")).toBeInTheDocument();
+  });
+
+  it("打开的历史会话在最近中显示为当前任务", async () => {
+    await renderConnected();
+
+    const recent = screen.getByRole("region", { name: "最近" });
+    fireEvent.click(within(recent).getByRole("button", { name: /昨天的工作/ }));
+
+    const current = await within(recent).findByRole("button", { name: /昨天的工作/ });
+    await waitFor(() => expect(current).toHaveAttribute("aria-current", "page"));
+    expect(within(current).getByText("已连接")).toBeInTheDocument();
+  });
+
+  it("点击项目展开并加载该项目的历史会话，再次点击折叠", async () => {
+    await renderConnected();
+    fireEvent.click(screen.getByRole("button", { name: "新增项目" }));
+    const dialog = screen.getByRole("dialog", { name: "创建项目" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "选择 Pi 可读取和编辑的文件夹" }));
+    await waitFor(() =>
+      expect(within(dialog).getByRole("textbox", { name: "项目名称" })).toHaveValue("lure-project"),
+    );
+    fireEvent.click(within(dialog).getByRole("button", { name: "创建项目" }));
+    await waitFor(() =>
+      expect(mocks.invoke).toHaveBeenCalledWith("connect_pi", {
+        workingDirectory: "/tmp/lure-project",
+      }),
+    );
+
+    // “最近”始终是默认工作目录的历史会话，与当前所在项目无关。
+    const recent = screen.getByRole("region", { name: "最近" });
+    expect(within(recent).getByText("昨天的工作")).toBeInTheDocument();
+
+    const toggle = screen.getByRole("button", { name: "lure-project 历史会话" });
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByText("项目里的对话")).not.toBeInTheDocument();
+
+    fireEvent.click(toggle);
+
+    await waitFor(() => expect(toggle).toHaveAttribute("aria-expanded", "true"));
+    expect(await screen.findByText("项目里的对话")).toBeInTheDocument();
+    expect(within(recent).getByText("昨天的工作")).toBeInTheDocument();
+    expect(within(recent).queryByText("项目里的对话")).not.toBeInTheDocument();
+
+    fireEvent.click(toggle);
+
+    await waitFor(() => expect(toggle).toHaveAttribute("aria-expanded", "false"));
+    expect(screen.queryByText("项目里的对话")).not.toBeInTheDocument();
+  });
+
+  it("运行中不允许切换历史会话", async () => {
+    await renderConnected();
+    emit({ sequence: 1, event: { type: "run_started" } });
+
+    const recent = screen.getByRole("region", { name: "最近" });
+    expect(within(recent).getByRole("button", { name: /昨天的工作/ })).toBeDisabled();
   });
 });
 
