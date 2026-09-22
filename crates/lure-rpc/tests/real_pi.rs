@@ -24,10 +24,12 @@ async fn completes_a_real_streaming_pi_rpc_conversation() {
         .unwrap();
 
     let mut final_text = String::new();
+    let mut turn_stops: Vec<Option<String>> = Vec::new();
     tokio::time::timeout(Duration::from_secs(120), async {
         loop {
             match events.recv().await.unwrap() {
                 LureEvent::AssistantMessageCompleted { text, .. } => final_text = text,
+                LureEvent::TurnEnded { stop_reason, .. } => turn_stops.push(stop_reason),
                 LureEvent::RunSettled => break,
                 _ => {}
             }
@@ -39,6 +41,13 @@ async fn completes_a_real_streaming_pi_rpc_conversation() {
     client.stop().await.unwrap();
     let _ = std::fs::remove_dir_all(&working_directory);
     assert!(final_text.contains("RPC_OK"), "实际回复：{final_text}");
+    // 真实 Pi 在每次运行里都会给出 turn 边界，这是最终结果的权威来源。
+    assert!(!turn_stops.is_empty(), "真实运行应包含 turn_end");
+    assert_eq!(
+        turn_stops.last().cloned().flatten().as_deref(),
+        Some("stop"),
+        "最后一次 turn 应以 stop 结束，实际：{turn_stops:?}"
+    );
 }
 
 #[tokio::test]

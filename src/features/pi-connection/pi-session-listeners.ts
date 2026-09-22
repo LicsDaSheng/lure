@@ -255,17 +255,18 @@ piSessionListenerMiddleware.startListening({
     subscriptionPending = true;
     try {
       const dispose = await listenToPiEvents((event) => {
+        const receivedEvent = { ...event, receivedAtMs: Date.now() };
         if (event.sequence !== 0) {
           if (event.sequence <= lastSequence) return;
           lastSequence = event.sequence;
         }
         if (isStreamingDelta(event)) {
-          enqueueStreamingEvent(api, event);
+          enqueueStreamingEvent(api, receivedEvent);
           return;
         }
         // 非流式事件必须排在此前已收到的增量之后，保证工具和消息完成事件的顺序。
         flushStreamingEvents(api);
-        api.dispatch(piConnectionActions.piEventReceived(event));
+        api.dispatch(piConnectionActions.piEventReceived(receivedEvent));
       });
       subscriptionPending = false;
       if (!subscriptionWanted) dispose();

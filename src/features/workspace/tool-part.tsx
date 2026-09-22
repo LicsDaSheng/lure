@@ -1,4 +1,3 @@
-import type { ToolCallMessagePartProps } from "@assistant-ui/react";
 import {
   CheckCircleIcon,
   ChevronDownIcon,
@@ -53,30 +52,6 @@ function toolOperation(view: ToolView): string {
     // 非 JSON 参数仍可显示工具名。
   }
   return view.name;
-}
-
-/**
- * 读取工具调用部件携带的展示数据。
- *
- * `artifact` 在 assistant-ui 契约里是 `unknown`；这里只接受
- * `toolPartToView()` 的形状，形状不符时就当没有可展示的工具，而不是当场抛错。
- */
-export function readToolView(value: unknown): ToolView | null {
-  if (!value || typeof value !== "object") return null;
-  const candidate = value as Partial<ToolView>;
-  if (typeof candidate.id !== "string" || typeof candidate.name !== "string") return null;
-  const status = candidate.status;
-  if (status !== "running" && status !== "completed" && status !== "error") return null;
-
-  return {
-    id: candidate.id,
-    name: candidate.name,
-    status,
-    input: typeof candidate.input === "string" ? candidate.input : "",
-    output: typeof candidate.output === "string" ? candidate.output : "",
-    truncatedLines:
-      typeof candidate.truncatedLines === "number" ? candidate.truncatedLines : null,
-  };
 }
 
 export function ToolCard({ view }: { view: ToolView }) {
@@ -152,10 +127,4 @@ export function ToolCard({ view }: { view: ToolView }) {
         </CollapsibleContent>
     </Collapsible>
   );
-}
-
-export function ToolPartCard({ artifact }: ToolCallMessagePartProps) {
-  const view = readToolView(artifact);
-  if (!view) return null;
-  return <ToolCard view={view} />;
 }

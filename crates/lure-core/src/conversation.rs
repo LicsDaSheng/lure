@@ -34,6 +34,10 @@ pub enum LureEvent {
         request_id: String,
         message: String,
     },
+    /// Pi 事件流中真实出现的用户消息，包括 steer/follow-up 续跑。
+    UserMessageObserved {
+        message: String,
+    },
     AssistantMessageStarted,
     AssistantTextDelta {
         content_index: u64,
@@ -75,6 +79,12 @@ pub enum LureEvent {
         will_retry: bool,
     },
     RunSettled,
+    TurnStarted,
+    /// 单次 assistant turn（含工具结果）的权威边界，携带该轮次的终止原因。
+    TurnEnded {
+        stop_reason: Option<String>,
+        error_message: Option<String>,
+    },
     RetryChanged {
         active: bool,
         attempt: Option<u64>,

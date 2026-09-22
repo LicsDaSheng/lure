@@ -22,7 +22,7 @@ pub(crate) fn normalize_event(value: &Value) -> NormalizedFrame {
             }
         }
         "message_update" => events.extend(normalize_stream_update(value)),
-        "message_end" => events.extend(normalize_assistant_end(value)),
+        "message_end" => events.extend(normalize_message_end(value)),
         "tool_execution_start" => events.push(LureEvent::ToolStarted {
             tool_call_id: string_field(value, "toolCallId"),
             tool_name: string_field(value, "toolName"),
@@ -47,6 +47,17 @@ pub(crate) fn normalize_event(value: &Value) -> NormalizedFrame {
             will_retry: value["willRetry"].as_bool().unwrap_or(false),
         }),
         "agent_settled" => events.push(LureEvent::RunSettled),
+        "turn_start" => events.push(LureEvent::TurnStarted),
+        "turn_end" => events.push(LureEvent::TurnEnded {
+            stop_reason: value
+                .pointer("/message/stopReason")
+                .and_then(Value::as_str)
+                .map(ToOwned::to_owned),
+            error_message: value
+                .pointer("/message/errorMessage")
+                .and_then(Value::as_str)
+                .map(ToOwned::to_owned),
+        }),
         "auto_retry_start" => events.push(LureEvent::RetryChanged {
             active: true,
             attempt: value["attempt"].as_u64(),
@@ -96,22 +107,40 @@ pub(crate) fn normalize_event(value: &Value) -> NormalizedFrame {
     }
 }
 
-fn normalize_assistant_end(value: &Value) -> Option<LureEvent> {
-    if value.pointer("/message/role").and_then(Value::as_str) != Some("assistant") {
-        return None;
+fn normalize_message_end(value: &Value) -> Option<LureEvent> {
+    match value.pointer("/message/role").and_then(Value::as_str) {
+        Some("assistant") => {
+            let (text, thinking, blocks) = extract_assistant_content(&value["message"]["content"]);
+            Some(LureEvent::AssistantMessageCompleted {
+                text,
+                thinking,
+                blocks,
+                stop_reason: value["message"]["stopReason"]
+                    .as_str()
+                    .map(ToOwned::to_owned),
+                error_message: value["message"]["errorMessage"]
+                    .as_str()
+                    .map(ToOwned::to_owned),
+            })
+        }
+        Some("user") => Some(LureEvent::UserMessageObserved {
+            message: extract_message_text(&value["message"]["content"]),
+        }),
+        _ => None,
     }
-    let (text, thinking, blocks) = extract_assistant_content(&value["message"]["content"]);
-    Some(LureEvent::AssistantMessageCompleted {
-        text,
-        thinking,
-        blocks,
-        stop_reason: value["message"]["stopReason"]
-            .as_str()
-            .map(ToOwned::to_owned),
-        error_message: value["message"]["errorMessage"]
-            .as_str()
-            .map(ToOwned::to_owned),
-    })
+}
+
+fn extract_message_text(content: &Value) -> String {
+    if let Some(text) = content.as_str() {
+        return text.to_owned();
+    }
+    content
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|part| part["text"].as_str())
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 fn normalize_stream_update(value: &Value) -> Option<LureEvent> {
@@ -234,6 +263,62 @@ mod tests {
     use super::normalize_event;
     use lure_core::LureEvent;
     use serde_json::json;
+
+    #[test]
+    fn turn_boundaries_expose_the_authoritative_stop_reason() {
+        let started = normalize_event(&json!({"type":"turn_start"}));
+        assert!(matches!(
+            started.events.first(),
+            Some(LureEvent::TurnStarted)
+        ));
+
+        let ended = normalize_event(&json!({
+            "type":"turn_end",
+            "message":{"role":"assistant","stopReason":"toolUse"},
+            "toolResults":[]
+        }));
+        assert!(matches!(
+            ended.events.first(),
+            Some(LureEvent::TurnEnded { stop_reason: Some(reason), error_message: None })
+                if reason == "toolUse"
+        ));
+
+        let aborted = normalize_event(&json!({
+            "type":"turn_end",
+            "message":{"role":"assistant","stopReason":"aborted","errorMessage":"用户停止"}
+        }));
+        assert!(matches!(
+            aborted.events.first(),
+            Some(LureEvent::TurnEnded { stop_reason: Some(reason), error_message: Some(error) })
+                if reason == "aborted" && error == "用户停止"
+        ));
+    }
+
+    #[test]
+    fn run_finished_keeps_the_will_retry_flag() {
+        let frame = normalize_event(&json!({"type":"agent_end","messages":[],"willRetry":true}));
+
+        assert!(matches!(
+            frame.events.first(),
+            Some(LureEvent::RunFinished { will_retry: true })
+        ));
+    }
+
+    #[test]
+    fn user_message_end_preserves_queued_follow_up_text() {
+        let frame = normalize_event(&json!({
+            "type":"message_end",
+            "message":{
+                "role":"user",
+                "content":[{"type":"text","text":"继续检查"}]
+            }
+        }));
+
+        assert!(matches!(
+            frame.events.first(),
+            Some(LureEvent::UserMessageObserved { message }) if message == "继续检查"
+        ));
+    }
 
     #[test]
     fn unknown_events_are_ignored() {

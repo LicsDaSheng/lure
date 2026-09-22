@@ -148,14 +148,18 @@ for raw_line in sys.stdin:
         if command["message"] == "extension":
             print(json.dumps({"type": "extension_ui_request", "id": "ui-1", "method": "confirm", "title": "确认", "message": "继续吗"}), flush=True)
             continue
+        print(json.dumps({"type": "message_start", "message": {"role": "user", "content": [{"type": "text", "text": command["message"]}], "timestamp": 0}}), flush=True)
+        print(json.dumps({"type": "message_end", "message": {"role": "user", "content": [{"type": "text", "text": command["message"]}], "timestamp": 0}}), flush=True)
         print(json.dumps({"type": "agent_start"}), flush=True)
+        print(json.dumps({"type": "turn_start"}), flush=True)
         print(json.dumps({"type": "message_start", "message": {"role": "assistant", "content": [], "timestamp": 1}}), flush=True)
         print(json.dumps({"type": "message_update", "usage": {}, "assistantMessageEvent": {"type": "thinking_delta", "contentIndex": 0, "delta": "思考"}}), flush=True)
         print(json.dumps({"type": "message_update", "usage": {}, "assistantMessageEvent": {"type": "text_delta", "contentIndex": 1, "delta": "RPC_OK"}}), flush=True)
         print(json.dumps({"type": "tool_execution_start", "toolCallId": "tool-1", "toolName": "read", "args": {}}), flush=True)
         print(json.dumps({"type": "tool_execution_update", "toolCallId": "tool-1", "toolName": "read", "args": {}, "partialResult": {}}), flush=True)
         print(json.dumps({"type": "tool_execution_end", "toolCallId": "tool-1", "toolName": "read", "result": {}, "isError": False}), flush=True)
-        print(json.dumps({"type": "message_end", "message": {"role": "assistant", "content": [{"type": "thinking", "thinking": "思考"}, {"type": "text", "text": "RPC_OK"}], "timestamp": 2}}), flush=True)
+        print(json.dumps({"type": "message_end", "message": {"role": "assistant", "content": [{"type": "thinking", "thinking": "思考"}, {"type": "text", "text": "RPC_OK"}], "stopReason": "stop", "timestamp": 2}}), flush=True)
+        print(json.dumps({"type": "turn_end", "message": {"role": "assistant", "stopReason": "stop"}, "toolResults": []}), flush=True)
         print(json.dumps({"type": "agent_end", "messages": [], "willRetry": False}), flush=True)
         print(json.dumps({"type": "agent_settled"}), flush=True)
     elif command_type == "abort":

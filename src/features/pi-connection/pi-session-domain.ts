@@ -7,7 +7,31 @@ import type {
   RunState,
   SessionEntry,
   ToolPart,
+  TurnPhase,
 } from "./pi-session-types";
+
+/**
+ * Pi 的终止原因映射到响应组阶段。
+ *
+ * 只有正常结束才能作为最终答案；`aborted`、`length`（截断）和 `error`
+ * 都属于“已完成但不能称为最终答案”的部分结果。
+ */
+export function turnPhaseFromMessage(
+  stopReason?: string | null,
+  errorMessage?: string | null,
+): TurnPhase {
+  if (errorMessage) return "error";
+  switch (stopReason) {
+    case "error":
+      return "error";
+    case "aborted":
+      return "aborted";
+    case "length":
+      return "truncated";
+    default:
+      return "settled";
+  }
+}
 
 /**
  * 把 Pi 会话条目重建为可展示的历史对话。
@@ -21,14 +45,16 @@ export function conversationFromEntries(
 ): ConversationMessage[] {
   const messages: ConversationMessage[] = [];
   const tools = new Map<string, ToolPart>();
+  let turnId: string | null = null;
 
   for (const entry of activeBranch(entries, leafId)) {
     const message = entry.message;
     if (entry.type !== "message" || !message) continue;
 
     if (message.role === "user") {
+      turnId = `user-${entry.id}`;
       messages.push({
-        id: `user-${entry.id}`,
+        id: turnId,
         role: "user",
         parts: [
           { id: "text-0", type: "text", contentIndex: 0, text: contentText(message.content) },
@@ -48,6 +74,10 @@ export function conversationFromEntries(
         parts,
         stopReason: message.stopReason ?? null,
         errorMessage: message.errorMessage ?? null,
+        // 历史回放沿用与实时相同的响应组规则：组由触发它的用户消息定义，
+        // 阶段由 Pi 记录的终止原因定案；没有可靠计时就不伪造耗时。
+        turnId,
+        turnPhase: turnPhaseFromMessage(message.stopReason, message.errorMessage),
       });
       continue;
     }
@@ -167,9 +197,21 @@ export const disconnectedSnapshot: ConnectionSnapshot = {
 
 const idleRunState = (): RunState => ({
   phase: "idle",
+  turnId: null,
+  startedAtMs: null,
+  willRetry: null,
   retry: null,
   compaction: null,
 });
+
+/** 当前响应组标识：最近一条用户消息。 */
+function activeTurnId(state: PiSessionState): string | null {
+  for (let index = state.messages.length - 1; index >= 0; index -= 1) {
+    const message = state.messages[index];
+    if (message?.role === "user") return message.id;
+  }
+  return null;
+}
 
 export const initialPiSessionState: PiSessionState = {
   connection: disconnectedSnapshot,
@@ -189,13 +231,23 @@ export function piSessionReducer(
   const event = envelope.event;
   switch (event.type) {
     case "connection_changed":
+      if (event.snapshot.phase === "disconnected" || event.snapshot.phase === "failed") {
+        const interrupted = failActiveRun(
+          state,
+          event.snapshot.error?.message ?? "Pi 连接已断开",
+        );
+        return {
+          ...interrupted,
+          connection: event.snapshot,
+          error: event.snapshot.error,
+          extensionRequest: null,
+          run: idleRunState(),
+        };
+      }
       return {
         ...state,
         connection: event.snapshot,
         error: event.snapshot.error,
-        ...(event.snapshot.phase === "disconnected" || event.snapshot.phase === "failed"
-          ? { extensionRequest: null, run: idleRunState() }
-          : {}),
       };
     case "session_ready": {
       const sessionChanged = state.connection.sessionId !== event.snapshot.sessionId;
@@ -215,22 +267,10 @@ export function piSessionReducer(
           : {}),
       };
     }
-    case "user_message_accepted": {
-      if (state.messages.some((message) => message.id === `user-${event.requestId}`)) {
-        return state;
-      }
-      return {
-        ...state,
-        messages: [
-          ...state.messages,
-          {
-            id: `user-${event.requestId}`,
-            role: "user",
-            parts: [{ id: "text-0", type: "text", contentIndex: 0, text: event.message }],
-          },
-        ],
-      };
-    }
+    case "user_message_accepted":
+      return appendUserMessage(state, `user-${event.requestId}`, event.message);
+    case "user_message_observed":
+      return appendUserMessage(state, `user-observed-${envelope.sequence}`, event.message);
     case "assistant_message_started":
       return startAssistantMessage(state, envelope.sequence);
     case "assistant_text_delta":
@@ -272,17 +312,94 @@ export function piSessionReducer(
       return {
         ...state,
         connection: { ...state.connection, phase: "running" },
-        run: { ...state.run, phase: "running", retry: null },
+        run: {
+          ...state.run,
+          phase: "running",
+          turnId: state.run.turnId ?? activeTurnId(state),
+          startedAtMs: state.run.startedAtMs ?? envelope.receivedAtMs ?? null,
+          willRetry: null,
+          retry: null,
+        },
       };
-    case "run_finished":
-      return state;
-    case "run_settled":
+    case "turn_started":
       return {
         ...state,
+        run: {
+          ...state.run,
+          turnId: activeTurnId(state) ?? state.run.turnId,
+        },
+      };
+    /**
+     * turn 边界是单次 assistant/tool turn 的权威终态来源。
+     * 它只补全当前消息的终止原因，不定案整个响应组。
+     */
+    case "turn_ended":
+      return applyTurnTerminal(state, event.stopReason, event.errorMessage);
+    /** 底层运行结束不代表会话级运行结束：自动重试和排队续跑仍可能继续。 */
+    case "run_finished":
+      return {
+        ...state,
+        run: { ...state.run, willRetry: event.willRetry },
+      };
+    case "run_settled": {
+      const durationMs =
+        state.run.startedAtMs !== null && envelope.receivedAtMs !== undefined
+          ? Math.max(0, envelope.receivedAtMs - state.run.startedAtMs)
+          : null;
+      // 一次 session-level run 可在排队 follow-up 中包含多个用户响应组。
+      // agent_settled 需要一次定案所有仍在 running 的组，而不是只处理
+      // RunState 里最后一个 turnId。
+      const runningIndices = state.messages.flatMap((message, index) =>
+        message.role === "assistant" && message.turnPhase === "running" ? [index] : [],
+      );
+      const settledIndices =
+        runningIndices.length > 0
+          ? runningIndices
+          : state.messages.flatMap((message, index) =>
+              message.role === "assistant" && index === state.messages.length - 1
+                ? [index]
+                : [],
+            );
+      const lastIndex = settledIndices.at(-1);
+      const lastIndexByTurn = new Map<string | null, number>();
+      for (const index of settledIndices) {
+        lastIndexByTurn.set(state.messages[index]?.turnId ?? null, index);
+      }
+      const phaseByTurn = new Map<string | null, TurnPhase>();
+      for (const [messageTurnId, index] of lastIndexByTurn) {
+        phaseByTurn.set(
+          messageTurnId,
+          turnPhaseFromMessage(
+            state.messages[index]?.stopReason,
+            state.messages[index]?.errorMessage,
+          ),
+        );
+      }
+      return {
+        ...state,
+        messages:
+          lastIndex === undefined
+            ? state.messages
+            : state.messages.map((message, index) =>
+                settledIndices.includes(index)
+                  ? {
+                      ...message,
+                      turnPhase: phaseByTurn.get(message.turnId ?? null) ?? "settled",
+                      ...(index === lastIndex
+                        ? {
+                            runStartedAtMs: state.run.startedAtMs,
+                            runSettledAtMs: envelope.receivedAtMs ?? null,
+                            runDurationMs: durationMs,
+                          }
+                        : {}),
+                    }
+                  : message,
+              ),
         connection: { ...state.connection, phase: "ready" },
         activeAssistantId: null,
         run: idleRunState(),
       };
+    }
     case "retry_changed":
       return {
         ...state,
@@ -361,23 +478,84 @@ export function piSessionReducer(
         code: "PROCESS_EXITED",
         message: `Pi 进程已退出${event.code == null ? "" : `（退出码 ${event.code}）`}`,
       };
+      const interrupted = failActiveRun(state, error.message);
       return {
-        ...state,
+        ...interrupted,
         connection: { ...state.connection, phase: "failed", error },
         error,
-        run: idleRunState(),
       };
     }
     case "protocol_error": {
       const error = { code: "RPC_PROTOCOL_ERROR", message: event.message };
+      const interrupted = failActiveRun(state, error.message);
       return {
-        ...state,
+        ...interrupted,
         connection: { ...state.connection, phase: "failed", error },
         error,
-        run: idleRunState(),
       };
     }
   }
+}
+
+function userText(message: ConversationMessage): string {
+  return message.parts
+    .flatMap((part) => (part.type === "text" ? [part.text] : []))
+    .join("");
+}
+
+/**
+ * RPC prompt 成功响应与 Pi 的 user message_end 会表达同一条初始消息。
+ * 只对相邻的同文本用户消息去重；经过 assistant 输出后再出现的
+ * 同文本 follow-up 仍会建立新的响应组。
+ */
+function appendUserMessage(
+  state: PiSessionState,
+  id: string,
+  text: string,
+): PiSessionState {
+  if (state.messages.some((message) => message.id === id)) return state;
+  const last = state.messages.at(-1);
+  if (last?.role === "user" && userText(last) === text) return state;
+  return {
+    ...state,
+    messages: [
+      ...state.messages,
+      {
+        id,
+        role: "user",
+        parts: [{ id: "text-0", type: "text", contentIndex: 0, text }],
+      },
+    ],
+  };
+}
+
+/** 连接或进程在 settled 前失败时，终结当前响应组而不继续显示“执行中”。 */
+function failActiveRun(state: PiSessionState, message: string): PiSessionState {
+  if (!state.activeAssistantId && state.run.phase === "idle") return state;
+  const activeId = state.activeAssistantId;
+  let lastAssistantIndex = -1;
+  for (let index = state.messages.length - 1; index >= 0; index -= 1) {
+    if (state.messages[index]?.role === "assistant") {
+      lastAssistantIndex = index;
+      break;
+    }
+  }
+  return {
+    ...state,
+    messages: state.messages.map((conversationMessage, index) =>
+      conversationMessage.role === "assistant" &&
+      (conversationMessage.id === activeId || index === lastAssistantIndex)
+        ? {
+            ...conversationMessage,
+            turnPhase: "error",
+            stopReason: conversationMessage.stopReason ?? "error",
+            errorMessage: conversationMessage.errorMessage ?? message,
+          }
+        : conversationMessage,
+    ),
+    activeAssistantId: null,
+    run: idleRunState(),
+  };
 }
 
 function startAssistantMessage(state: PiSessionState, sequence: number): PiSessionState {
@@ -391,8 +569,44 @@ function startAssistantMessage(state: PiSessionState, sequence: number): PiSessi
         id,
         role: "assistant",
         parts: [],
+        turnId: activeTurnId(state),
+        turnPhase: "running",
       },
     ],
+  };
+}
+
+/**
+ * 用 turn_end 的权威终态补全最后一条助手消息，不改写已有事实。
+ *
+ * `pending` 只表示 Pi 尚未定终态，不能覆盖 `message_end` 已经给出的真实原因。
+ */
+function applyTurnTerminal(
+  state: PiSessionState,
+  stopReason: string | null | undefined,
+  errorMessage: string | null | undefined,
+): PiSessionState {
+  const authoritativeStopReason =
+    stopReason && stopReason !== "pending" ? stopReason : null;
+  let index = -1;
+  for (let cursor = state.messages.length - 1; cursor >= 0; cursor -= 1) {
+    if (state.messages[cursor]?.role === "assistant") {
+      index = cursor;
+      break;
+    }
+  }
+  if (index < 0) return state;
+  return {
+    ...state,
+    messages: state.messages.map((message, current) =>
+      current === index
+        ? {
+            ...message,
+            stopReason: authoritativeStopReason ?? message.stopReason ?? null,
+            errorMessage: errorMessage ?? message.errorMessage ?? null,
+          }
+        : message,
+    ),
   };
 }
 

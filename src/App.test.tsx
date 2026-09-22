@@ -46,6 +46,15 @@ async function renderConnected() {
   await screen.findByRole("combobox", { name: "模型" });
 }
 
+async function readBlobText(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = () => reject(reader.error);
+    reader.readAsText(blob);
+  });
+}
+
 function textbox() {
   return screen.getByRole("textbox", { name: "任务指令" });
 }
@@ -499,12 +508,17 @@ describe("主工作区对话态", () => {
     expect(screen.getByRole("button", { name: "停止生成" })).toBeInTheDocument();
   });
 
-  it("保留 Pi 产生的连续助手轮次及其工具归属", async () => {
+  it("把一次用户指令下的多条助手消息归入同一响应组", async () => {
     await renderConnected();
 
-    emit({ sequence: 1, event: { type: "assistant_message_started" } });
     emit({
-      sequence: 2,
+      sequence: 1,
+      event: { type: "user_message_accepted", requestId: "1", message: "检查项目" },
+    });
+    emit({ sequence: 2, event: { type: "run_started" } });
+    emit({ sequence: 3, event: { type: "assistant_message_started" } });
+    emit({
+      sequence: 4,
       event: {
         type: "assistant_message_completed",
         text: "先读取文件",
@@ -512,7 +526,7 @@ describe("主工作区对话态", () => {
       },
     });
     emit({
-      sequence: 3,
+      sequence: 5,
       event: {
         type: "tool_started",
         toolCallId: "tool-1",
@@ -520,13 +534,18 @@ describe("主工作区对话态", () => {
         input: "{\"path\":\"README.md\"}",
       },
     });
-    emit({ sequence: 4, event: { type: "assistant_message_started" } });
+    emit({ sequence: 6, event: { type: "assistant_message_started" } });
     emit({
-      sequence: 5,
+      sequence: 7,
       event: { type: "assistant_text_delta", contentIndex: 0, delta: "读取完成" },
     });
 
-    expect(screen.getAllByLabelText("Pi 回复")).toHaveLength(2);
+    // 同一次用户指令只形成一个响应组，运行中的执行过程默认展开。
+    expect(screen.getAllByLabelText("Pi 回复")).toHaveLength(1);
+    expect(screen.getByRole("button", { name: "执行中" })).toHaveAttribute(
+      "aria-expanded",
+      "true",
+    );
     expect(screen.getByText("先读取文件")).toBeInTheDocument();
     expect(await screen.findByText("读取完成")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /正在读取 README.md/ })).toBeInTheDocument();
@@ -560,11 +579,59 @@ describe("主工作区对话态", () => {
       sequence: 1,
       event: { type: "user_message_accepted", requestId: "1", message: "检查项目" },
     });
-    emit({ sequence: 2, event: { type: "assistant_message_started" } });
+    emit({ sequence: 2, event: { type: "run_started" } });
+    emit({ sequence: 3, event: { type: "assistant_message_started" } });
     emit({
-      sequence: 3,
+      sequence: 4,
       event: { type: "assistant_text_delta", contentIndex: 0, delta: "先读取配置" },
     });
+    emit({
+      sequence: 5,
+      event: {
+        type: "tool_started",
+        toolCallId: "tool-1",
+        toolName: "read",
+        input: "{\"path\":\"package.json\"}",
+      },
+    });
+    emit({
+      sequence: 6,
+      event: {
+        type: "tool_completed",
+        toolCallId: "tool-1",
+        toolName: "read",
+        input: "{\"path\":\"package.json\"}",
+        output: "{\"name\":\"lure\"}",
+        truncatedLines: null,
+        isError: false,
+      },
+    });
+    emit({
+      sequence: 7,
+      event: { type: "assistant_text_delta", contentIndex: 2, delta: "再看入口" },
+    });
+
+    await screen.findByText("再看入口");
+    const bubble = await screen.findByLabelText("Pi 回复");
+    const rendered = bubble.textContent ?? "";
+    const before = rendered.indexOf("先读取配置");
+    const tool = rendered.indexOf("工具调用");
+    const after = rendered.indexOf("再看入口");
+
+    expect(before).toBeGreaterThanOrEqual(0);
+    expect(tool).toBeGreaterThan(before);
+    expect(after).toBeGreaterThan(tool);
+  });
+
+  it("同一回复中已结束与进行中的工具分别显示各自状态", async () => {
+    await renderConnected();
+
+    emit({
+      sequence: 1,
+      event: { type: "user_message_accepted", requestId: "1", message: "检查项目" },
+    });
+    emit({ sequence: 2, event: { type: "run_started" } });
+    emit({ sequence: 3, event: { type: "assistant_message_started" } });
     emit({
       sequence: 4,
       event: {
@@ -588,52 +655,6 @@ describe("主工作区对话态", () => {
     });
     emit({
       sequence: 6,
-      event: { type: "assistant_text_delta", contentIndex: 2, delta: "再看入口" },
-    });
-
-    await screen.findByText("再看入口");
-    const bubble = await screen.findByLabelText("Pi 回复");
-    const rendered = bubble.textContent ?? "";
-    const before = rendered.indexOf("先读取配置");
-    const tool = rendered.indexOf("工具调用");
-    const after = rendered.indexOf("再看入口");
-
-    expect(before).toBeGreaterThanOrEqual(0);
-    expect(tool).toBeGreaterThan(before);
-    expect(after).toBeGreaterThan(tool);
-  });
-
-  it("同一回复中已结束与进行中的工具分别显示各自状态", async () => {
-    await renderConnected();
-
-    emit({
-      sequence: 1,
-      event: { type: "user_message_accepted", requestId: "1", message: "检查项目" },
-    });
-    emit({ sequence: 2, event: { type: "assistant_message_started" } });
-    emit({
-      sequence: 3,
-      event: {
-        type: "tool_started",
-        toolCallId: "tool-1",
-        toolName: "read",
-        input: "{\"path\":\"package.json\"}",
-      },
-    });
-    emit({
-      sequence: 4,
-      event: {
-        type: "tool_completed",
-        toolCallId: "tool-1",
-        toolName: "read",
-        input: "{\"path\":\"package.json\"}",
-        output: "{\"name\":\"lure\"}",
-        truncatedLines: null,
-        isError: false,
-      },
-    });
-    emit({
-      sequence: 5,
       event: {
         type: "tool_started",
         toolCallId: "tool-2",
@@ -675,7 +696,7 @@ describe("主工作区对话态", () => {
     expect(textbox()).toHaveValue("下一条草稿");
   });
 
-  it("settled 后保留真实回复和工具卡片，不生成完成状态消息", async () => {
+  it("完成后执行过程默认折叠，最终结果与工具卡都在同一响应组内", async () => {
     await renderConnected();
     fireEvent.change(textbox(), { target: { value: "修改文件" } });
     fireEvent.submit(textbox().closest("form")!);
@@ -685,7 +706,7 @@ describe("主工作区对话态", () => {
     emit({ sequence: 2, event: { type: "assistant_message_started" } });
     emit({
       sequence: 3,
-      event: { type: "assistant_text_delta", contentIndex: 0, delta: "已经改好" },
+      event: { type: "assistant_text_delta", contentIndex: 0, delta: "先修改文件" },
     });
     emit({
       sequence: 4,
@@ -693,7 +714,7 @@ describe("主工作区对话态", () => {
         type: "tool_started",
         toolCallId: "tool-1",
         toolName: "edit",
-        input: "{\n  \"path\": \"src/App.tsx\"\n}",
+        input: "{\"path\": \"src/App.tsx\"}",
       },
     });
     emit({
@@ -702,16 +723,46 @@ describe("主工作区对话态", () => {
         type: "tool_completed",
         toolCallId: "tool-1",
         toolName: "edit",
-        input: "{\n  \"path\": \"src/App.tsx\"\n}",
+        input: "{\"path\": \"src/App.tsx\"}",
         output: "updated src/App.tsx",
         truncatedLines: null,
         isError: false,
       },
     });
-    emit({ sequence: 6, event: { type: "run_settled" } });
+    emit({
+      sequence: 6,
+      event: {
+        type: "assistant_message_completed",
+        text: "先修改文件",
+        thinking: "",
+        stopReason: "toolUse",
+      },
+    });
+    emit({ sequence: 7, event: { type: "assistant_message_started" } });
+    emit({
+      sequence: 8,
+      event: {
+        type: "assistant_message_completed",
+        text: "已经改好",
+        thinking: "",
+        stopReason: "stop",
+      },
+    });
+    emit({ sequence: 9, event: { type: "run_finished", willRetry: false } });
+    emit({ sequence: 10, event: { type: "run_settled" } });
 
+    // 最终结果始终在折叠区之外，执行过程默认收起。
     expect(await screen.findByText("已经改好")).toBeInTheDocument();
+    const toggle = screen.getByRole("button", { name: /展开执行过程/ });
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByRole("button", { name: /已修改 src\/App.tsx/ })).not.toBeInTheDocument();
+    expect(screen.getByText("先修改文件")).not.toBeVisible();
+
+    // 展开后才显示过程内容，工具卡保持原有渐进展开。
+    fireEvent.click(toggle);
     expect(screen.getByRole("button", { name: /已修改 src\/App.tsx/ })).toBeInTheDocument();
+    expect(screen.getByText("先修改文件")).toBeVisible();
+
     expect(screen.queryByRole("article", { name: /结果：/ })).not.toBeInTheDocument();
     expect(screen.queryByRole("status", { name: "任务状态" })).not.toBeInTheDocument();
     expect(screen.queryByText("任务执行完成")).not.toBeInTheDocument();
@@ -812,6 +863,260 @@ describe("历史会话", () => {
 
     const recent = screen.getByRole("region", { name: "最近" });
     expect(within(recent).getByRole("button", { name: /昨天的工作/ })).toBeDisabled();
+  });
+});
+
+describe("响应组与执行过程", () => {
+  it("多轮工具调用后只有最后一条纯文本消息成为最终结果", async () => {
+    await renderConnected();
+    fireEvent.change(textbox(), { target: { value: "重构模块" } });
+    fireEvent.submit(textbox().closest("form")!);
+    await waitFor(() => expect(mocks.invoke).toHaveBeenCalledWith("send_prompt", expect.anything()));
+
+    emit({
+      sequence: 1,
+      event: { type: "user_message_accepted", requestId: "9", message: "重构模块" },
+    });
+    emit({ sequence: 2, event: { type: "run_started" } });
+    emit({ sequence: 3, event: { type: "assistant_message_started" } });
+    emit({
+      sequence: 4,
+      event: {
+        type: "assistant_message_completed",
+        text: "第一步：读取入口",
+        thinking: "",
+        stopReason: "toolUse",
+      },
+    });
+    emit({
+      sequence: 5,
+      event: {
+        type: "tool_started",
+        toolCallId: "tool-1",
+        toolName: "read",
+        input: "{\"path\": \"src/App.tsx\"}",
+      },
+    });
+    emit({
+      sequence: 6,
+      event: {
+        type: "tool_completed",
+        toolCallId: "tool-1",
+        toolName: "read",
+        input: "{\"path\": \"src/App.tsx\"}",
+        output: "export default App",
+        truncatedLines: null,
+        isError: false,
+      },
+    });
+    emit({ sequence: 7, event: { type: "assistant_message_started" } });
+    emit({
+      sequence: 8,
+      event: {
+        type: "assistant_message_completed",
+        text: "第二步：改写结构",
+        thinking: "",
+        stopReason: "toolUse",
+      },
+    });
+    emit({
+      sequence: 9,
+      event: {
+        type: "tool_started",
+        toolCallId: "tool-2",
+        toolName: "edit",
+        input: "{\"path\": \"src/App.tsx\"}",
+      },
+    });
+    emit({
+      sequence: 10,
+      event: {
+        type: "tool_completed",
+        toolCallId: "tool-2",
+        toolName: "edit",
+        input: "{\"path\": \"src/App.tsx\"}",
+        output: "updated src/App.tsx",
+        truncatedLines: null,
+        isError: false,
+      },
+    });
+    emit({ sequence: 11, event: { type: "assistant_message_started" } });
+    emit({
+      sequence: 12,
+      event: {
+        type: "assistant_message_completed",
+        text: "重构已经完成",
+        thinking: "",
+        stopReason: "stop",
+      },
+    });
+    emit({ sequence: 13, event: { type: "run_finished", willRetry: false } });
+    emit({ sequence: 14, event: { type: "run_settled" } });
+
+    // 一次用户指令只产生一个响应组，最终结果始终在折叠区之外。
+    expect(screen.getAllByLabelText("Pi 回复")).toHaveLength(1);
+    expect(await screen.findByText("重构已经完成")).toBeVisible();
+
+    const toggle = screen.getByRole("button", { name: /2 个工具调用|用时/ });
+    expect(toggle.getAttribute("aria-label")).toContain("展开执行过程");
+    expect(screen.getByText("第一步：读取入口")).not.toBeVisible();
+
+    fireEvent.click(toggle);
+    expect(screen.getByText("第一步：读取入口")).toBeVisible();
+    expect(screen.getByText("第二步：改写结构")).toBeVisible();
+    expect(screen.getByRole("button", { name: /已读取 src\/App.tsx/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /已修改 src\/App.tsx/ })).toBeInTheDocument();
+  });
+
+  it("agent_end 之后 agent_settled 之前不提前定案", async () => {
+    await renderConnected();
+    fireEvent.change(textbox(), { target: { value: "重试任务" } });
+    fireEvent.submit(textbox().closest("form")!);
+    await waitFor(() => expect(mocks.invoke).toHaveBeenCalledWith("send_prompt", expect.anything()));
+
+    emit({
+      sequence: 1,
+      event: { type: "user_message_accepted", requestId: "10", message: "重试任务" },
+    });
+    emit({ sequence: 2, event: { type: "run_started" } });
+    emit({ sequence: 3, event: { type: "assistant_message_started" } });
+    emit({
+      sequence: 4,
+      event: {
+        type: "assistant_message_completed",
+        text: "第一次响应",
+        thinking: "",
+        stopReason: "stop",
+      },
+    });
+    emit({ sequence: 5, event: { type: "run_finished", willRetry: true } });
+
+    // 自动重试仍可能继续，此时不出现代表定案的耗时标签。
+    expect(screen.queryByRole("button", { name: /展开执行过程/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /用时/ })).not.toBeInTheDocument();
+
+    emit({ sequence: 6, event: { type: "assistant_message_started" } });
+    emit({
+      sequence: 7,
+      event: {
+        type: "assistant_message_completed",
+        text: "重试成功",
+        thinking: "",
+        stopReason: "stop",
+      },
+    });
+    emit({ sequence: 8, event: { type: "run_finished", willRetry: false } });
+    emit({ sequence: 9, event: { type: "turn_ended", stopReason: "stop" } });
+    emit({ sequence: 10, event: { type: "run_settled" } });
+
+    expect(await screen.findByText("重试成功")).toBeVisible();
+    const toggle = screen.getByRole("button", { name: /展开执行过程/ });
+    fireEvent.click(toggle);
+    expect(screen.getByText("第一次响应")).toBeVisible();
+  });
+
+  it("被截断或被停止的响应只显示部分结果与说明", async () => {
+    await renderConnected();
+    fireEvent.change(textbox(), { target: { value: "长回答" } });
+    fireEvent.submit(textbox().closest("form")!);
+    await waitFor(() => expect(mocks.invoke).toHaveBeenCalledWith("send_prompt", expect.anything()));
+
+    emit({
+      sequence: 1,
+      event: { type: "user_message_accepted", requestId: "11", message: "长回答" },
+    });
+    emit({ sequence: 2, event: { type: "run_started" } });
+    emit({ sequence: 3, event: { type: "assistant_message_started" } });
+    emit({
+      sequence: 4,
+      event: {
+        type: "assistant_message_completed",
+        text: "写了一半",
+        thinking: "",
+        stopReason: "length",
+      },
+    });
+    emit({ sequence: 5, event: { type: "run_settled" } });
+
+    expect(await screen.findByText("写了一半")).toBeInTheDocument();
+    expect(
+      screen.getByText("响应在完成前被截断，可以继续追问以补全结果。"),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("任务执行完成")).not.toBeInTheDocument();
+  });
+
+  it("历史会话按同一响应组规则重建，过程默认折叠", async () => {
+    const passthrough = mocks.invoke.getMockImplementation();
+    mocks.invoke.mockImplementation(async (command: string, args?: Record<string, unknown>) => {
+      if (command === "get_session_entries") {
+        return {
+          entries: [
+            {
+              type: "message",
+              id: "e1",
+              parentId: null,
+              message: { role: "user", content: "检查配置" },
+            },
+            {
+              type: "message",
+              id: "e2",
+              parentId: "e1",
+              message: {
+                role: "assistant",
+                stopReason: "toolUse",
+                content: [
+                  { type: "text", text: "先读取配置" },
+                  {
+                    type: "toolCall",
+                    id: "tool-1",
+                    name: "read",
+                    arguments: { path: "package.json" },
+                  },
+                ],
+              },
+            },
+            {
+              type: "message",
+              id: "e3",
+              parentId: "e2",
+              message: {
+                role: "toolResult",
+                toolCallId: "tool-1",
+                toolName: "read",
+                isError: false,
+                content: [{ type: "text", text: "{\"name\":\"lure\"}" }],
+              },
+            },
+            {
+              type: "message",
+              id: "e4",
+              parentId: "e3",
+              message: {
+                role: "assistant",
+                stopReason: "stop",
+                content: [{ type: "text", text: "配置已确认" }],
+              },
+            },
+          ],
+          leafId: "e4",
+        };
+      }
+      return passthrough?.(command, args);
+    });
+
+    await renderConnected();
+    const recent = screen.getByRole("region", { name: "最近" });
+    fireEvent.click(within(recent).getByRole("button", { name: /昨天的工作/ }));
+
+    // 历史没有可靠的运行耗时，只用过程内容说明，不伪造用时。
+    expect(await screen.findByText("配置已确认")).toBeVisible();
+    const toggle = screen.getByRole("button", { name: "1 个工具调用 · 展开执行过程" });
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    expect(screen.getByText("先读取配置")).not.toBeVisible();
+
+    fireEvent.click(toggle);
+    expect(screen.getByText("先读取配置")).toBeVisible();
+    expect(screen.getByRole("button", { name: /已读取 package.json/ })).toBeInTheDocument();
   });
 });
 
@@ -994,7 +1299,7 @@ describe("风险与错误处理", () => {
     expect(within(alert).getByRole("button", { name: "重新连接" })).toBeInTheDocument();
   });
 
-  it("导出记录把当前对话写成 Markdown", async () => {
+  it("导出记录把完整对话写成 Markdown，折叠的执行过程不丢内容", async () => {
     await renderConnected();
     fireEvent.change(textbox(), { target: { value: "导出我" } });
     fireEvent.submit(textbox().closest("form")!);
@@ -1003,6 +1308,34 @@ describe("风险与错误处理", () => {
       sequence: 1,
       event: { type: "user_message_accepted", requestId: "5", message: "导出我" },
     });
+    emit({ sequence: 2, event: { type: "run_started" } });
+    emit({ sequence: 3, event: { type: "assistant_message_started" } });
+    emit({
+      sequence: 4,
+      event: {
+        type: "assistant_message_completed",
+        text: "先读取配置",
+        thinking: "",
+        stopReason: "toolUse",
+      },
+    });
+    emit({ sequence: 5, event: { type: "assistant_message_started" } });
+    emit({
+      sequence: 6,
+      event: {
+        type: "assistant_message_completed",
+        text: "导出内容已确认",
+        thinking: "",
+        stopReason: "stop",
+      },
+    });
+    emit({ sequence: 7, event: { type: "run_settled" } });
+
+    // 导出时执行过程正处于折叠状态，但导出内容来自 Pi 的原始消息事实。
+    expect(screen.getByRole("button", { name: /展开执行过程/ })).toHaveAttribute(
+      "aria-expanded",
+      "false",
+    );
 
     fireEvent.click(screen.getByRole("button", { name: "导出记录" }));
     const dialog = await screen.findByRole("dialog");
@@ -1011,6 +1344,11 @@ describe("风险与错误处理", () => {
 
     expect(mocks.createObjectURL).toHaveBeenCalledTimes(1);
     expect(mocks.revokeObjectURL).toHaveBeenCalledTimes(1);
+    const [blob] = mocks.createObjectURL.mock.calls[0] as unknown as [Blob];
+    const markdown = await readBlobText(blob);
+    expect(markdown).toContain("## 用户\n\n导出我");
+    expect(markdown).toContain("先读取配置");
+    expect(markdown).toContain("导出内容已确认");
   });
 });
 

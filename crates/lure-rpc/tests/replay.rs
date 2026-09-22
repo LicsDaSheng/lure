@@ -149,6 +149,47 @@ async fn replays_a_recorded_run_as_normalized_events() {
         "回放应包含完整的助手消息"
     );
 
+    // 真实录制的每次运行都有 turn_start/turn_end：它们是单次 assistant/tool
+    // turn 的权威边界，且始终位于 message_end 之后、agent_end 之前。
+    let turn_started = collected
+        .iter()
+        .position(|event| matches!(event, LureEvent::TurnStarted))
+        .expect("回放应包含 turn_start");
+    let turn_ended = collected
+        .iter()
+        .position(|event| matches!(event, LureEvent::TurnEnded { .. }))
+        .expect("回放应包含 turn_end");
+    let first_message_end = collected
+        .iter()
+        .position(|event| matches!(event, LureEvent::AssistantMessageCompleted { .. }))
+        .expect("回放应包含 message_end");
+    let run_finished = collected
+        .iter()
+        .position(|event| matches!(event, LureEvent::RunFinished { .. }))
+        .expect("回放应包含 agent_end");
+    assert!(turn_started < turn_ended, "turn_start 应在 turn_end 之前");
+    assert!(
+        first_message_end < turn_ended,
+        "turn_end 应在 message_end 之后"
+    );
+    assert!(turn_ended < run_finished, "turn_end 应在 agent_end 之前");
+
+    let turn_ended_count = collected
+        .iter()
+        .filter(|event| matches!(event, LureEvent::TurnEnded { .. }))
+        .count();
+    assert!(
+        turn_ended_count >= 6,
+        "这次录制完成了 7 次工具调用，应有多个 turn 边界，实际：{turn_ended_count}"
+    );
+    assert!(
+        collected.iter().any(|event| matches!(
+            event,
+            LureEvent::TurnEnded { stop_reason: Some(reason), .. } if reason == "stop"
+        )),
+        "录制里最后一次 turn 以 stop 结束"
+    );
+
     client.stop().await.unwrap();
 }
 

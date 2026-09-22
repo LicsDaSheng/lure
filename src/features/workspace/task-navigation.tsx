@@ -306,12 +306,13 @@ function MoreSessionsButton({
 }) {
   return (
     <button
-      className="flex h-9 w-full items-center justify-center rounded-lg px-3 text-xs font-medium text-muted-foreground outline-none hover:bg-[#EEEEF1] hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/50"
+      aria-label="显示更多"
+      className="flex h-9 w-full items-center justify-center rounded-lg px-3 text-xs font-medium text-[#6C6C72] outline-none hover:bg-[#EEEEF1] hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:text-[#6C6C72]"
       disabled={disabled}
       onClick={onClick}
       type="button"
     >
-      更多消息
+      <span>显示更多</span>
     </button>
   );
 }

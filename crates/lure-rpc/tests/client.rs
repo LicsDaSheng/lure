@@ -75,6 +75,10 @@ async fn prompt_emits_normalized_events_and_only_settles_on_agent_settled() {
     ));
     assert!(received.iter().any(|event| matches!(
         event,
+        LureEvent::UserMessageObserved { message } if message == "测试消息"
+    )));
+    assert!(received.iter().any(|event| matches!(
+        event,
         LureEvent::AssistantTextDelta { delta, .. } if delta == "RPC_OK"
     )));
     assert!(received.iter().any(|event| matches!(
@@ -96,6 +100,21 @@ async fn prompt_emits_normalized_events_and_only_settles_on_agent_settled() {
         .position(|event| matches!(event, LureEvent::RunSettled))
         .unwrap();
     assert!(run_finished < run_settled);
+
+    // turn 边界跟随 message_end，并提供该轮次的权威终止原因。
+    let message_end = received
+        .iter()
+        .position(|event| matches!(event, LureEvent::AssistantMessageCompleted { .. }))
+        .unwrap();
+    let turn_ended = received
+        .iter()
+        .position(|event| matches!(event, LureEvent::TurnEnded { .. }))
+        .unwrap();
+    assert!(message_end < turn_ended && turn_ended < run_finished);
+    assert!(received.iter().any(|event| matches!(
+        event,
+        LureEvent::TurnEnded { stop_reason: Some(reason), .. } if reason == "stop"
+    )));
 
     client.stop().await.unwrap();
 }
