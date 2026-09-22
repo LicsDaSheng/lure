@@ -50,15 +50,12 @@ function renderNavigation({
       expandedProjects={expandedProjects}
       hasTask={false}
       loadingDirectories={[]}
-      onClose={vi.fn()}
       onNewProject={vi.fn()}
       onNewProjectTask={vi.fn()}
       onNewTask={vi.fn()}
       onLoadMoreSessions={onLoadMoreSessions}
       onOpenConversation={vi.fn()}
-      onSelectTask={vi.fn()}
       onToggleProject={vi.fn()}
-      open
       phase={phase}
       projects={projectSessions["/tmp/project"] ? [{ name: "示例项目", directory: "/tmp/project" }] : []}
       projectSessions={projectSessions}

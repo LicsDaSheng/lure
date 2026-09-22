@@ -46,14 +46,6 @@ async function renderConnected() {
   await screen.findByRole("combobox", { name: "模型" });
 }
 
-async function readBlobText(blob: Blob): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result));
-    reader.onerror = () => reject(reader.error);
-    reader.readAsText(blob);
-  });
-}
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -328,17 +320,6 @@ describe("主工作区初始态", () => {
     expect(screen.queryByText("shot.png")).not.toBeInTheDocument();
   });
 
-  it("窄窗口可以打开任务导航", () => {
-    render(<App />);
-
-    const open = screen.getByRole("button", { name: "打开任务导航" });
-    expect(open).toHaveAttribute("aria-expanded", "false");
-    fireEvent.click(open);
-    expect(screen.getByRole("button", { name: "关闭任务导航" })).toHaveAttribute(
-      "aria-expanded",
-      "true",
-    );
-  });
 
   it("任务导航展示最近与项目分组，不显示搜索或已归档分组", () => {
     render(<App />);
@@ -519,8 +500,10 @@ describe("主工作区对话态", () => {
 
     const header = screen.getByLabelText("任务顶栏");
     expect(within(header).getByRole("textbox", { name: "任务标题" })).toHaveValue("lure");
-    expect(within(header).getByRole("button", { name: "导出记录" })).toBeInTheDocument();
-    expect(within(header).getByRole("button", { name: "更多任务操作" })).toBeInTheDocument();
+    // 顶栏只承载标题与导航入口：不再提供导出、断开或更多操作。
+    expect(within(header).queryByRole("button", { name: "导出记录" })).not.toBeInTheDocument();
+    expect(within(header).queryByRole("button", { name: "更多任务操作" })).not.toBeInTheDocument();
+    expect(within(header).queryByRole("button", { name: "断开 Pi" })).not.toBeInTheDocument();
     expect(screen.queryByText("更换工作目录")).not.toBeInTheDocument();
     expect(within(header).queryByText("执行中")).not.toBeInTheDocument();
     expect(within(header).queryByText("fake-model")).not.toBeInTheDocument();
@@ -1537,57 +1520,6 @@ describe("风险与错误处理", () => {
     expect(within(dialog).getByRole("button", { name: "重新连接" })).toBeInTheDocument();
   });
 
-  it("导出记录把完整对话写成 Markdown，折叠的执行过程不丢内容", async () => {
-    await renderConnected();
-    fireEvent.change(textbox(), { target: { value: "导出我" } });
-    fireEvent.submit(textbox().closest("form")!);
-    await waitFor(() => expect(mocks.invoke).toHaveBeenCalledWith("send_prompt", expect.anything()));
-    emit({
-      sequence: 1,
-      event: { type: "user_message_accepted", requestId: "5", message: "导出我" },
-    });
-    emit({ sequence: 2, event: { type: "run_started" } });
-    emit({ sequence: 3, event: { type: "assistant_message_started" } });
-    emit({
-      sequence: 4,
-      event: {
-        type: "assistant_message_completed",
-        text: "先读取配置",
-        thinking: "",
-        stopReason: "toolUse",
-      },
-    });
-    emit({ sequence: 5, event: { type: "assistant_message_started" } });
-    emit({
-      sequence: 6,
-      event: {
-        type: "assistant_message_completed",
-        text: "导出内容已确认",
-        thinking: "",
-        stopReason: "stop",
-      },
-    });
-    emit({ sequence: 7, event: { type: "run_settled" } });
-
-    // 导出时执行过程正处于折叠状态，但导出内容来自 Pi 的原始消息事实。
-    expect(screen.getByRole("button", { name: /展开执行过程/ })).toHaveAttribute(
-      "aria-expanded",
-      "false",
-    );
-
-    fireEvent.click(screen.getByRole("button", { name: "导出记录" }));
-    const dialog = await screen.findByRole("dialog");
-    expect(within(dialog).getByText("操作内容")).toBeInTheDocument();
-    fireEvent.click(within(dialog).getByRole("button", { name: "导出并保存" }));
-
-    expect(mocks.createObjectURL).toHaveBeenCalledTimes(1);
-    expect(mocks.revokeObjectURL).toHaveBeenCalledTimes(1);
-    const [blob] = mocks.createObjectURL.mock.calls[0] as unknown as [Blob];
-    const markdown = await readBlobText(blob);
-    expect(markdown).toContain("## 用户\n\n导出我");
-    expect(markdown).toContain("先读取配置");
-    expect(markdown).toContain("导出内容已确认");
-  });
 });
 
 describe("附件", () => {

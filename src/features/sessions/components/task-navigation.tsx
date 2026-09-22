@@ -15,11 +15,9 @@ import {
   PlusIcon,
   SettingsIcon,
   SquarePenIcon,
-  XIcon,
 } from "lucide-react";
 
 export function TaskNavigation({
-  open,
   taskTitle,
   phase,
   hasTask,
@@ -41,11 +39,8 @@ export function TaskNavigation({
   defaultWorkspace,
   canOpenConversation,
   disabled,
-  onSelectTask,
-  onClose,
   sessionTransition,
 }: {
-  open: boolean;
   taskTitle: string;
   phase: ConnectionPhase;
   hasTask: boolean;
@@ -67,8 +62,6 @@ export function TaskNavigation({
   defaultWorkspace: string | null;
   canOpenConversation: boolean;
   disabled: boolean;
-  onSelectTask: () => void;
-  onClose: () => void;
   sessionTransition: SessionTransition;
 }) {
   const recentFallback = directoryName(defaultWorkspace) ?? "默认工作目录";
@@ -79,24 +72,8 @@ export function TaskNavigation({
   return (
     <nav
       aria-label="任务导航"
-      className={`fixed top-10 bottom-0 left-0 z-40 flex w-64 shrink-0 flex-col border-r border-[#E8E8EB] bg-[#F6F6F8] transition-transform duration-200 md:static md:translate-x-0 ${
-        open ? "translate-x-0" : "-translate-x-full"
-      }`}
+      className="flex w-64 shrink-0 flex-col border-r border-[#E8E8EB] bg-[#F6F6F8]"
     >
-      <div className="flex h-10 items-center px-3 md:hidden">
-        <Button
-          aria-expanded={open}
-          aria-label="关闭任务导航"
-          className="ml-auto"
-          onClick={onClose}
-          size="icon"
-          type="button"
-          variant="ghost"
-        >
-          <XIcon />
-        </Button>
-      </div>
-
       <div className="border-b border-[#E8E8EB]">
         <Button
           className="h-11 w-full justify-start rounded-none px-5"
@@ -144,7 +121,6 @@ export function TaskNavigation({
                     fallbackTitle={recentFallback}
                     key={session.path}
                     onOpen={onOpenConversation}
-                    onSelectTask={onSelectTask}
                     phase={phase}
                     session={session}
                     transitioning={sessionTransition === session.path}
@@ -234,7 +210,6 @@ export function TaskNavigation({
                         <button
                           aria-current="page"
                           className="flex h-9 w-full items-center gap-2 rounded-lg bg-[#E9E9ED] pr-3 pl-[38px] text-left text-sm font-medium text-accent-foreground"
-                          onClick={onSelectTask}
                           type="button"
                         >
                           <span className="min-w-0 flex-1 truncate">{taskTitle}</span>
@@ -250,7 +225,6 @@ export function TaskNavigation({
                           fallbackTitle={project.name}
                           key={session.path}
                           onOpen={onOpenConversation}
-                          onSelectTask={onSelectTask}
                           phase={phase}
                           nested
                           session={session}
@@ -317,7 +291,6 @@ function SessionRow({
   nested = false,
   phase,
   onOpen,
-  onSelectTask,
   transitioning = false,
 }: {
   session: PiSessionSummary;
@@ -327,7 +300,6 @@ function SessionRow({
   nested?: boolean;
   phase: ConnectionPhase;
   onOpen: (session: PiSessionSummary) => void;
-  onSelectTask: () => void;
   transitioning?: boolean;
 }) {
   const title = sessionTitle(session, fallbackTitle);
@@ -341,7 +313,6 @@ function SessionRow({
         aria-busy={transitioning}
         aria-current="page"
         className={`flex h-9 w-full items-center gap-2 rounded-lg bg-[#E9E9ED] pr-3 text-left text-sm font-medium text-accent-foreground ${nested ? "pl-[38px]" : "pl-3"}`}
-        onClick={onSelectTask}
         type="button"
       >
         <span className="min-w-0 flex-1 truncate">{title}</span>

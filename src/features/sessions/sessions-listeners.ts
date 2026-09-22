@@ -583,15 +583,3 @@ sessionsListenerMiddleware.startListening({
     await openProjectConversation(api, action.payload);
   },
 });
-
-sessionsListenerMiddleware.startListening({
-  actionCreator: sessionFlowActions.disconnectRequested,
-  effect: async (_action, api) => {
-    api.dispatch(sessionFlowActions.commandErrorCleared());
-    try {
-      await disconnectPi();
-      projectRuntimeEvents(api, [{ sequence: 0, event: { type: "connection_changed", snapshot: disconnectedSnapshot } }]);
-      clearCapabilities(api);
-    } catch (error) { reportError(api, error, "断开 Pi 失败"); }
-  },
-});

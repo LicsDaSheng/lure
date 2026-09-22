@@ -17,7 +17,6 @@ import {
   readAppendMessageImages,
   readAppendMessageText,
   readDraft,
-  serializeConversation,
   useConversation,
   writeDraft,
 } from "@/features/conversation";
@@ -34,9 +33,8 @@ import {
   useSessions,
   writeTitle,
 } from "@/features/sessions";
-import { RiskConfirmDialog } from "@/app/risk-confirm-dialog";
 import { WindowTitleBar } from "@/app/window-title-bar";
-import { ArrowDownIcon, MenuIcon } from "lucide-react";
+import { ArrowDownIcon } from "lucide-react";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 
 function directoryNameOf(directory: string | null) {
@@ -107,7 +105,6 @@ export function AppShell() {
     activeSessionSummary,
     toggleProject,
     openConversation,
-    disconnect,
     chooseProjectDirectory,
     clearProjectDirectory,
     projectDirectoryCandidate,
@@ -116,10 +113,8 @@ export function AppShell() {
   const { availableModels, current: currentModel, thinkingLevel, setModel, setThinkingLevel } = useModels();
   const { request: extensionRequest, respond: respondToExtension } = useExtensionUi();
   const submittedPrompts = useRef(promptSubmissionCount);
-  const [navigationOpen, setNavigationOpen] = useState(false);
   const [composerGeneration, setComposerGeneration] = useState(0);
   const [createProjectOpen, setCreateProjectOpen] = useState(false);
-  const [pendingRisk, setPendingRisk] = useState<"export" | null>(null);
   const [dismissedConnectionError, setDismissedConnectionError] = useState<string | null>(null);
   const promptInputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -200,7 +195,6 @@ export function AppShell() {
       setTitleState({ scope: target, value: nextTitle });
     }
     setComposerGeneration((value) => value + 1);
-    setNavigationOpen(false);
   }, [defaultWorkspace, newDefaultConversation, selectedDirectory]);
 
   const handleNewProjectTask = useCallback(
@@ -211,7 +205,6 @@ export function AppShell() {
       writeTitle(targetDirectory, nextTitle);
       setTitleState({ scope: targetDirectory, value: nextTitle });
       setComposerGeneration((value) => value + 1);
-      setNavigationOpen(false);
     },
     [newProjectConversation],
   );
@@ -234,20 +227,6 @@ export function AppShell() {
     persistDraft("");
   }, [persistDraft, promptSubmissionCount]);
 
-  const confirmExport = useCallback(() => {
-    setPendingRisk(null);
-    const markdown = serializeConversation(taskTitle, messages);
-    const blob = new Blob([markdown], { type: "text/markdown" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.download = `${taskTitle}.md`;
-    link.href = url;
-    document.body.append(link);
-    link.click();
-    link.remove();
-    URL.revokeObjectURL(url);
-  }, [messages, taskTitle]);
-
   return (
       <PiAssistantRuntimeProvider
         activeAssistantId={activeAssistantId}
@@ -262,15 +241,6 @@ export function AppShell() {
         <div className="flex h-dvh min-h-0 flex-col overflow-hidden overscroll-none bg-background text-foreground">
           <WindowTitleBar />
           <div className="relative flex min-h-0 flex-1 overflow-hidden overscroll-none">
-          {navigationOpen && (
-          <button
-            aria-label="关闭导航遮罩"
-            className="fixed inset-0 z-30 bg-black/20 md:hidden"
-            onClick={() => setNavigationOpen(false)}
-            type="button"
-          />
-        )}
-
         <TaskNavigation
           activeDirectory={directory}
           activeSessionId={activeSessionId}
@@ -280,18 +250,12 @@ export function AppShell() {
           expandedProjects={expandedProjects}
           hasTask={Boolean(directory)}
           loadingDirectories={loadingDirectories}
-          onClose={() => setNavigationOpen(false)}
           onNewTask={() => void handleNewTask()}
           onNewProject={() => setCreateProjectOpen(true)}
           onNewProjectTask={handleNewProjectTask}
-          onOpenConversation={(session) => {
-            openConversation(session);
-            setNavigationOpen(false);
-          }}
-          onSelectTask={() => setNavigationOpen(false)}
+          onOpenConversation={openConversation}
           onToggleProject={toggleProject}
           onLoadMoreSessions={loadMoreSessions}
-          open={navigationOpen}
           phase={connection.phase}
           projects={projects}
           projectSessions={projectSessions}
@@ -304,28 +268,9 @@ export function AppShell() {
 
         <main aria-label="任务工作区" className="flex min-w-0 flex-1 flex-col">
           {hasConversation ? (
-            <TaskHeader
-              canDisconnect={!canConnectSession && !switchingSession}
-              onDisconnect={() => void disconnect()}
-              onExport={() => setPendingRisk("export")}
-              onOpenNavigation={() => setNavigationOpen(true)}
-              onTitleChange={setTaskTitle}
-              title={taskTitle}
-            />
+            <TaskHeader onTitleChange={setTaskTitle} title={taskTitle} />
           ) : (
-            <div className="px-4 pt-4 md:px-5">
-              <Button
-                aria-expanded={navigationOpen}
-                aria-label="打开任务导航"
-                className="md:hidden"
-                onClick={() => setNavigationOpen(true)}
-                size="icon"
-                type="button"
-                variant="ghost"
-              >
-                <MenuIcon />
-              </Button>
-            </div>
+            <div className="h-4" aria-hidden="true" />
           )}
 
           {error && (
@@ -403,19 +348,6 @@ export function AppShell() {
             if (!open) clearProjectDirectory();
           }}
           open={createProjectOpen}
-        />
-
-        <RiskConfirmDialog
-          confirmLabel="导出并保存"
-          details={{
-            action: "把当前任务的对话导出为 Markdown 文件并保存到本机。",
-            recoverable: "导出文件保存在你指定的位置，桌面端无法自动清除。",
-            target: "当前任务的全部对话内容及其中出现的本地路径。",
-          }}
-          onCancel={() => setPendingRisk(null)}
-          onConfirm={confirmExport}
-          open={pendingRisk === "export"}
-          title="导出任务记录前确认"
         />
 
         <ConnectionFailureDialog
