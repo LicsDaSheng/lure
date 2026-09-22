@@ -12,6 +12,11 @@ export function sessionTitle(session: PiSessionSummary, fallback: string): strin
   return fallback;
 }
 
+export function directoryName(directory: string | null): string | null {
+  if (!directory) return null;
+  return directory.split(/[\\/]/).filter(Boolean).at(-1) ?? directory;
+}
+
 export function relativeTimeLabel(timestampMs: number, now: number = Date.now()): string {
   const elapsed = now - timestampMs;
   if (elapsed < MINUTE_MS) return "刚刚";

@@ -88,6 +88,14 @@ async function flushListeners() {
   await new Promise((resolve) => setTimeout(resolve, 0));
 }
 
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((complete) => {
+    resolve = complete;
+  });
+  return { promise, resolve };
+}
+
 beforeEach(() => {
   mocks.connectPi.mockReset();
   mocks.disconnectPi.mockReset();
@@ -366,6 +374,81 @@ describe("历史会话", () => {
     expect(mocks.connectPi).toHaveBeenLastCalledWith("/tmp/project");
     expect(mocks.switchPiSession).toHaveBeenCalledWith(projectSession.path);
     expect(combined(store).connection.sessionId).toBe("session-project");
+  });
+
+  it("跨项目连接期间保留所有历史列表，并标记目标会话正在打开", async () => {
+    mocks.listenToPiEvents.mockResolvedValue(vi.fn());
+    mocks.listProjectSessions.mockResolvedValue({ hasMore: false, sessions: [recordedSession] });
+    const store = createStore();
+    store.dispatch(sessionsActions.eventSubscriptionRequested());
+    await flushListeners();
+    store.dispatch(sessionsActions.sessionsLoaded({
+      append: false,
+      directory: "/tmp/project",
+      hasMore: false,
+      sessions: [projectSession],
+    }));
+
+    const targetConnection = deferred<Awaited<ReturnType<typeof mocks.connectPi>>>();
+    mocks.connectPi.mockImplementationOnce(() => targetConnection.promise);
+    store.dispatch(sessionsActions.conversationOpenRequested(projectSession));
+    await flushListeners();
+
+    expect(combined(store).recentSessions).toEqual([recordedSession]);
+    expect(combined(store).projectSessions["/tmp/project"]).toEqual([projectSession]);
+    expect(store.getState().sessions.sessionTransition).toBe(projectSession.path);
+
+    targetConnection.resolve({
+      error: null,
+      model: null,
+      phase: "ready",
+      sessionFile: "/tmp/project/current.jsonl",
+      sessionId: "session-current",
+      thinkingLevel: "medium",
+      workingDirectory: "/tmp/project",
+    });
+    mocks.switchPiSession.mockResolvedValue({ switched: false, snapshot: {
+      error: null,
+      model: null,
+      phase: "ready",
+      sessionFile: "/tmp/project/current.jsonl",
+      sessionId: "session-current",
+      thinkingLevel: "medium",
+      workingDirectory: "/tmp/project",
+    } });
+    await flushListeners();
+  });
+
+  it("目标 RPC 就绪后不等待历史列表刷新即可切换会话", async () => {
+    mocks.listenToPiEvents.mockResolvedValue(vi.fn());
+    mocks.switchPiSession.mockResolvedValue({
+      switched: true,
+      snapshot: {
+        error: null,
+        model: null,
+        phase: "ready",
+        sessionFile: projectSession.path,
+        sessionId: "session-project",
+        thinkingLevel: "medium",
+        workingDirectory: "/tmp/project",
+      },
+    });
+    mocks.getSessionEntries.mockResolvedValue({ entries: [], leafId: null });
+    const store = createStore();
+    store.dispatch(sessionsActions.eventSubscriptionRequested());
+    await flushListeners();
+
+    const backgroundRefresh = deferred<{ hasMore: boolean; sessions: [] }>();
+    mocks.listProjectSessions.mockImplementation(() => backgroundRefresh.promise);
+    store.dispatch(sessionsActions.conversationOpenRequested(projectSession));
+    await flushListeners();
+
+    expect(mocks.switchPiSession).toHaveBeenCalledWith(projectSession.path);
+    expect(mocks.getSessionEntries).toHaveBeenCalledOnce();
+    expect(store.getState().sessions.sessionTransition).toBeNull();
+
+    backgroundRefresh.resolve({ hasMore: false, sessions: [] });
+    await flushListeners();
   });
 
   const projectSession = {

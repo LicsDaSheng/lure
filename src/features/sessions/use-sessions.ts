@@ -5,6 +5,7 @@ import type { PiSessionSummary } from "@/lib/pi-rpc/types";
 
 import { sessionsActions } from "./sessions-slice";
 import {
+  selectConnectionError,
   selectExpandedProjects,
   selectLoadingDirectories,
   selectProjectSessions,
@@ -19,6 +20,7 @@ export function useSessions() {
   return {
     ...state,
     error: useAppSelector(selectSessionError),
+    connectionError: useAppSelector(selectConnectionError),
     recentSessions: useAppSelector(selectRecentSessions),
     projectSessions: useAppSelector(selectProjectSessions),
     expandedProjects: useAppSelector(selectExpandedProjects),

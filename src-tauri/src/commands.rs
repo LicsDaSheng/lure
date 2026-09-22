@@ -93,19 +93,14 @@ pub(crate) async fn connect_pi(
     }
 
     let canonical = canonical_directory(&working_directory)?;
+    // 连接快照只通过 invoke 响应返回，由前端主动投影；
+    // 不再向事件通道重复 emit，避免事件迟到时旧快照覆盖新状态。
     let connecting = ConnectionSnapshot {
         phase: ConnectionPhase::Connecting,
         working_directory: Some(canonical.display().to_string()),
         ..ConnectionSnapshot::default()
     };
-    *state.snapshot.write().await = connecting.clone();
-    emit_lure_event(
-        &app,
-        &state,
-        LureEvent::ConnectionChanged {
-            snapshot: connecting,
-        },
-    );
+    *state.snapshot.write().await = connecting;
 
     let config = PiProcessConfig::for_working_directory(&canonical);
     let (client, rpc_state) = match PiRpcClient::connect(config).await {
@@ -118,12 +113,7 @@ pub(crate) async fn connect_pi(
                 error: Some(error.clone()),
                 ..ConnectionSnapshot::default()
             };
-            *state.snapshot.write().await = failed.clone();
-            emit_lure_event(
-                &app,
-                &state,
-                LureEvent::ConnectionChanged { snapshot: failed },
-            );
+            *state.snapshot.write().await = failed;
             return Err(error);
         }
     };
@@ -134,26 +124,11 @@ pub(crate) async fn connect_pi(
     let event_task = tokio::spawn(forward_pi_events(app.clone(), state.clone(), receiver));
     *session_guard = Some(DesktopSession { client, event_task });
     *state.snapshot.write().await = ready.clone();
-    emit_lure_event(
-        &app,
-        &state,
-        LureEvent::SessionReady {
-            snapshot: ready.clone(),
-        },
-    );
-    emit_lure_event(
-        &app,
-        &state,
-        LureEvent::ConnectionChanged {
-            snapshot: ready.clone(),
-        },
-    );
     Ok(ready)
 }
 
 #[tauri::command]
 pub(crate) async fn new_pi_session(
-    app: AppHandle,
     state: State<'_, SharedAppState>,
 ) -> Result<ConnectionSnapshot, LureError> {
     let state = state.inner().clone();
@@ -178,22 +153,9 @@ pub(crate) async fn new_pi_session(
         .new_session()
         .await
         .map_err(|error| map_rpc_error(&error))?;
+    // 连接快照只随 invoke 响应返回，不再向事件通道重复 emit。
     let ready = ready_snapshot(rpc_state, working_directory);
     *state.snapshot.write().await = ready.clone();
-    emit_lure_event(
-        &app,
-        &state,
-        LureEvent::SessionReady {
-            snapshot: ready.clone(),
-        },
-    );
-    emit_lure_event(
-        &app,
-        &state,
-        LureEvent::ConnectionChanged {
-            snapshot: ready.clone(),
-        },
-    );
     Ok(ready)
 }
 
@@ -213,17 +175,11 @@ fn ready_snapshot(rpc_state: RpcSessionState, working_directory: String) -> Conn
 }
 
 #[tauri::command]
-pub(crate) async fn disconnect_pi(
-    app: AppHandle,
-    state: State<'_, SharedAppState>,
-) -> Result<(), LureError> {
-    disconnect_inner(&app, state.inner().clone()).await
+pub(crate) async fn disconnect_pi(state: State<'_, SharedAppState>) -> Result<(), LureError> {
+    disconnect_inner(state.inner().clone()).await
 }
 
-pub(crate) async fn disconnect_inner(
-    app: &AppHandle,
-    state: SharedAppState,
-) -> Result<(), LureError> {
+pub(crate) async fn disconnect_inner(state: SharedAppState) -> Result<(), LureError> {
     let _command_guard = state.command_lock.lock().await;
     let session = state.session.lock().await.take();
     if let Some(session) = session {
@@ -238,15 +194,9 @@ pub(crate) async fn disconnect_inner(
             .map_err(|error| map_rpc_error(&error))?;
     }
 
+    // 断开快照只随 invoke 响应返回，由前端主动投影；不再向事件通道重复 emit。
     let disconnected = ConnectionSnapshot::default();
-    *state.snapshot.write().await = disconnected.clone();
-    emit_lure_event(
-        app,
-        &state,
-        LureEvent::ConnectionChanged {
-            snapshot: disconnected,
-        },
-    );
+    *state.snapshot.write().await = disconnected;
     Ok(())
 }
 
@@ -508,7 +458,6 @@ pub(crate) async fn list_project_sessions(
 /// Pi 未连接、当前正在运行、切换失败或会话状态无效时返回错误。
 #[tauri::command]
 pub(crate) async fn switch_pi_session(
-    app: AppHandle,
     state: State<'_, SharedAppState>,
     session_path: String,
 ) -> Result<SessionSwitchResult, LureError> {
@@ -541,22 +490,9 @@ pub(crate) async fn switch_pi_session(
             snapshot: state.snapshot.read().await.clone(),
         }),
         SessionSwitch::Switched(rpc_state) => {
+            // 连接快照只随 invoke 响应返回，不再向事件通道重复 emit。
             let ready = ready_snapshot(*rpc_state, working_directory);
             *state.snapshot.write().await = ready.clone();
-            emit_lure_event(
-                &app,
-                &state,
-                LureEvent::SessionReady {
-                    snapshot: ready.clone(),
-                },
-            );
-            emit_lure_event(
-                &app,
-                &state,
-                LureEvent::ConnectionChanged {
-                    snapshot: ready.clone(),
-                },
-            );
             Ok(SessionSwitchResult {
                 switched: true,
                 snapshot: ready,
