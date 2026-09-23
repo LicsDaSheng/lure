@@ -344,7 +344,7 @@ describe("主工作区初始态", () => {
   it("任务导航采用紧凑的浅灰布局", () => {
     render(<App />);
 
-    expect(screen.getByRole("navigation", { name: "任务导航" })).toHaveClass("bg-[#F6F6F8]");
+    expect(screen.getByRole("navigation", { name: "任务导航" })).toHaveClass("bg-sidebar");
     expect(screen.getByRole("banner", { name: "应用标题栏" })).toHaveClass("h-12");
     expect(screen.getByRole("button", { name: "新建任务" })).toHaveClass("h-11", "px-5");
   });
@@ -353,13 +353,37 @@ describe("主工作区初始态", () => {
     render(<App />);
 
     const titleBar = screen.getByRole("banner", { name: "应用标题栏" });
-    expect(titleBar.firstElementChild).toHaveClass("bg-[#F6F6F8]", "border-r");
+    expect(titleBar.firstElementChild).toHaveClass("bg-sidebar", "border-r");
     expect(titleBar.lastElementChild).toHaveClass("bg-background");
 
     fireEvent.click(screen.getByRole("button", { name: "折叠左侧栏" }));
     expect(screen.queryByRole("navigation", { name: "任务导航" })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "展开左侧栏" }));
     expect(screen.getByRole("navigation", { name: "任务导航" })).toBeInTheDocument();
+  });
+
+  it("设置页只保留返回应用和外观，并可切换深色主题", () => {
+    render(<App />);
+
+    fireEvent.click(screen.getByRole("button", { name: "设置" }));
+
+    expect(screen.getByRole("button", { name: "返回应用" })).toBeInTheDocument();
+    expect(screen.getByRole("navigation", { name: "设置选项" })).toHaveTextContent("外观");
+    expect(screen.queryByText("Agent")).not.toBeInTheDocument();
+    expect(screen.queryByText("工具")).not.toBeInTheDocument();
+    expect(screen.queryByRole("searchbox")).not.toBeInTheDocument();
+
+    const themes = screen.getByRole("radiogroup", { name: "主题" });
+    expect(within(themes).getByRole("radio", { name: "系统" })).toHaveAttribute("aria-checked", "true");
+    fireEvent.click(within(themes).getByRole("radio", { name: "深色" }));
+
+    expect(document.documentElement).toHaveClass("dark");
+    expect(document.documentElement).toHaveAttribute("data-theme", "dark");
+    expect(localStorage.getItem("lure.theme")).toBe("dark");
+
+    fireEvent.click(screen.getByRole("button", { name: "返回应用" }));
+    expect(screen.getByRole("navigation", { name: "任务导航" })).toBeInTheDocument();
+    expect(screen.queryByRole("main", { name: "外观设置" })).not.toBeInTheDocument();
   });
 
   it("默认工作目录只显示在最近中，并可通过弹框添加本地项目", async () => {

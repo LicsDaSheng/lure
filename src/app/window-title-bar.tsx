@@ -47,7 +47,7 @@ export function WindowTitleBar({
     >
       {!collapsed && (
         <div
-          className="window-drag-region flex h-full w-[272px] shrink-0 items-center border-r border-border bg-[#F6F6F8] px-2"
+          className="window-drag-region flex h-full w-[272px] shrink-0 items-center border-r border-border bg-sidebar px-2"
           data-tauri-drag-region=""
         >
           <WindowControls />
