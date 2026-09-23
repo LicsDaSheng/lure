@@ -151,6 +151,11 @@ export function AssistantTurn({ turn }: { turn: ConversationTurn }) {
         </Collapsible>
       )}
 
+      {/* 执行过程与主结果之间以细分隔线区隔，主结果始终在折叠区之外。 */}
+      {hasProcess && turn.result && (
+        <hr aria-hidden="true" className="border-0 border-t border-[#E8E8EB]" />
+      )}
+
       {turn.result && (
         <div className="flex flex-col gap-2">
           {turn.result.parts.length > 0 && (
