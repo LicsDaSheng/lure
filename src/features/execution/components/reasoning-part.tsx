@@ -43,10 +43,10 @@ export function ReasoningPart({ streaming, text }: ReasoningPartProps) {
       : `已思考 ${duration} 秒`;
 
   return (
-    <Collapsible className="group not-prose" defaultOpen={false}>
-      <CollapsibleTrigger className="flex w-full items-center gap-1 text-[13px] italic text-[var(--pi-muted)] transition-colors hover:text-foreground">
-        <ChevronRightIcon className="size-4 group-data-[state=open]:hidden" />
-        <ChevronDownIcon className="hidden size-4 group-data-[state=open]:block" />
+    <Collapsible className="not-prose" defaultOpen={false}>
+      <CollapsibleTrigger className="group/trigger flex w-full items-center gap-1 text-[13px] italic text-[var(--pi-muted)] transition-colors hover:text-foreground">
+        <ChevronRightIcon className="size-4 group-data-[state=open]/trigger:hidden" />
+        <ChevronDownIcon className="hidden size-4 group-data-[state=open]/trigger:block" />
         {label}
       </CollapsibleTrigger>
       <CollapsibleContent className="pi-markdown mt-1 pl-4 text-[13px] italic text-[var(--pi-muted)] outline-none">

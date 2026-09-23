@@ -104,14 +104,11 @@
   --pi-warning: oklch(0.62 0.14 85);
   --pi-dim: #9A9BA1;
   --pi-muted: #65666C;
-  --pi-syntax-keyword: #569cd6;
-  --pi-syntax-function: #dcdcaa;
-  --pi-syntax-string: #ce9178;
-  --pi-syntax-number: #b5cea8;
-  --pi-syntax-type: #4ec9b0;
-  --pi-syntax-comment: #6a9955;
-  --pi-syntax-variable: #9cdcfe;
-  --pi-syntax-operator: #d4d4d4;
+  --pi-code-bg: #F6F8FA;
+  --pi-code-border: #D8DEE4;
+  --pi-code-foreground: #1F2328;
+  --pi-inline-code-bg: #EFF1F3;
+  --pi-inline-code-foreground: #39414A;
 
   /* Casoon 微交互沿用 Pi 的低饱和焦点色。 */
   --cs-color-focus: var(--pi-accent);
@@ -159,6 +156,11 @@
   --pi-warning: oklch(0.85 0.15 105);
   --pi-dim: oklch(0.45 0 0);
   --pi-muted: oklch(0.52 0 0);
+  --pi-code-bg: #161B22;
+  --pi-code-border: #30363D;
+  --pi-code-foreground: #E6EDF3;
+  --pi-inline-code-bg: #252B33;
+  --pi-inline-code-foreground: #E6EDF3;
 }
 
 @layer base {
@@ -255,10 +257,11 @@
 
   .pi-markdown :not(pre) > code {
     border-radius: 0.3rem;
-    background: #F0F0F2;
+    background: var(--pi-inline-code-bg);
     padding: 0.08rem 0.3rem;
-    color: #526065;
+    color: var(--pi-inline-code-foreground);
     font-size: 0.92em;
+    font-weight: 500;
   }
 
   .pi-markdown pre {
@@ -306,9 +309,10 @@
 
   .pi-markdown [data-streamdown="code-block"] {
     gap: 0.5rem;
-    border-color: color-mix(in oklch, var(--border) 72%, transparent);
+    border-color: var(--pi-code-border);
     border-radius: 1rem;
-    background: color-mix(in oklch, var(--muted) 72%, var(--card));
+    background: var(--pi-code-bg);
+    color: var(--pi-code-foreground);
     padding: 0.75rem 1rem 1rem;
     box-shadow: none;
   }
@@ -316,7 +320,7 @@
   .pi-markdown [data-streamdown="code-block-header"] {
     height: 2rem;
     padding-inline: 0.25rem;
-    color: var(--foreground);
+    color: var(--pi-code-foreground);
     font-size: 0.8125rem;
     font-weight: 600;
   }
@@ -344,6 +348,7 @@
 
   .pi-markdown [data-streamdown="code-block-body"] pre {
     background: transparent;
+    color: var(--pi-code-foreground);
     line-height: 1.65;
   }
 

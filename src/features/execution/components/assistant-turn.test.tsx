@@ -178,6 +178,41 @@ describe("响应组展示", () => {
     );
   });
 
+  it("外层过程展开时不会把已收起工具的箭头误显示为展开方向", () => {
+    render(
+      <AssistantTurn
+        turn={turn({
+          isRunning: true,
+          phase: "running",
+          process: [
+            {
+              id: "assistant-1",
+              parts: [toolPart("tool-1")],
+              stopReason: null,
+              errorMessage: null,
+              isRunning: true,
+            },
+          ],
+          toolCount: 1,
+        })}
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: "执行中" })).toHaveAttribute(
+      "aria-expanded",
+      "true",
+    );
+    const tool = screen.getByRole("button", { name: /已读取 package.json/ });
+    expect(tool).toHaveAttribute("aria-expanded", "false");
+    expect(tool).toHaveClass("group/trigger");
+    expect(tool.querySelector(".lucide-chevron-right")).toHaveClass(
+      "group-data-[state=open]/trigger:hidden",
+    );
+    expect(tool.querySelector(".lucide-chevron-down")).toHaveClass(
+      "group-data-[state=open]/trigger:block",
+    );
+  });
+
   it("被停止或失败的响应说明发生了什么，不称为最终答案", () => {
     const { rerender } = render(
       <AssistantTurn
