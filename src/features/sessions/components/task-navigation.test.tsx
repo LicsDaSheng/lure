@@ -105,6 +105,16 @@ describe("任务导航会话列表", () => {
     expect(onNewTask).toHaveBeenCalledOnce();
   });
 
+  it("最近、项目标题与项目名称使用一致字号", () => {
+    renderNavigation({
+      projectSessions: { "/tmp/project": sessions("/tmp/project", 1) },
+    });
+
+    expect(screen.getByRole("button", { name: "最近历史会话" })).toHaveClass("text-xs");
+    expect(screen.getByRole("heading", { name: "项目" })).toHaveClass("text-xs");
+    expect(screen.getByRole("button", { name: "示例项目 历史会话" })).toHaveClass("text-xs");
+  });
+
   it("最近会话使用醒目的单列标题，不显示时间", () => {
     renderNavigation();
     const recent = screen.getByRole("region", { name: "最近" });
