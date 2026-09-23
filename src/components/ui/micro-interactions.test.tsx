@@ -5,11 +5,12 @@ import { Button } from "./button";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "./collapsible";
 
 describe("全局微交互", () => {
-  it("按钮使用包提供的 hover、focus 和 active 效果", () => {
+  it("按钮使用明确的状态色以及 focus、active 微交互", () => {
     render(<Button>执行</Button>);
 
     const button = screen.getByRole("button", { name: "执行" });
-    expect(button).toHaveClass("cs-hover-brighten");
+    expect(button).toHaveClass("hover:bg-[var(--button-primary-hover)]");
+    expect(button).toHaveClass("active:bg-[var(--button-primary-active)]");
     expect(button).toHaveClass("cs-focus-pop");
     expect(button).toHaveClass("cs-active-scale-98");
     expect(button).toHaveClass("cs-tap-highlight-none");

@@ -192,7 +192,7 @@ describe("主工作区初始态", () => {
     render(<App />);
 
     const frame = screen.getByTestId("app-frame");
-    expect(frame.className).toContain("rounded-xl");
+    expect(frame.className).toContain("rounded-2xl");
     expect(frame.className).toContain("overflow-hidden");
     expect(frame.className).toContain("border");
   });
@@ -274,6 +274,7 @@ describe("主工作区初始态", () => {
 
     const conversationColumn = screen.getByLabelText("对话内容列");
     expect(conversationColumn.className).toContain("flex-1");
+    expect(conversationColumn.className).toContain("max-w-[768px]");
     expect(conversationColumn.className).not.toContain("min-h-full");
   });
 
@@ -344,8 +345,21 @@ describe("主工作区初始态", () => {
     render(<App />);
 
     expect(screen.getByRole("navigation", { name: "任务导航" })).toHaveClass("bg-[#F6F6F8]");
-    expect(screen.getByRole("banner", { name: "应用标题栏" })).toHaveClass("h-10");
+    expect(screen.getByRole("banner", { name: "应用标题栏" })).toHaveClass("h-12");
     expect(screen.getByRole("button", { name: "新建任务" })).toHaveClass("h-11", "px-5");
+  });
+
+  it("标题栏与左右两列保持同色，并可折叠左侧导航", () => {
+    render(<App />);
+
+    const titleBar = screen.getByRole("banner", { name: "应用标题栏" });
+    expect(titleBar.firstElementChild).toHaveClass("bg-[#F6F6F8]", "border-r");
+    expect(titleBar.lastElementChild).toHaveClass("bg-background");
+
+    fireEvent.click(screen.getByRole("button", { name: "折叠左侧栏" }));
+    expect(screen.queryByRole("navigation", { name: "任务导航" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "展开左侧栏" }));
+    expect(screen.getByRole("navigation", { name: "任务导航" })).toBeInTheDocument();
   });
 
   it("默认工作目录只显示在最近中，并可通过弹框添加本地项目", async () => {

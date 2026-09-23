@@ -115,7 +115,7 @@ export function AssistantTurn({ turn }: { turn: ConversationTurn }) {
   return (
     <div
       aria-label="Pi 回复"
-      className="flex w-full min-w-0 flex-col gap-2 px-4 py-1 text-sm text-foreground"
+      className="flex w-full min-w-0 flex-col gap-2 py-1 text-[13px] leading-5 text-foreground"
       data-phase={turn.phase}
     >
       {hasProcess && (
@@ -153,7 +153,7 @@ export function AssistantTurn({ turn }: { turn: ConversationTurn }) {
 
       {/* 执行过程与主结果之间以细分隔线区隔，主结果始终在折叠区之外。 */}
       {hasProcess && turn.result && (
-        <hr aria-hidden="true" className="border-0 border-t border-[#E8E8EB]" />
+        <hr aria-hidden="true" className="border-0 border-t border-border" />
       )}
 
       {turn.result && (

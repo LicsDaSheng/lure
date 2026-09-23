@@ -73,9 +73,9 @@ export function TaskNavigation({
   return (
     <nav
       aria-label="任务导航"
-      className="flex w-64 shrink-0 flex-col border-r border-[#E8E8EB] bg-[#F6F6F8]"
+      className="flex w-[272px] shrink-0 flex-col border-r border-border bg-[#F6F6F8]"
     >
-      <div className="border-b border-[#E8E8EB]">
+      <div className="border-b border-border">
         <Button
           className="h-11 w-full justify-start rounded-none px-5"
           onClick={onNewTask}
@@ -94,7 +94,7 @@ export function TaskNavigation({
             <button
               aria-expanded={recentExpanded}
               aria-label="最近历史会话"
-              className="mr-1 flex size-8 items-center justify-center rounded-lg outline-none hover:bg-[#EEEEF1] focus-visible:ring-[3px] focus-visible:ring-ring/50"
+              className="mr-1 flex size-8 items-center justify-center rounded-lg outline-none hover:bg-[var(--button-subtle-hover)] active:bg-[var(--button-subtle-active)] focus-visible:ring-[3px] focus-visible:ring-ring/50"
               onClick={() => setRecentExpanded((expanded) => !expanded)}
               type="button"
             >
@@ -103,7 +103,7 @@ export function TaskNavigation({
                 className={`size-4 text-muted-foreground transition-transform ${recentExpanded ? "rotate-90" : ""}`}
               />
             </button>
-            <h2 className="text-[13px] font-medium text-muted-foreground" id="recent-heading">
+            <h2 className="text-xs font-medium text-muted-foreground" id="recent-heading">
               最近
             </h2>
             {defaultWorkspace && loadingDirectories.includes(defaultWorkspace) && (
@@ -143,7 +143,7 @@ export function TaskNavigation({
 
         <section aria-labelledby="projects-heading" className="mt-5">
           <div className="group/projects-heading flex h-9 items-center px-2">
-            <h2 className="text-[13px] font-medium text-muted-foreground" id="projects-heading">
+            <h2 className="text-xs font-medium text-muted-foreground" id="projects-heading">
               项目
             </h2>
             <Button
@@ -170,11 +170,11 @@ export function TaskNavigation({
               );
               return (
                 <div className="group/project" key={project.directory}>
-                  <div className="flex h-10 items-center rounded-lg px-2 hover:bg-[#EEEEF1] focus-within:bg-[#EEEEF1]">
+                  <div className="flex h-10 items-center rounded-lg px-2 hover:bg-[var(--button-subtle-hover)] focus-within:bg-[var(--button-subtle-hover)]">
                     <button
                       aria-expanded={expanded}
                       aria-label={`${project.name} 历史会话`}
-                      className="flex h-full min-w-0 flex-1 items-center gap-2.5 rounded-lg text-left text-[15px] font-normal outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
+                      className="flex h-full min-w-0 flex-1 items-center gap-2.5 rounded-lg text-left text-sm font-normal outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
                       disabled={disabled}
                       onClick={() => onToggleProject(project.directory)}
                       type="button"
@@ -267,7 +267,7 @@ function CurrentTaskFallbackRow({
   return (
     <button
       aria-current="page"
-      className="marquee-row flex h-9 w-full items-center gap-2 rounded-lg bg-[#E9E9ED] pr-3 pl-[38px] text-left text-sm font-medium text-accent-foreground"
+      className="marquee-row flex h-9 w-full items-center gap-2 rounded-lg bg-[var(--button-subtle-active)] pr-3 pl-[38px] text-left text-[13px] font-medium text-accent-foreground"
       onBlur={() => setHovered(false)}
       onFocus={() => setHovered(true)}
       onMouseEnter={() => setHovered(true)}
@@ -296,7 +296,7 @@ function MoreSessionsButton({
   return (
     <button
       aria-label="显示更多"
-      className={`flex h-9 w-full items-center justify-start rounded-lg pr-3 text-sm font-normal text-[#B0B0B5] outline-none hover:bg-[#EEEEF1] hover:text-[#6C6C72] focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:text-[#B0B0B5] ${nested ? "pl-[38px]" : "pl-3"}`}
+      className={`flex h-9 w-full items-center justify-start rounded-lg pr-3 text-[13px] font-normal text-[var(--button-disabled-foreground)] outline-none hover:bg-[var(--button-subtle-hover)] hover:text-muted-foreground active:bg-[var(--button-subtle-active)] focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:text-[var(--button-disabled-foreground)] ${nested ? "pl-[38px]" : "pl-3"}`}
       disabled={disabled}
       onClick={onClick}
       type="button"
@@ -339,7 +339,7 @@ function SessionRow({
       <button
         aria-busy={transitioning}
         aria-current="page"
-        className={`marquee-row flex h-9 w-full items-center gap-2 rounded-lg bg-[#E9E9ED] pr-3 text-left text-sm font-medium text-accent-foreground ${nested ? "pl-[38px]" : "pl-3"}`}
+        className={`marquee-row flex h-9 w-full items-center gap-2 rounded-lg bg-[var(--button-subtle-active)] pr-3 text-left text-[13px] font-medium text-accent-foreground ${nested ? "pl-[38px]" : "pl-3"}`}
         onBlur={() => setHovered(false)}
         onFocus={() => setHovered(true)}
         onMouseEnter={() => setHovered(true)}
@@ -355,7 +355,7 @@ function SessionRow({
   return (
     <button
       aria-busy={transitioning}
-      className={`marquee-row flex h-9 w-full items-center gap-2 rounded-lg pr-3 text-left text-sm text-foreground enabled:hover:bg-[#EEEEF1] disabled:opacity-60 ${nested ? "pl-[38px]" : "pl-3"}`}
+      className={`marquee-row flex h-9 w-full items-center gap-2 rounded-lg pr-3 text-left text-[13px] text-foreground enabled:hover:bg-[var(--button-subtle-hover)] enabled:active:bg-[var(--button-subtle-active)] disabled:text-[var(--button-disabled-foreground)] ${nested ? "pl-[38px]" : "pl-3"}`}
       disabled={!canOpen}
       onClick={() => onOpen(session)}
       onBlur={() => setHovered(false)}

@@ -44,12 +44,12 @@ export function ReasoningPart({ streaming, text }: ReasoningPartProps) {
 
   return (
     <Collapsible className="group not-prose" defaultOpen={false}>
-      <CollapsibleTrigger className="flex w-full items-center gap-1 text-sm italic text-[var(--pi-muted)] transition-colors hover:text-foreground">
+      <CollapsibleTrigger className="flex w-full items-center gap-1 text-[13px] italic text-[var(--pi-muted)] transition-colors hover:text-foreground">
         <ChevronRightIcon className="size-4 group-data-[state=open]:hidden" />
         <ChevronDownIcon className="hidden size-4 group-data-[state=open]:block" />
         {label}
       </CollapsibleTrigger>
-      <CollapsibleContent className="pi-markdown mt-1 pl-4 text-sm italic text-[var(--pi-muted)] outline-none">
+      <CollapsibleContent className="pi-markdown mt-1 pl-4 text-[13px] italic text-[var(--pi-muted)] outline-none">
         <MarkdownResponse>{text}</MarkdownResponse>
       </CollapsibleContent>
     </Collapsible>
