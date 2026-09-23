@@ -34,6 +34,32 @@
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
   --radius-xl: calc(var(--radius) + 4px);
+  --animate-marquee: marquee-scroll var(--marquee-duration, 4s) ease-in-out infinite alternate;
+}
+
+/* 跑马灯往复滚动：距离与时長由 MarqueeText 按溢出量写入 CSS 变量。 */
+@keyframes marquee-scroll {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(var(--marquee-distance, -100%));
+  }
+}
+
+/* 使用原生 hover/focus 驱动，避免 WebKit 中 React 焦点事件与动画激活时序不一致。 */
+.marquee-row:hover .marquee-overflow,
+.marquee-row:focus .marquee-overflow {
+  overflow: visible;
+  text-overflow: clip;
+  animation: marquee-scroll var(--marquee-duration, 4s) ease-in-out infinite alternate;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .marquee-row:hover .marquee-overflow,
+  .marquee-row:focus .marquee-overflow {
+    animation: none;
+  }
 }
 
 :root {

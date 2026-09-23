@@ -1,6 +1,7 @@
 import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
+import { MarqueeText } from "@/components/marquee-text";
 import type {
   ConnectionPhase,
   PiSessionSummary,
@@ -207,16 +208,10 @@ export function TaskNavigation({
                       {/* 切换事务进行中不弹“当前任务”兔底行：连接此刻指向的临时会话
                           不是用户要打开的目标，避免列表闪现一条以项目名命名的条目。 */}
                       {active && hasTask && !currentSessionListed && !sessionTransition && (
-                        <button
-                          aria-current="page"
-                          className="flex h-9 w-full items-center gap-2 rounded-lg bg-[#E9E9ED] pr-3 pl-[38px] text-left text-sm font-medium text-accent-foreground"
-                          type="button"
-                        >
-                          <span className="min-w-0 flex-1 truncate">{taskTitle}</span>
-                          {phase === "running" && (
-                            <span className="text-[10px] text-muted-foreground">执行中</span>
-                          )}
-                        </button>
+                        <CurrentTaskFallbackRow
+                          phase={phase}
+                          taskTitle={taskTitle}
+                        />
                       )}
                       {sessions.map((session) => (
                         <SessionRow
@@ -261,6 +256,34 @@ export function TaskNavigation({
   );
 }
 
+function CurrentTaskFallbackRow({
+  phase,
+  taskTitle,
+}: {
+  phase: ConnectionPhase;
+  taskTitle: string;
+}) {
+  const [hovered, setHovered] = useState(false);
+  return (
+    <button
+      aria-current="page"
+      className="marquee-row flex h-9 w-full items-center gap-2 rounded-lg bg-[#E9E9ED] pr-3 pl-[38px] text-left text-sm font-medium text-accent-foreground"
+      onBlur={() => setHovered(false)}
+      onFocus={() => setHovered(true)}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      type="button"
+    >
+      <MarqueeText hovered={hovered} text={taskTitle} />
+      {phase === "running" && (
+        <span className="w-16 shrink-0 text-right text-[10px] text-muted-foreground">
+          执行中
+        </span>
+      )}
+    </button>
+  );
+}
+
 function MoreSessionsButton({
   disabled,
   nested = false,
@@ -302,21 +325,29 @@ function SessionRow({
   onOpen: (session: PiSessionSummary) => void;
   transitioning?: boolean;
 }) {
+  const [hovered, setHovered] = useState(false);
   const title = sessionTitle(session, fallbackTitle);
   // 连接过程静默：导航不展示连接状态，只在当前会话执行中时提示。
   const activeStatus =
     phase === "running" ? "执行中" : relativeTimeLabel(session.modifiedAtMs);
+  // 时间列固定宽度右对齐，标题列占行内固定剩余宽度，不随时间文案伸缩。
+  const statusClassName =
+    "w-16 shrink-0 text-right text-[10px] text-muted-foreground";
 
   if (active) {
     return (
       <button
         aria-busy={transitioning}
         aria-current="page"
-        className={`flex h-9 w-full items-center gap-2 rounded-lg bg-[#E9E9ED] pr-3 text-left text-sm font-medium text-accent-foreground ${nested ? "pl-[38px]" : "pl-3"}`}
+        className={`marquee-row flex h-9 w-full items-center gap-2 rounded-lg bg-[#E9E9ED] pr-3 text-left text-sm font-medium text-accent-foreground ${nested ? "pl-[38px]" : "pl-3"}`}
+        onBlur={() => setHovered(false)}
+        onFocus={() => setHovered(true)}
+        onMouseEnter={() => setHovered(true)}
+        onMouseLeave={() => setHovered(false)}
         type="button"
       >
-        <span className="min-w-0 flex-1 truncate">{title}</span>
-        <span className="text-[10px] text-muted-foreground">{activeStatus}</span>
+        <MarqueeText hovered={hovered} text={title} />
+        <span className={statusClassName}>{activeStatus}</span>
       </button>
     );
   }
@@ -324,14 +355,17 @@ function SessionRow({
   return (
     <button
       aria-busy={transitioning}
-      className={`flex h-9 w-full items-center gap-2 rounded-lg pr-3 text-left text-sm text-foreground enabled:hover:bg-[#EEEEF1] disabled:opacity-60 ${nested ? "pl-[38px]" : "pl-3"}`}
+      className={`marquee-row flex h-9 w-full items-center gap-2 rounded-lg pr-3 text-left text-sm text-foreground enabled:hover:bg-[#EEEEF1] disabled:opacity-60 ${nested ? "pl-[38px]" : "pl-3"}`}
       disabled={!canOpen}
       onClick={() => onOpen(session)}
-      title={session.firstMessage ?? undefined}
+      onBlur={() => setHovered(false)}
+      onFocus={() => setHovered(true)}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
       type="button"
     >
-      <span className="min-w-0 flex-1 truncate">{title}</span>
-      <span className="shrink-0 text-[10px] text-muted-foreground">
+      <MarqueeText hovered={hovered} text={title} />
+      <span className={statusClassName}>
         {relativeTimeLabel(session.modifiedAtMs)}
       </span>
     </button>
