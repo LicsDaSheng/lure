@@ -238,7 +238,10 @@ export function AppShell() {
         onNew={handleAssistantNew}
       >
         <ComposerDraftInitializer initialText={readDraft(selectedDirectory)} />
-        <div className="flex h-dvh min-h-0 flex-col overflow-hidden overscroll-none bg-background text-foreground">
+        <div
+          className="flex h-dvh min-h-0 flex-col overflow-hidden rounded-xl border border-[#E8E8EB] bg-background text-foreground"
+          data-testid="app-frame"
+        >
           <WindowTitleBar />
           <div className="relative flex min-h-0 flex-1 overflow-hidden overscroll-none">
         <TaskNavigation
