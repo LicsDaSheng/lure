@@ -97,7 +97,7 @@ export function TaskNavigation({
             <button
               aria-expanded={recentExpanded}
               aria-label="最近历史会话"
-              className="flex h-9 min-w-0 items-center gap-1 rounded-lg px-2 text-[15px] font-medium text-muted-foreground outline-none hover:bg-[var(--button-subtle-hover)] active:bg-[var(--button-subtle-active)] focus-visible:ring-[3px] focus-visible:ring-ring/50"
+              className="flex h-9 min-w-0 items-center gap-1 rounded-lg px-2 text-xs font-medium text-muted-foreground outline-none hover:bg-[var(--button-subtle-hover)] active:bg-[var(--button-subtle-active)] focus-visible:ring-[3px] focus-visible:ring-ring/50"
               onClick={() => setRecentExpanded((expanded) => !expanded)}
               type="button"
             >
@@ -194,7 +194,7 @@ export function TaskNavigation({
                     <button
                       aria-expanded={expanded}
                       aria-label={`${project.name} 历史会话`}
-                      className="flex h-full min-w-0 flex-1 items-center gap-2.5 rounded-lg text-left text-sm font-normal outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
+                      className="flex h-full min-w-0 flex-1 items-center gap-2.5 rounded-lg text-left text-xs font-normal outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
                       disabled={disabled}
                       onClick={() => onToggleProject(project.directory)}
                       type="button"
