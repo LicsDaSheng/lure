@@ -154,7 +154,7 @@
   }
 
   body {
-    @apply m-0 min-w-80 bg-background text-foreground antialiased;
+    @apply m-0 min-w-80 bg-transparent text-foreground antialiased;
   }
 
   .window-drag-region {

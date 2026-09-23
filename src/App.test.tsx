@@ -188,6 +188,15 @@ afterEach(() => {
 });
 
 describe("主工作区初始态", () => {
+  it("使用圆角裁切桌面窗口外框", () => {
+    render(<App />);
+
+    const frame = screen.getByTestId("app-frame");
+    expect(frame.className).toContain("rounded-xl");
+    expect(frame.className).toContain("overflow-hidden");
+    expect(frame.className).toContain("border");
+  });
+
   it("启动后准备默认工作区并自动创建 Pi RPC", async () => {
     render(<App />);
 
