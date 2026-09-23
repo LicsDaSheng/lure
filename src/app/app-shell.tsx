@@ -82,12 +82,10 @@ export function AppShell() {
   }, [dispatch]);
   const {
     selectedDirectory,
-    eventsReady,
     error,
     connectionError,
     workspaceContext,
     connection,
-    connect,
     retry,
     newDefaultConversation,
     newProjectConversation,
@@ -157,10 +155,6 @@ export function AppShell() {
     : null;
   const connectionFailureOpen =
     connectionErrorKey !== null && connectionErrorKey !== dismissedConnectionError;
-  const canConnectSession =
-    connection.phase === "disconnected" ||
-    (connection.phase === "failed" && !connection.sessionId);
-
   const clearCommandError = useCallback(() => {
     dispatch(sessionsActions.commandErrorCleared());
   }, [dispatch]);
@@ -318,15 +312,12 @@ export function AppShell() {
 
               <PromptCard
                 branch={branch}
-                canConnectSession={canConnectSession}
                 directoryName={directoryName}
-                eventsReady={eventsReady}
                 isRunning={isRunning}
                 isSwitchingSession={switchingSession}
                 model={currentModel}
                 models={availableModels}
                 onAddImages={pickImages}
-                onConnect={() => void connect()}
                 onDraftChange={persistDraft}
                 onSelectModel={(provider, modelId) => void setModel(provider, modelId)}
                 onSelectThinkingLevel={(level) => void setThinkingLevel(level)}

@@ -25,7 +25,6 @@ export function useSessions() {
     projectSessions: useAppSelector(selectProjectSessions),
     expandedProjects: useAppSelector(selectExpandedProjects),
     loadingDirectories: useAppSelector(selectLoadingDirectories),
-    connect: useCallback(() => dispatch(sessionsActions.connectRequested()), [dispatch]),
     retry: useCallback(() => dispatch(sessionsActions.retryRequested()), [dispatch]),
     newDefaultConversation: useCallback(() => dispatch(sessionsActions.defaultConversationRequested()), [dispatch]),
     newProjectConversation: useCallback((directory: string) => dispatch(sessionsActions.projectConversationRequested(directory)), [dispatch]),

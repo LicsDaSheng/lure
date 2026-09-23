@@ -21,13 +21,10 @@ export function PromptCard({
   model,
   models,
   thinkingLevel,
-  canConnectSession,
   isRunning,
   isSwitchingSession = false,
-  eventsReady,
   onDraftChange,
   onStop,
-  onConnect,
   onAddImages,
   onSelectModel,
   onSelectThinkingLevel,
@@ -39,14 +36,11 @@ export function PromptCard({
   model: ModelSnapshot | null;
   models: ModelSnapshot[];
   thinkingLevel: string | null;
-  canConnectSession: boolean;
   isRunning: boolean;
   /** 历史会话切换事务进行中：目标会话尚未就绪，输入区说明原因。 */
   isSwitchingSession?: boolean;
-  eventsReady: boolean;
   onDraftChange: (value: string) => void;
   onStop: () => void;
-  onConnect: () => void;
   onAddImages: () => Promise<SelectedImage[]>;
   onSelectModel: (provider: string, modelId: string) => void;
   onSelectThinkingLevel: (level: string) => void;
@@ -88,29 +82,19 @@ export function PromptCard({
           className="mx-auto w-full max-w-[720px] rounded-[20px] border border-[#E8E8EB] bg-card shadow-[0_6px_24px_rgba(0,0,0,0.05)]"
           role="group"
         >
-          {canConnectSession && (
-            <div className="flex h-9 items-center gap-2 border-b border-[#EEEEF0] px-4 text-xs text-muted-foreground">
-              <FolderIcon aria-hidden="true" className="size-3.5 shrink-0" />
-              <span className="truncate">{directoryName ?? "默认工作目录"}</span>
-              {branch && (
-                <>
-                  <span aria-hidden="true">·</span>
-                  <span className="inline-flex items-center gap-1">
-                    <GitBranchIcon aria-hidden="true" className="size-3.5" />
-                    {branch}
-                  </span>
-                </>
-              )}
-              <Button
-                className="ml-auto h-6 shrink-0 px-2 text-xs"
-                disabled={!directoryName || !eventsReady}
-                onClick={onConnect}
-                type="button"
-              >
-                连接 Pi
-              </Button>
-            </div>
-          )}
+          <div className="flex h-9 items-center gap-2 border-b border-[#EEEEF0] px-4 text-xs text-muted-foreground">
+            <FolderIcon aria-hidden="true" className="size-3.5 shrink-0" />
+            <span className="truncate">{directoryName ?? "默认工作目录"}</span>
+            {branch && (
+              <>
+                <span aria-hidden="true">·</span>
+                <span className="inline-flex items-center gap-1">
+                  <GitBranchIcon aria-hidden="true" className="size-3.5" />
+                  {branch}
+                </span>
+              </>
+            )}
+          </div>
 
           {attachments.length > 0 && (
             <ul className="flex flex-wrap gap-2 px-3.5 pt-2.5">

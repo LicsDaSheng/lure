@@ -454,12 +454,13 @@ describe("主工作区对话态", () => {
     );
   });
 
-  it("连接后移除输入卡中重复的目录与分支条带", async () => {
+  it("输入卡始终显示当前工作目录与分支，但不提供手动连接操作", async () => {
     await renderConnected();
 
     const card = screen.getByRole("group", { name: "任务输入卡" });
-    expect(within(card).queryByText("main")).not.toBeInTheDocument();
-    expect(within(card).queryByText("lure")).not.toBeInTheDocument();
+    expect(within(card).getByText("main")).toBeInTheDocument();
+    expect(within(card).getByText("lure")).toBeInTheDocument();
+    expect(within(card).queryByRole("button", { name: "连接 Pi" })).not.toBeInTheDocument();
     expect(within(card).queryByText("已连接")).not.toBeInTheDocument();
     const modelSelect = within(card).getByRole("combobox", { name: "模型" });
     expect(modelSelect.className).toContain("truncate");
