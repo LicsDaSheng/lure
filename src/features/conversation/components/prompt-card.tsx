@@ -79,10 +79,10 @@ export function PromptCard({
       <div className="sticky bottom-0 z-10 shrink-0 bg-background px-4 pb-5 pt-2 md:px-6">
         <div
           aria-label="任务输入卡"
-          className="mx-auto w-full max-w-[720px] rounded-[20px] border border-[#E8E8EB] bg-card shadow-[0_6px_24px_rgba(0,0,0,0.05)]"
+          className="mx-auto w-full max-w-[720px] rounded-[20px] border border-border bg-card shadow-[0_6px_24px_rgba(0,0,0,0.05)]"
           role="group"
         >
-          <div className="flex h-9 items-center gap-2 border-b border-[#EEEEF0] px-4 text-xs text-muted-foreground">
+          <div className="flex h-9 items-center gap-2 border-b border-border px-4 text-xs text-muted-foreground">
             <FolderIcon aria-hidden="true" className="size-3.5 shrink-0" />
             <span className="truncate">{directoryName ?? "默认工作目录"}</span>
             {branch && (
@@ -128,7 +128,7 @@ export function PromptCard({
               addAttachmentOnPaste={false}
               aria-label="任务指令"
               ref={textareaRef}
-              className="max-h-48 min-h-11 w-full resize-none bg-transparent px-3.5 py-3 text-sm leading-6 outline-none placeholder:text-muted-foreground"
+              className="max-h-48 min-h-11 w-full resize-none bg-transparent px-3.5 py-3 text-[13px] leading-5 outline-none placeholder:text-muted-foreground"
               onChange={(event) => {
                 const nativeIsComposing =
                   (event.nativeEvent as { isComposing?: boolean }).isComposing === true;

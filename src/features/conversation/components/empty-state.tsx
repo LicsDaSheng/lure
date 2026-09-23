@@ -30,7 +30,7 @@ export function EmptyState({
           <Button
             key={example}
             onClick={() => onPickExample(example)}
-            className="h-8 rounded-lg bg-[#F4F4F6] px-3 text-xs hover:bg-[#E9E9ED]"
+            className="h-8 rounded-lg px-3 text-xs"
             size="sm"
             type="button"
             variant="secondary"

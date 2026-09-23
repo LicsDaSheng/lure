@@ -69,9 +69,9 @@ export function ToolCard({ view }: { view: ToolView }) {
         >
           <ChevronRightIcon className="size-4 shrink-0 group-data-[state=open]:hidden" />
           <ChevronDownIcon className="hidden size-4 shrink-0 group-data-[state=open]:block" />
-          <span className="shrink-0 text-sm font-medium text-foreground">工具调用</span>
+          <span className="shrink-0 text-[13px] font-medium text-foreground">工具调用</span>
           <span aria-hidden="true" className="shrink-0 text-[var(--pi-dim)]">·</span>
-          <span className="min-w-0 truncate text-sm">{toolOperation(view)}</span>
+          <span className="min-w-0 truncate text-[13px]">{toolOperation(view)}</span>
           <span className="flex shrink-0 items-center gap-1 text-xs">
             <span aria-hidden="true">·</span>
             {statusIcons[view.status]}

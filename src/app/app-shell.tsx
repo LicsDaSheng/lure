@@ -28,7 +28,6 @@ import {
   ErrorPanel,
   readTitle,
   sessionsActions,
-  TaskHeader,
   TaskNavigation,
   useSessions,
   writeTitle,
@@ -113,6 +112,7 @@ export function AppShell() {
   const submittedPrompts = useRef(promptSubmissionCount);
   const [composerGeneration, setComposerGeneration] = useState(0);
   const [createProjectOpen, setCreateProjectOpen] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [dismissedConnectionError, setDismissedConnectionError] = useState<string | null>(null);
   const promptInputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -233,43 +233,45 @@ export function AppShell() {
       >
         <ComposerDraftInitializer initialText={readDraft(selectedDirectory)} />
         <div
-          className="flex h-dvh min-h-0 flex-col overflow-hidden rounded-xl border border-[#E8E8EB] bg-background text-foreground"
+          className="flex h-dvh min-h-0 flex-col overflow-hidden rounded-2xl border border-border bg-background text-foreground"
           data-testid="app-frame"
         >
-          <WindowTitleBar />
+          <WindowTitleBar
+            collapsed={sidebarCollapsed}
+            hasConversation={hasConversation}
+            onTitleChange={setTaskTitle}
+            onToggleSidebar={() => setSidebarCollapsed((collapsed) => !collapsed)}
+            title={taskTitle}
+          />
           <div className="relative flex min-h-0 flex-1 overflow-hidden overscroll-none">
-        <TaskNavigation
-          activeDirectory={directory}
-          activeSessionId={activeSessionId}
-          canOpenConversation={canSend}
-          defaultWorkspace={defaultWorkspace}
-          disabled={connection.phase === "running" || connection.phase === "connecting" || switchingSession}
-          expandedProjects={expandedProjects}
-          hasTask={Boolean(directory)}
-          loadingDirectories={loadingDirectories}
-          onNewTask={() => void handleNewTask()}
-          onNewProject={() => setCreateProjectOpen(true)}
-          onNewProjectTask={handleNewProjectTask}
-          onOpenConversation={openConversation}
-          onToggleProject={toggleProject}
-          onLoadMoreSessions={loadMoreSessions}
-          phase={connection.phase}
-          projects={projects}
-          projectSessions={projectSessions}
-          projectSessionsHasMore={projectSessionsHasMore}
-          recentSessions={recentSessions}
-          recentSessionsHasMore={recentSessionsHasMore}
-          sessionTransition={sessionTransition}
-          taskTitle={taskTitle}
-        />
+            {!sidebarCollapsed && (
+              <TaskNavigation
+                activeDirectory={directory}
+                activeSessionId={activeSessionId}
+                canOpenConversation={canSend}
+                defaultWorkspace={defaultWorkspace}
+                disabled={connection.phase === "running" || connection.phase === "connecting" || switchingSession}
+                expandedProjects={expandedProjects}
+                hasTask={Boolean(directory)}
+                loadingDirectories={loadingDirectories}
+                onNewTask={() => void handleNewTask()}
+                onNewProject={() => setCreateProjectOpen(true)}
+                onNewProjectTask={handleNewProjectTask}
+                onOpenConversation={openConversation}
+                onToggleProject={toggleProject}
+                onLoadMoreSessions={loadMoreSessions}
+                phase={connection.phase}
+                projects={projects}
+                projectSessions={projectSessions}
+                projectSessionsHasMore={projectSessionsHasMore}
+                recentSessions={recentSessions}
+                recentSessionsHasMore={recentSessionsHasMore}
+                sessionTransition={sessionTransition}
+                taskTitle={taskTitle}
+              />
+            )}
 
-        <main aria-label="任务工作区" className="flex min-w-0 flex-1 flex-col">
-          {hasConversation ? (
-            <TaskHeader onTitleChange={setTaskTitle} title={taskTitle} />
-          ) : (
-            <div className="h-4" aria-hidden="true" />
-          )}
-
+            <main aria-label="任务工作区" className="flex min-w-0 flex-1 flex-col">
           {error && (
             <div className="px-4 pt-3 md:px-6">
               <ErrorPanel error={error} onDismiss={clearCommandError} />
@@ -287,7 +289,7 @@ export function AppShell() {
             >
               <div
                 aria-label="对话内容列"
-                className="mx-auto flex w-full max-w-[720px] flex-1 flex-col gap-4 px-4 py-6 md:px-6"
+                className="mx-auto flex w-full max-w-[768px] flex-1 flex-col gap-4 px-4 py-6 md:px-6"
               >
                 {hasConversation ? (
                   <ConversationStream />
@@ -329,7 +331,7 @@ export function AppShell() {
             </ThreadPrimitive.Viewport>
           </ThreadPrimitive.Root>
 
-        </main>
+            </main>
 
         <ExtensionUiDialog onRespond={(value, cancelled) => { respondToExtension(value, cancelled); return Promise.resolve(); }} request={extensionRequest} />
 
