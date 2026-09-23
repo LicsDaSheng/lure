@@ -102,7 +102,7 @@ React UI ⇄ Tauri command/event ⇄ lure-desktop
 ### Pi RPC MVP 流程
 
 1. React 通过原生目录选择器取得工作目录，并调用 `connect_pi`。
-2. Rust 优先使用 `LURE_PI_PATH`，否则从当前 `PATH` 启动 `pi --mode rpc`。
+2. Rust 优先使用 `LURE_PI_PATH`，否则从当前 `PATH` 及常见的用户级安装目录（如 `~/.local/bin`）定位 Pi，并以补全后的运行时 `PATH` 启动 `pi --mode rpc`；这保证从 macOS Finder 启动应用时也能找到 Pi 及其 Node.js 解释器。
 3. `lure-rpc` 只按 LF 切分 stdout JSONL，以请求 ID 关联 `get_state`、`prompt` 和 `abort` 响应。
 4. Tauri 通过统一的 `lure://pi-event` 推送带序号的规范化事件。
 5. 前端 reducer 保留 Pi 消息事实，并把助手内容存为单一有序 `parts` 序列（`text`、`thinking`、`tool`）；`convertPiMessage()` 按该顺序映射为 assistant-ui 线程内容，工具卡因此出现在它真实发生的位置。
