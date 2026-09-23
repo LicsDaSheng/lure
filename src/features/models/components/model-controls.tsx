@@ -106,7 +106,7 @@ export function ModelControls({
         onChange={(event) => onSelectThinkingLevel(event.target.value)}
         value={thinkingLevel ?? "medium"}
       >
-        {thinkingLevels.map((level) => <option key={level} value={level}>思考 {level}</option>)}
+        {thinkingLevels.map((level) => <option key={level} value={level}>{level}</option>)}
       </select>
 
       <Dialog open={open} onOpenChange={setOpen}>
