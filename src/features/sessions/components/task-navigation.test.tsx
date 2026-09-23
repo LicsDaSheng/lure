@@ -1,10 +1,22 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { PiSessionSummary } from "@/lib/pi-rpc/types";
 import type { ConnectionPhase } from "@/lib/pi-rpc/types";
 import type { SessionTransition } from "@/features/sessions/sessions-slice";
 import { TaskNavigation } from "./task-navigation";
+
+// jsdom 不做布局，clientWidth 恒为 0；用可控的 scrollWidth 模拟标题内容宽度。
+function stubElementOverflow(width: number) {
+  Object.defineProperty(HTMLElement.prototype, "scrollWidth", {
+    configurable: true,
+    get: () => width,
+  });
+}
+
+afterEach(() => {
+  delete (HTMLElement.prototype as { scrollWidth?: number }).scrollWidth;
+});
 
 function sessions(directory: string, count: number): PiSessionSummary[] {
   return Array.from({ length: count }, (_, index) => ({
@@ -140,5 +152,29 @@ describe("任务导航会话列表", () => {
 
     const recent = screen.getByRole("region", { name: "最近" });
     expect(within(recent).getByText("执行中")).toBeInTheDocument();
+  });
+
+  it("悬停溢出标题的会话行时启动跑马灯滚动全文", () => {
+    stubElementOverflow(160);
+    renderNavigation();
+
+    const recent = screen.getByRole("region", { name: "最近" });
+    const row = within(recent).getByRole("button", { name: /会话 1/ });
+    fireEvent.mouseEnter(row);
+
+    const title = within(row).getByText("会话 1");
+    expect(title).toHaveClass("animate-marquee");
+
+    fireEvent.mouseLeave(row);
+    expect(title).not.toHaveClass("animate-marquee");
+  });
+
+  it("会话行不再用原生悬浮提示，超长标题由跑马灯承担", () => {
+    renderNavigation();
+
+    const recent = screen.getByRole("region", { name: "最近" });
+    for (const row of within(recent).getAllByRole("button", { name: /会话 \d/ })) {
+      expect(row).not.toHaveAttribute("title");
+    }
   });
 });
