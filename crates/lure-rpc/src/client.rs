@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::ffi::{OsStr, OsString};
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
@@ -44,9 +45,70 @@ impl PiProcessConfig {
 
     #[must_use]
     pub fn for_working_directory(working_directory: impl Into<PathBuf>) -> Self {
-        let executable =
-            std::env::var_os("LURE_PI_PATH").map_or_else(|| PathBuf::from("pi"), PathBuf::from);
+        let executable = std::env::var_os("LURE_PI_PATH").map_or_else(
+            || find_pi_executable().unwrap_or_else(|| PathBuf::from("pi")),
+            PathBuf::from,
+        );
         Self::new(executable, working_directory)
+    }
+}
+
+fn find_pi_executable() -> Option<PathBuf> {
+    let search_path = pi_runtime_path(
+        std::env::var_os("HOME").as_deref(),
+        std::env::var_os("PATH").as_deref(),
+    );
+    find_executable_in_path("pi", &search_path)
+}
+
+fn find_executable_in_path(executable: &str, search_path: &OsStr) -> Option<PathBuf> {
+    std::env::split_paths(search_path)
+        .map(|directory| directory.join(executable))
+        .find(|candidate| is_executable_file(candidate))
+}
+
+fn pi_runtime_path(home: Option<&OsStr>, inherited_path: Option<&OsStr>) -> OsString {
+    let mut directories: Vec<PathBuf> = inherited_path
+        .map(std::env::split_paths)
+        .into_iter()
+        .flatten()
+        .collect();
+
+    if let Some(home) = home {
+        let home = Path::new(home);
+        directories.extend([
+            home.join(".local/bin"),
+            home.join(".hermes/node/bin"),
+            home.join(".volta/bin"),
+            home.join(".bun/bin"),
+        ]);
+    }
+    directories.extend([
+        PathBuf::from("/opt/homebrew/bin"),
+        PathBuf::from("/usr/local/bin"),
+    ]);
+    directories.dedup();
+
+    std::env::join_paths(directories)
+        .unwrap_or_else(|_| inherited_path.map_or_else(OsString::new, OsString::from))
+}
+
+fn is_executable_file(path: &Path) -> bool {
+    let Ok(metadata) = path.metadata() else {
+        return false;
+    };
+    if !metadata.is_file() {
+        return false;
+    }
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        metadata.permissions().mode() & 0o111 != 0
+    }
+    #[cfg(not(unix))]
+    {
+        true
     }
 }
 
@@ -98,21 +160,26 @@ impl PiRpcClient {
     pub async fn connect(mut config: PiProcessConfig) -> Result<(Self, RpcSessionState), RpcError> {
         config.working_directory = canonical_working_directory(&config.working_directory)?;
 
-        let mut child = tokio::process::Command::new(&config.executable)
+        let runtime_path = pi_runtime_path(
+            std::env::var_os("HOME").as_deref(),
+            std::env::var_os("PATH").as_deref(),
+        );
+        let mut command = tokio::process::Command::new(&config.executable);
+        command
             .args(["--mode", "rpc"])
             .current_dir(&config.working_directory)
+            .env("PATH", runtime_path)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
-            .kill_on_drop(true)
-            .spawn()
-            .map_err(|error| {
-                if error.kind() == ErrorKind::NotFound {
-                    RpcError::PiNotFound(config.executable.display().to_string())
-                } else {
-                    RpcError::SpawnFailed(error.to_string())
-                }
-            })?;
+            .kill_on_drop(true);
+        let mut child = command.spawn().map_err(|error| {
+            if error.kind() == ErrorKind::NotFound {
+                RpcError::PiNotFound(config.executable.display().to_string())
+            } else {
+                RpcError::SpawnFailed(error.to_string())
+            }
+        })?;
 
         let stdin = child
             .stdin
@@ -699,4 +766,30 @@ async fn terminate_child(child: &mut Child) {
 
     let _ = child.start_kill();
     let _ = tokio::time::timeout(Duration::from_secs(1), child.wait()).await;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{find_executable_in_path, pi_runtime_path};
+    use std::ffi::OsStr;
+
+    #[cfg(unix)]
+    #[test]
+    fn finds_pi_in_local_bin_when_shell_path_does_not_include_it() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let home = std::env::temp_dir().join(format!("lure-pi-path-test-{}", std::process::id()));
+        let local_bin = home.join(".local/bin");
+        std::fs::create_dir_all(&local_bin).unwrap();
+        let pi = local_bin.join("pi");
+        std::fs::write(&pi, "#!/bin/sh\nexit 0\n").unwrap();
+        let mut permissions = std::fs::metadata(&pi).unwrap().permissions();
+        permissions.set_mode(0o755);
+        std::fs::set_permissions(&pi, permissions).unwrap();
+
+        let runtime_path = pi_runtime_path(Some(home.as_os_str()), Some(OsStr::new("/usr/bin")));
+
+        assert_eq!(find_executable_in_path("pi", &runtime_path), Some(pi));
+        std::fs::remove_dir_all(home).unwrap();
+    }
 }
