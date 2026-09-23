@@ -119,18 +119,14 @@ export function AssistantTurn({ turn }: { turn: ConversationTurn }) {
       data-phase={turn.phase}
     >
       {hasProcess && (
-        <Collapsible
-          className="group not-prose w-full"
-          onOpenChange={setExpanded}
-          open={expanded}
-        >
+        <Collapsible className="not-prose w-full" onOpenChange={setExpanded} open={expanded}>
           <CollapsibleTrigger
             aria-controls={contentId}
             aria-label={label}
-            className="flex min-h-9 w-full items-center gap-1.5 rounded-lg pr-2 text-left text-xs text-[var(--pi-muted)] outline-none transition-colors hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/50"
+            className="group/trigger flex min-h-9 w-full items-center gap-1.5 rounded-lg pr-2 text-left text-xs text-[var(--pi-muted)] outline-none transition-colors hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/50"
           >
-            <ChevronRightIcon aria-hidden="true" className="size-3.5 shrink-0 group-data-[state=open]:hidden" />
-            <ChevronDownIcon aria-hidden="true" className="hidden size-3.5 shrink-0 group-data-[state=open]:block" />
+            <ChevronRightIcon aria-hidden="true" className="size-3.5 shrink-0 group-data-[state=open]/trigger:hidden" />
+            <ChevronDownIcon aria-hidden="true" className="hidden size-3.5 shrink-0 group-data-[state=open]/trigger:block" />
             <span className="min-w-0 truncate">{label}</span>
           </CollapsibleTrigger>
           {/* 折叠时保留挂载，避免销毁工具卡与思考块的局部展开状态；

@@ -62,13 +62,13 @@ export function ToolCard({ view }: { view: ToolView }) {
   const hidden = Math.max(0, lines.length - PREVIEW_LINES);
 
   return (
-    <Collapsible className="group not-prose w-full">
+    <Collapsible className="not-prose w-full">
         <CollapsibleTrigger
           aria-label={`${summary}，${statusLabels[view.status]}`}
-          className="flex min-h-7 w-full min-w-0 items-center gap-2 py-1 text-left text-[var(--pi-muted)] transition-colors hover:text-foreground"
+          className="group/trigger flex min-h-7 w-full min-w-0 items-center gap-2 py-1 text-left text-[var(--pi-muted)] transition-colors hover:text-foreground"
         >
-          <ChevronRightIcon className="size-4 shrink-0 group-data-[state=open]:hidden" />
-          <ChevronDownIcon className="hidden size-4 shrink-0 group-data-[state=open]:block" />
+          <ChevronRightIcon className="size-4 shrink-0 group-data-[state=open]/trigger:hidden" />
+          <ChevronDownIcon className="hidden size-4 shrink-0 group-data-[state=open]/trigger:block" />
           <span className="shrink-0 text-[13px] font-medium text-foreground">工具调用</span>
           <span aria-hidden="true" className="shrink-0 text-[var(--pi-dim)]">·</span>
           <span className="min-w-0 truncate text-[13px]">{toolOperation(view)}</span>
