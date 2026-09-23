@@ -22,6 +22,7 @@ import {
 } from "@/features/conversation";
 import { ExtensionUiDialog, useExtensionUi } from "@/features/extension-ui";
 import { useModels } from "@/features/models";
+import { SettingsPage, useThemePreference } from "@/features/preferences";
 import {
   ConnectionFailureDialog,
   CreateProjectDialog,
@@ -112,9 +113,11 @@ export function AppShell() {
   const submittedPrompts = useRef(promptSubmissionCount);
   const [composerGeneration, setComposerGeneration] = useState(0);
   const [createProjectOpen, setCreateProjectOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [dismissedConnectionError, setDismissedConnectionError] = useState<string | null>(null);
   const promptInputRef = useRef<HTMLTextAreaElement>(null);
+  const { preference: theme, setPreference: setTheme } = useThemePreference();
 
   const directory = connection.workingDirectory ?? selectedDirectory;
   const directoryName = directoryNameOf(directory);
@@ -238,12 +241,20 @@ export function AppShell() {
         >
           <WindowTitleBar
             collapsed={sidebarCollapsed}
-            hasConversation={hasConversation}
+            hasConversation={!settingsOpen && hasConversation}
             onTitleChange={setTaskTitle}
             onToggleSidebar={() => setSidebarCollapsed((collapsed) => !collapsed)}
             title={taskTitle}
           />
           <div className="relative flex min-h-0 flex-1 overflow-hidden overscroll-none">
+            {settingsOpen ? (
+              <SettingsPage
+                onBack={() => setSettingsOpen(false)}
+                onThemeChange={setTheme}
+                theme={theme}
+              />
+            ) : (
+              <>
             {!sidebarCollapsed && (
               <TaskNavigation
                 activeDirectory={directory}
@@ -258,6 +269,10 @@ export function AppShell() {
                 onNewProject={() => setCreateProjectOpen(true)}
                 onNewProjectTask={handleNewProjectTask}
                 onOpenConversation={openConversation}
+                onOpenSettings={() => {
+                  setSidebarCollapsed(false);
+                  setSettingsOpen(true);
+                }}
                 onToggleProject={toggleProject}
                 onLoadMoreSessions={loadMoreSessions}
                 phase={connection.phase}
@@ -332,6 +347,9 @@ export function AppShell() {
           </ThreadPrimitive.Root>
 
             </main>
+
+              </>
+            )}
 
         <ExtensionUiDialog onRespond={(value, cancelled) => { respondToExtension(value, cancelled); return Promise.resolve(); }} request={extensionRequest} />
 

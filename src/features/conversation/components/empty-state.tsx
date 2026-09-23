@@ -16,7 +16,7 @@ export function EmptyState({
 }) {
   return (
     <div className="flex min-h-0 flex-1 translate-y-16 flex-col items-center justify-center px-6 text-center">
-      <div className="grid size-12 place-items-center rounded-xl bg-[#F7F7F8] text-[#3C3C40]">
+      <div className="grid size-12 place-items-center rounded-xl bg-muted text-foreground">
         <BotIcon className="size-5" />
       </div>
       <h2 className="mt-6 text-xl font-semibold tracking-tight">开始一个新任务</h2>

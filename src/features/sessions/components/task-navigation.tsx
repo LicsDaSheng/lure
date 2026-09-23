@@ -13,6 +13,7 @@ import {
   ChevronRightIcon,
   FolderIcon,
   FolderOpenIcon,
+  MoreHorizontalIcon,
   PlusIcon,
   SettingsIcon,
   SquarePenIcon,
@@ -28,6 +29,7 @@ export function TaskNavigation({
   onToggleProject,
   onLoadMoreSessions,
   onOpenConversation,
+  onOpenSettings,
   projects,
   recentSessions,
   projectSessions,
@@ -51,6 +53,7 @@ export function TaskNavigation({
   onToggleProject: (directory: string) => void;
   onLoadMoreSessions: (directory: string) => void;
   onOpenConversation: (session: PiSessionSummary) => void;
+  onOpenSettings: () => void;
   projects: ProjectDescriptor[];
   recentSessions: PiSessionSummary[];
   projectSessions: Record<string, PiSessionSummary[]>;
@@ -73,7 +76,7 @@ export function TaskNavigation({
   return (
     <nav
       aria-label="任务导航"
-      className="flex w-[272px] shrink-0 flex-col border-r border-border bg-[#F6F6F8]"
+      className="flex w-[272px] shrink-0 flex-col border-r border-border bg-sidebar"
     >
       <div className="border-b border-border">
         <Button
@@ -90,28 +93,50 @@ export function TaskNavigation({
 
       <div className="min-h-0 flex-1 overflow-y-auto px-3">
         <section aria-labelledby="recent-heading" className="mt-5">
-          <div className="flex h-9 items-center px-2">
+          <div className="flex h-10 items-center px-1">
             <button
               aria-expanded={recentExpanded}
               aria-label="最近历史会话"
-              className="mr-1 flex size-8 items-center justify-center rounded-lg outline-none hover:bg-[var(--button-subtle-hover)] active:bg-[var(--button-subtle-active)] focus-visible:ring-[3px] focus-visible:ring-ring/50"
+              className="flex h-9 min-w-0 items-center gap-1 rounded-lg px-2 text-[15px] font-medium text-muted-foreground outline-none hover:bg-[var(--button-subtle-hover)] active:bg-[var(--button-subtle-active)] focus-visible:ring-[3px] focus-visible:ring-ring/50"
               onClick={() => setRecentExpanded((expanded) => !expanded)}
               type="button"
             >
+              <h2 id="recent-heading">最近</h2>
               <ChevronRightIcon
                 aria-hidden="true"
-                className={`size-4 text-muted-foreground transition-transform ${recentExpanded ? "rotate-90" : ""}`}
+                className={`size-4 shrink-0 transition-transform ${recentExpanded ? "rotate-90" : ""}`}
               />
             </button>
-            <h2 className="text-xs font-medium text-muted-foreground" id="recent-heading">
-              最近
-            </h2>
             {defaultWorkspace && loadingDirectories.includes(defaultWorkspace) && (
-              <span className="ml-auto text-[10px] text-muted-foreground">读取中</span>
+              <span className="ml-1 text-[10px] text-muted-foreground">读取中</span>
             )}
+            <div className="ml-auto flex items-center">
+              <Button
+                aria-label="显示更多最近会话"
+                className="size-9 text-muted-foreground"
+                disabled={!recentSessionsHasMore || !defaultWorkspace || loadingDirectories.includes(defaultWorkspace)}
+                onClick={() => defaultWorkspace && onLoadMoreSessions(defaultWorkspace)}
+                size="icon"
+                type="button"
+                variant="ghost"
+              >
+                <MoreHorizontalIcon className="size-[18px]" />
+              </Button>
+              <Button
+                aria-label="在默认工作目录中新建任务"
+                className="size-9 text-muted-foreground"
+                disabled={disabled}
+                onClick={onNewTask}
+                size="icon"
+                type="button"
+                variant="ghost"
+              >
+                <SquarePenIcon className="size-[18px]" />
+              </Button>
+            </div>
           </div>
           {recentExpanded && (
-            <div className="grid gap-0.5">
+            <div className="mt-1 grid gap-0.5">
               {recentSessions.map((session) => {
                 const active =
                   activeDirectory === defaultWorkspace && session.id === activeSessionId;
@@ -123,17 +148,12 @@ export function TaskNavigation({
                     key={session.path}
                     onOpen={onOpenConversation}
                     phase={phase}
+                    recent
                     session={session}
                     transitioning={sessionTransition === session.path}
                   />
                 );
               })}
-              {recentSessionsHasMore && defaultWorkspace && (
-                <MoreSessionsButton
-                  disabled={loadingDirectories.includes(defaultWorkspace)}
-                  onClick={() => onLoadMoreSessions(defaultWorkspace)}
-                />
-              )}
               {recentSessions.length === 0 && (
                 <p className="px-3 py-2 text-xs text-muted-foreground">暂无历史会话</p>
               )}
@@ -248,7 +268,7 @@ export function TaskNavigation({
         </section>
       </div>
 
-      <Button className="mb-3 h-11 w-full justify-start px-5" type="button" variant="ghost">
+      <Button className="mb-3 h-11 w-full justify-start px-5" onClick={onOpenSettings} type="button" variant="ghost">
         <SettingsIcon />
         设置
       </Button>
@@ -313,6 +333,7 @@ function SessionRow({
   fallbackTitle,
   nested = false,
   phase,
+  recent = false,
   onOpen,
   transitioning = false,
 }: {
@@ -322,6 +343,7 @@ function SessionRow({
   fallbackTitle: string;
   nested?: boolean;
   phase: ConnectionPhase;
+  recent?: boolean;
   onOpen: (session: PiSessionSummary) => void;
   transitioning?: boolean;
 }) {
@@ -339,7 +361,7 @@ function SessionRow({
       <button
         aria-busy={transitioning}
         aria-current="page"
-        className={`marquee-row flex h-9 w-full items-center gap-2 rounded-lg bg-[var(--button-subtle-active)] pr-3 text-left text-[13px] font-medium text-accent-foreground ${nested ? "pl-[38px]" : "pl-3"}`}
+        className={`marquee-row flex w-full items-center rounded-lg bg-[var(--button-subtle-active)] text-left font-medium text-accent-foreground ${recent ? "h-10 px-3 text-[15px] leading-6" : `h-9 gap-2 pr-3 text-[13px] ${nested ? "pl-[38px]" : "pl-3"}`}`}
         onBlur={() => setHovered(false)}
         onFocus={() => setHovered(true)}
         onMouseEnter={() => setHovered(true)}
@@ -347,7 +369,7 @@ function SessionRow({
         type="button"
       >
         <MarqueeText hovered={hovered} text={title} />
-        <span className={statusClassName}>{activeStatus}</span>
+        {!recent && <span className={statusClassName}>{activeStatus}</span>}
       </button>
     );
   }
@@ -355,7 +377,7 @@ function SessionRow({
   return (
     <button
       aria-busy={transitioning}
-      className={`marquee-row flex h-9 w-full items-center gap-2 rounded-lg pr-3 text-left text-[13px] text-foreground enabled:hover:bg-[var(--button-subtle-hover)] enabled:active:bg-[var(--button-subtle-active)] disabled:text-[var(--button-disabled-foreground)] ${nested ? "pl-[38px]" : "pl-3"}`}
+      className={`marquee-row flex w-full items-center rounded-lg text-left text-foreground enabled:hover:bg-[var(--button-subtle-hover)] enabled:active:bg-[var(--button-subtle-active)] disabled:text-[var(--button-disabled-foreground)] ${recent ? "h-10 px-3 text-[15px] leading-6" : `h-9 gap-2 pr-3 text-[13px] ${nested ? "pl-[38px]" : "pl-3"}`}`}
       disabled={!canOpen}
       onClick={() => onOpen(session)}
       onBlur={() => setHovered(false)}
@@ -365,9 +387,11 @@ function SessionRow({
       type="button"
     >
       <MarqueeText hovered={hovered} text={title} />
-      <span className={statusClassName}>
-        {relativeTimeLabel(session.modifiedAtMs)}
-      </span>
+      {!recent && (
+        <span className={statusClassName}>
+          {relativeTimeLabel(session.modifiedAtMs)}
+        </span>
+      )}
     </button>
   );
 }

@@ -52,6 +52,7 @@ function renderNavigation({
   activeSessionId?: string | null;
 } = {}) {
   const onLoadMoreSessions = vi.fn();
+  const onNewTask = vi.fn();
   render(
     <TaskNavigation
       activeDirectory="/tmp/lure"
@@ -64,9 +65,10 @@ function renderNavigation({
       loadingDirectories={[]}
       onNewProject={vi.fn()}
       onNewProjectTask={vi.fn()}
-      onNewTask={vi.fn()}
+      onNewTask={onNewTask}
       onLoadMoreSessions={onLoadMoreSessions}
       onOpenConversation={vi.fn()}
+      onOpenSettings={vi.fn()}
       onToggleProject={vi.fn()}
       phase={phase}
       projects={projectSessions["/tmp/project"] ? [{ name: "示例项目", directory: "/tmp/project" }] : []}
@@ -78,7 +80,7 @@ function renderNavigation({
       taskTitle="当前任务"
     />,
   );
-  return { onLoadMoreSessions };
+  return { onLoadMoreSessions, onNewTask };
 }
 
 describe("任务导航会话列表", () => {
@@ -90,8 +92,26 @@ describe("任务导航会话列表", () => {
     expect(within(recent).getByText("会话 1")).toBeInTheDocument();
     expect(within(recent).queryByText("会话 4")).not.toBeInTheDocument();
 
-    fireEvent.click(within(recent).getByRole("button", { name: "显示更多" }));
+    fireEvent.click(within(recent).getByRole("button", { name: "显示更多最近会话" }));
     expect(onLoadMoreSessions).toHaveBeenCalledWith("/tmp/lure");
+  });
+
+  it("最近标题右侧提供更多和新建任务操作", () => {
+    const { onNewTask } = renderNavigation();
+    const recent = screen.getByRole("region", { name: "最近" });
+
+    expect(within(recent).getByRole("button", { name: "显示更多最近会话" })).toBeInTheDocument();
+    fireEvent.click(within(recent).getByRole("button", { name: "在默认工作目录中新建任务" }));
+    expect(onNewTask).toHaveBeenCalledOnce();
+  });
+
+  it("最近会话使用醒目的单列标题，不显示时间", () => {
+    renderNavigation();
+    const recent = screen.getByRole("region", { name: "最近" });
+    const row = within(recent).getByRole("button", { name: "会话 1" });
+
+    expect(row).toHaveClass("h-10", "text-[15px]");
+    expect(row).not.toHaveTextContent("刚刚");
   });
 
   it("最近分组可以折叠和重新展开", () => {
@@ -133,9 +153,9 @@ describe("任务导航会话列表", () => {
     const recent = screen.getByRole("region", { name: "最近" });
     const opening = within(recent).getByRole("button", { name: /会话 2/ });
     expect(opening).toHaveAttribute("aria-busy", "true");
-    // 不再显示“正在打开”这类连接过程提示，条目仍显示最近活动时间。
+    // 不再显示“正在打开”这类连接过程提示，条目也不显示时间列。
     expect(within(recent).queryByText(/正在打开|正在连接/)).not.toBeInTheDocument();
-    expect(opening).toHaveTextContent("刚刚");
+    expect(opening).not.toHaveTextContent("刚刚");
     expect(within(recent).getByRole("button", { name: /会话 1/ })).toBeDisabled();
     // 切换期间列表本身不消失，仍显示全部已加载记录。
     expect(within(recent).getAllByRole("button", { name: /会话 \d/ })).toHaveLength(3);
@@ -147,11 +167,11 @@ describe("任务导航会话列表", () => {
     expect(screen.queryByText(/已连接|正在连接|未连接|连接失败/)).not.toBeInTheDocument();
   });
 
-  it("只在执行中才展示运行状态", () => {
+  it("最近列表不在会话行内展示运行状态", () => {
     renderNavigation({ activeSessionId: "session-1", phase: "running" });
 
     const recent = screen.getByRole("region", { name: "最近" });
-    expect(within(recent).getByText("执行中")).toBeInTheDocument();
+    expect(within(recent).queryByText("执行中")).not.toBeInTheDocument();
   });
 
   it("悬停溢出标题的会话行时启动跑马灯滚动全文", () => {
