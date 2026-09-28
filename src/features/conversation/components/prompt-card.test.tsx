@@ -113,6 +113,16 @@ describe("运行中的排队操作", () => {
     expect(onFollowUp).toHaveBeenCalledWith("接着补测试");
   });
 
+  it("运行中中文输入法确认候选词的 Enter 不排队发送", () => {
+    const { onFollowUp } = renderCard({ isRunning: true });
+    const input = typeInstruction("继续检查");
+
+    fireEvent.keyDown(input, { key: "Enter", keyCode: 229 });
+
+    expect(onFollowUp).not.toHaveBeenCalled();
+    expect(input).toHaveValue("继续检查");
+  });
+
   it("运行中 Shift+Enter 不触发排队发送", () => {
     const { onFollowUp } = renderCard({ isRunning: true });
     const input = typeInstruction("接着补测试");

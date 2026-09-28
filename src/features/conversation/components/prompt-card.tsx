@@ -78,12 +78,28 @@ export function PromptCard({
     onDraftChange("");
   };
 
-  /** 运行中 Enter 视为排队发送；IME 组合中与不运行的场景交给 assistant-ui 默认行为。 */
+  const isImeConfirmEnter = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+    const nativeEvent = event.nativeEvent as {
+      isComposing?: boolean;
+      keyCode?: number;
+    };
+    return (
+      event.key === "Enter" &&
+      (composingRef.current || nativeEvent.isComposing === true || nativeEvent.keyCode === 229)
+    );
+  };
+
+  /**
+   * 在捕获阶段拦住 IME 的候选词确认键，避免 assistant-ui 把同一次 Enter 当成消息提交。
+   * 只停止事件传播，不阻止浏览器默认行为，确保输入法仍能正常确认候选词。
+   */
+  const handleImeConfirmEnter = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (isImeConfirmEnter(event)) event.stopPropagation();
+  };
+
+  /** 运行中 Enter 视为排队发送；IME 确认键已在捕获阶段隔离。 */
   const handleRunningEnter = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     if (!isRunning || event.key !== "Enter" || event.shiftKey) return;
-    const nativeIsComposing =
-      (event.nativeEvent as { isComposing?: boolean }).isComposing === true;
-    if (composingRef.current || nativeIsComposing) return;
     event.preventDefault();
     queueMessage(false);
   };
@@ -222,6 +238,7 @@ export function PromptCard({
                 setIsComposing(true);
               }}
               onKeyDown={handleRunningEnter}
+              onKeyDownCapture={handleImeConfirmEnter}
               placeholder={
                 isRunning
                   ? "Pi 正在执行，可排队或插队引导"
