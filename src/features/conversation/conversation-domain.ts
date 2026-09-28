@@ -3,6 +3,7 @@ import type {
   ConversationMessage,
   EventEnvelope,
   MessagePart,
+  MessageQueue,
   PiSessionState,
   RunState,
   SessionEntry,
@@ -213,6 +214,8 @@ function activeTurnId(state: PiSessionState): string | null {
   return null;
 }
 
+export const emptyQueue = (): MessageQueue => ({ steering: [], followUp: [] });
+
 export const initialPiSessionState: PiSessionState = {
   connection: disconnectedSnapshot,
   messages: [],
@@ -221,6 +224,7 @@ export const initialPiSessionState: PiSessionState = {
   notice: null,
   diagnostics: [],
   run: idleRunState(),
+  queue: emptyQueue(),
   extensionRequest: null,
 };
 
@@ -242,6 +246,7 @@ export function piSessionReducer(
           error: event.snapshot.error,
           extensionRequest: null,
           run: idleRunState(),
+          queue: emptyQueue(),
         };
       }
       return {
@@ -262,6 +267,7 @@ export function piSessionReducer(
               notice: null,
               diagnostics: [],
               run: idleRunState(),
+              queue: emptyQueue(),
               extensionRequest: null,
             }
           : {}),
@@ -308,6 +314,11 @@ export function piSessionReducer(
         event.isError ? "error" : "completed",
         event,
       );
+    case "queue_changed":
+      return {
+        ...state,
+        queue: { steering: event.steering, followUp: event.followUp },
+      };
     case "run_started":
       return {
         ...state,

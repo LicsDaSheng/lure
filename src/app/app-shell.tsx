@@ -107,7 +107,7 @@ export function AppShell() {
     clearProjectDirectory,
     projectDirectoryCandidate,
   } = useSessions();
-  const { messages, activeAssistantId, promptSubmissionCount, prompt, abort } = useConversation();
+  const { messages, activeAssistantId, promptSubmissionCount, queue, prompt, abort, steer, followUp, clearQueue } = useConversation();
   const { availableModels, current: currentModel, thinkingLevel, setModel, setThinkingLevel } = useModels();
   const { request: extensionRequest, respond: respondToExtension } = useExtensionUi();
   const submittedPrompts = useRef(promptSubmissionCount);
@@ -335,11 +335,15 @@ export function AppShell() {
                 model={currentModel}
                 models={availableModels}
                 onAddImages={pickImages}
+                onClearQueue={() => clearQueue()}
                 onDraftChange={persistDraft}
+                onFollowUp={(message) => followUp(message)}
                 onSelectModel={(provider, modelId) => void setModel(provider, modelId)}
                 onSelectThinkingLevel={(level) => void setThinkingLevel(level)}
+                onSteer={(message) => steer(message)}
                 onStop={() => void abort()}
                 phase={connection.phase}
+                queue={queue}
                 textareaRef={promptInputRef}
                 thinkingLevel={thinkingLevel}
               />

@@ -5,8 +5,8 @@ use lure_core::{
     ConnectionPhase, ConnectionSnapshot, ErrorCode, LureError, LureEvent, ModelSnapshot,
 };
 use lure_rpc::{
-    PiProcessConfig, PiRpcClient, RpcCommand, RpcError, RpcImage, RpcModel, RpcSessionState,
-    SessionEntries, SessionSwitch,
+    ClearedQueue, PiProcessConfig, PiRpcClient, RpcCommand, RpcError, RpcImage, RpcModel,
+    RpcSessionState, SessionEntries, SessionSwitch,
 };
 use lure_session::agent_directory;
 use serde::Serialize;
@@ -392,6 +392,77 @@ pub(crate) async fn abort_pi(state: State<'_, SharedAppState>) -> Result<(), Lur
         .map(|session| session.client.clone())
         .ok_or_else(|| LureError::new(ErrorCode::NotConnected, "Pi 尚未连接"))?;
     client.abort().await.map_err(|error| map_rpc_error(&error))
+}
+
+/// 运行控制命令共用的排队入口：`steer` 插队引导、`follow_up` 排队后续。
+async fn queue_message(
+    state: &State<'_, SharedAppState>,
+    message: String,
+    images: Vec<RpcImage>,
+    steering: bool,
+) -> Result<RequestAccepted, LureError> {
+    let state = state.inner().clone();
+    let _command_guard = state.command_lock.lock().await;
+    ensure_operation_allowed(state.snapshot.read().await.phase, Operation::QueueMessage)?;
+    if message.trim().is_empty() {
+        return Err(LureError::new(
+            ErrorCode::RpcCommandRejected,
+            "消息不能为空",
+        ));
+    }
+    let client = session_client_ref(&state).await?;
+    let result = if steering {
+        client.steer(message, images).await
+    } else {
+        client.follow_up(message, images).await
+    };
+    result.map_err(|error| map_rpc_error(&error))?;
+    Ok(RequestAccepted { accepted: true })
+}
+
+/// 排队一条插队引导消息：当前工具调用结束后、下一次模型调用前交付给 Pi。
+#[tauri::command]
+pub(crate) async fn steer_pi(
+    state: State<'_, SharedAppState>,
+    message: String,
+    images: Vec<RpcImage>,
+) -> Result<RequestAccepted, LureError> {
+    queue_message(&state, message, images, true).await
+}
+
+/// 排队一条后续消息：当前运行完全结束后继续执行。
+#[tauri::command]
+pub(crate) async fn follow_up_pi(
+    state: State<'_, SharedAppState>,
+    message: String,
+    images: Vec<RpcImage>,
+) -> Result<RequestAccepted, LureError> {
+    queue_message(&state, message, images, false).await
+}
+
+/// 清空待处理队列，返回被清空的内容（前端可用于恢复输入草稿）。
+#[tauri::command]
+pub(crate) async fn clear_pi_queue(
+    state: State<'_, SharedAppState>,
+) -> Result<ClearedQueue, LureError> {
+    let state = state.inner().clone();
+    let _command_guard = state.command_lock.lock().await;
+    ensure_operation_allowed(state.snapshot.read().await.phase, Operation::ClearQueue)?;
+    session_client_ref(&state)
+        .await?
+        .clear_queue()
+        .await
+        .map_err(|error| map_rpc_error(&error))
+}
+
+async fn session_client_ref(state: &SharedAppState) -> Result<PiRpcClient, LureError> {
+    state
+        .session
+        .lock()
+        .await
+        .as_ref()
+        .map(|session| session.client.clone())
+        .ok_or_else(|| LureError::new(ErrorCode::NotConnected, "Pi 尚未连接"))
 }
 
 async fn session_client(state: &State<'_, SharedAppState>) -> Result<PiRpcClient, LureError> {

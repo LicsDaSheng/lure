@@ -57,7 +57,7 @@ lure/
 │   ├── capabilities/          # Tauri 窗口权限声明
 │   ├── icons/                 # 应用打包图标
 │   ├── src/
-│   │   ├── commands.rs        # 连接、断开、提示词和中止命令
+│   │   ├── commands.rs        # 连接、会话、提示词、运行控制与队列命令
 │   │   ├── events.rs          # lure://pi-event 转发
 │   │   ├── state.rs           # 单 Pi 会话状态与操作约束
 │   │   ├── lib.rs             # Tauri Builder 组合根
@@ -109,6 +109,10 @@ React UI ⇄ Tauri command/event ⇄ lure-desktop
 6. 断开连接或应用退出时，中止活动任务并回收 Pi 子进程。
 
 桌面边界在基础连接与运行控制之外，已经支持图片附件、模型与 thinking level、历史会话切换、命令发现和 extension UI 响应；这些能力仍以 Pi RPC 返回的数据为事实来源。
+
+### 运行中队列（steer / follow_up / clear_queue）
+
+运行中的任务接受两类排队消息：`steer`（插队引导，当前工具调用结束后、下一次模型调用前交付）和 `follow_up`（排队后续，运行完全结束后继续执行），并可通过 `clear_queue` 清空待处理队列（响应返回被清空的内容）。排队消息被接受时不产生 `user_message_accepted`；Pi 实际消费时以 `user_message_observed` 进入对话流，队列归属由 `queue_update`（规范化为 `queue_changed`）事件驱动。前端在输入卡中提供插队引导、排队发送（运行中 Enter）与停止入口，并在队列非空时展示待处理队列与清空操作。
 
 ## 4. 前端组织约定
 

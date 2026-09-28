@@ -11,5 +11,5 @@ mod protocol;
 pub use client::{PiProcessConfig, PiRpcClient};
 pub use error::RpcError;
 pub use protocol::{
-    RpcCommand, RpcImage, RpcModel, RpcSessionState, SessionEntries, SessionSwitch,
+    ClearedQueue, RpcCommand, RpcImage, RpcModel, RpcSessionState, SessionEntries, SessionSwitch,
 };

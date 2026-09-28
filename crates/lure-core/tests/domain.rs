@@ -51,3 +51,16 @@ fn errors_expose_stable_codes() {
     assert_eq!(json["code"], "PI_NOT_FOUND");
     assert_eq!(json["message"], "未找到 Pi");
 }
+
+#[test]
+fn queue_changed_serializes_with_frontend_friendly_fields() {
+    let event = LureEvent::QueueChanged {
+        steering: vec!["先停下重构".into()],
+        follow_up: vec!["接着补测试".into()],
+    };
+    let json = serde_json::to_value(event).unwrap();
+
+    assert_eq!(json["type"], "queue_changed");
+    assert_eq!(json["steering"], serde_json::json!(["先停下重构"]));
+    assert_eq!(json["followUp"], serde_json::json!(["接着补测试"]));
+}

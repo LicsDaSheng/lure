@@ -354,3 +354,68 @@ async fn rejects_a_missing_working_directory_before_spawning() {
 
     assert!(matches!(error, RpcError::InvalidWorkingDirectory(_)));
 }
+
+#[tokio::test]
+async fn steer_and_follow_up_queue_messages_and_report_queue_changes() {
+    let config = PiProcessConfig::new(fake_pi(), env!("CARGO_MANIFEST_DIR"));
+    let (client, _state) = PiRpcClient::connect(config).await.unwrap();
+    let mut events = client.subscribe();
+
+    client.steer("先停下重构", vec![]).await.unwrap();
+    client.follow_up("接着补测试", vec![]).await.unwrap();
+
+    let mut queue_updates = Vec::new();
+    while queue_updates.len() < 2 {
+        let event = tokio::time::timeout(Duration::from_secs(2), events.recv())
+            .await
+            .unwrap()
+            .unwrap();
+        if let LureEvent::QueueChanged {
+            steering,
+            follow_up,
+        } = event
+        {
+            queue_updates.push((steering, follow_up));
+        }
+    }
+
+    assert_eq!(queue_updates[0], (vec!["先停下重构".to_owned()], vec![]));
+    assert_eq!(
+        queue_updates[1],
+        (vec!["先停下重构".to_owned()], vec!["接着补测试".to_owned()])
+    );
+
+    client.stop().await.unwrap();
+}
+
+#[tokio::test]
+async fn clear_queue_returns_cleared_messages() {
+    let config = PiProcessConfig::new(fake_pi(), env!("CARGO_MANIFEST_DIR"));
+    let (client, _state) = PiRpcClient::connect(config).await.unwrap();
+
+    client.steer("插队", vec![]).await.unwrap();
+    client.follow_up("排队", vec![]).await.unwrap();
+
+    let cleared = client.clear_queue().await.unwrap();
+    assert_eq!(cleared.steering, vec!["插队".to_owned()]);
+    assert_eq!(cleared.follow_up, vec!["排队".to_owned()]);
+
+    client.stop().await.unwrap();
+}
+
+#[tokio::test]
+async fn queue_commands_do_not_emit_user_message_accepted() {
+    let config = PiProcessConfig::new(fake_pi(), env!("CARGO_MANIFEST_DIR"));
+    let (client, _state) = PiRpcClient::connect(config).await.unwrap();
+    let mut events = client.subscribe();
+
+    client.steer("插队", vec![]).await.unwrap();
+
+    let event = tokio::time::timeout(Duration::from_secs(2), events.recv())
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(matches!(event, LureEvent::QueueChanged { .. }));
+
+    client.stop().await.unwrap();
+}

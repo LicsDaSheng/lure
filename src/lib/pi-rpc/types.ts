@@ -227,6 +227,7 @@ export type PiEvent =
   | { type: "run_started" }
   | { type: "run_finished"; willRetry: boolean }
   | { type: "run_settled" }
+  | { type: "queue_changed"; steering: string[]; followUp: string[] }
   | { type: "turn_started" }
   | { type: "turn_ended"; stopReason?: string | null; errorMessage?: string | null }
   | {
@@ -260,6 +261,12 @@ export type EventEnvelope = {
   receivedAtMs?: number;
 };
 
+/** Pi 待处理队列：steering 为插队引导，followUp 为排队后续。 */
+export type MessageQueue = {
+  steering: string[];
+  followUp: string[];
+};
+
 export type PiSessionState = {
   connection: ConnectionSnapshot;
   messages: ConversationMessage[];
@@ -268,5 +275,6 @@ export type PiSessionState = {
   notice: string | null;
   diagnostics: string[];
   run: RunState;
+  queue: MessageQueue;
   extensionRequest: ExtensionUiRequest | null;
 };

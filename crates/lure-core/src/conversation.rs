@@ -79,6 +79,11 @@ pub enum LureEvent {
         will_retry: bool,
     },
     RunSettled,
+    /// Pi 待处理队列（插队引导 steering / 排队后续 follow-up）发生变化。
+    QueueChanged {
+        steering: Vec<String>,
+        follow_up: Vec<String>,
+    },
     TurnStarted,
     /// 单次 assistant turn（含工具结果）的权威边界，携带该轮次的终止原因。
     TurnEnded {
