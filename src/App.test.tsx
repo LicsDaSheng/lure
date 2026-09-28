@@ -626,6 +626,17 @@ describe("主工作区对话态", () => {
     expect(screen.getByRole("button", { name: "发送消息" })).toBeEnabled();
   });
 
+  it("中文输入法确认候选词的 Enter 不提交消息", async () => {
+    await renderConnected();
+    const field = textbox() as HTMLTextAreaElement;
+
+    fireEvent.change(field, { target: { value: "今天" } });
+    fireEvent.keyDown(field, { key: "Enter", keyCode: 229 });
+
+    expect(mocks.invoke).not.toHaveBeenCalledWith("send_prompt", expect.anything());
+    expect(field).toHaveValue("今天");
+  });
+
   it("工具卡按真实顺序渲染在两条助手文本之间", async () => {
     await renderConnected();
 
