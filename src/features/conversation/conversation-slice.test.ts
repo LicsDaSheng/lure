@@ -4,9 +4,16 @@ import type { EventEnvelope, PiSessionState } from "@/lib/pi-rpc/types";
 import { piRuntimeProjected } from "@/features/sessions/runtime-events";
 
 import { initialPiSessionState, piSessionReducer } from "./conversation-domain";
-import { conversationActions, conversationReducer, initialConversationState } from "./conversation-slice";
+import {
+  conversationActions,
+  conversationReducer,
+  initialConversationState,
+} from "./conversation-slice";
 
-function project(state: PiSessionState, envelopes: EventEnvelope[]): PiSessionState {
+function project(
+  state: PiSessionState,
+  envelopes: EventEnvelope[],
+): PiSessionState {
   return envelopes.reduce(piSessionReducer, state);
 }
 
@@ -28,7 +35,11 @@ const sessionReady: EventEnvelope = {
 
 const userMessage: EventEnvelope = {
   sequence: 1,
-  event: { type: "user_message_accepted", requestId: "req-1", message: "当前对话" },
+  event: {
+    type: "user_message_accepted",
+    requestId: "req-1",
+    message: "当前对话",
+  },
 };
 
 describe("conversation slice 的会话切换事务", () => {
@@ -44,8 +55,14 @@ describe("conversation slice 的会话切换事务", () => {
   });
 
   it("切换事务期间保留当前对话，并缓存 Pi 报告的新会话内容", () => {
-    const held = conversationReducer(initialConversationState, conversationActions.sessionSwitchDeferred());
-    const withCurrent = { ...held, messages: project(initialPiSessionState, [userMessage]).messages };
+    const held = conversationReducer(
+      initialConversationState,
+      conversationActions.sessionSwitchDeferred(),
+    );
+    const withCurrent = {
+      ...held,
+      messages: project(initialPiSessionState, [userMessage]).messages,
+    };
 
     const piState = project(initialPiSessionState, [sessionReady]);
     const next = conversationReducer(
@@ -57,14 +74,20 @@ describe("conversation slice 的会话切换事务", () => {
     expect(next.deferredMessages).toEqual([]);
 
     // 事务结束时才把 Pi 报告的最新内容应用到当前对话。
-    const settled = conversationReducer(next, conversationActions.sessionSwitchSettled());
+    const settled = conversationReducer(
+      next,
+      conversationActions.sessionSwitchSettled(),
+    );
     expect(settled.switchDeferred).toBe(false);
     expect(settled.messages).toEqual([]);
     expect(settled.deferredMessages).toBeNull();
   });
 
   it("切换事务提交历史条目后不再退回缓存的 Pi 内容", () => {
-    const held = conversationReducer(initialConversationState, conversationActions.sessionSwitchDeferred());
+    const held = conversationReducer(
+      initialConversationState,
+      conversationActions.sessionSwitchDeferred(),
+    );
     const withCache = conversationReducer(
       held,
       piRuntimeProjected({
@@ -77,20 +100,37 @@ describe("conversation slice 的会话切换事务", () => {
       withCache,
       conversationActions.historyLoaded({
         entries: [
-          { type: "message", id: "e1", parentId: null, message: { role: "user", content: "历史提问" } },
+          {
+            type: "message",
+            id: "e1",
+            parentId: null,
+            message: { role: "user", content: "历史提问" },
+          },
         ],
         leafId: "e1",
       }),
     );
-    const settled = conversationReducer(committed, conversationActions.sessionSwitchSettled());
+    const settled = conversationReducer(
+      committed,
+      conversationActions.sessionSwitchSettled(),
+    );
 
     expect(settled.messages).toHaveLength(1);
-    expect(settled.messages[0]?.parts[0]).toMatchObject({ type: "text", text: "历史提问" });
+    expect(settled.messages[0]?.parts[0]).toMatchObject({
+      type: "text",
+      text: "历史提问",
+    });
   });
 
   it("重置对话时清空切换事务标记与缓存", () => {
-    const held = conversationReducer(initialConversationState, conversationActions.sessionSwitchDeferred());
-    const reset = conversationReducer(held, conversationActions.conversationReset());
+    const held = conversationReducer(
+      initialConversationState,
+      conversationActions.sessionSwitchDeferred(),
+    );
+    const reset = conversationReducer(
+      held,
+      conversationActions.conversationReset(),
+    );
 
     expect(reset.switchDeferred).toBe(false);
     expect(reset.deferredMessages).toBeNull();

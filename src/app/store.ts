@@ -1,10 +1,19 @@
 import { configureStore } from "@reduxjs/toolkit";
 
-import { conversationListenerMiddleware, conversationReducer } from "@/features/conversation";
+import {
+  conversationListenerMiddleware,
+  conversationReducer,
+} from "@/features/conversation";
 import { executionReducer } from "@/features/execution";
-import { extensionUiListenerMiddleware, extensionUiReducer } from "@/features/extension-ui";
+import {
+  extensionUiListenerMiddleware,
+  extensionUiReducer,
+} from "@/features/extension-ui";
 import { modelsListenerMiddleware, modelsReducer } from "@/features/models";
-import { sessionsListenerMiddleware, sessionsReducer } from "@/features/sessions";
+import {
+  sessionsListenerMiddleware,
+  sessionsReducer,
+} from "@/features/sessions";
 
 export const store = configureStore({
   reducer: {

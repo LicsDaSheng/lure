@@ -27,7 +27,9 @@ function stubElementWidths(
   Object.defineProperty(HTMLElement.prototype, "clientWidth", {
     configurable: true,
     get() {
-      return this.classList.contains("flex-1") ? mockContainerWidth : mockScrollWidth;
+      return this.classList.contains("flex-1")
+        ? mockContainerWidth
+        : mockScrollWidth;
     },
   });
   Object.defineProperty(HTMLElement.prototype, "getBoundingClientRect", {

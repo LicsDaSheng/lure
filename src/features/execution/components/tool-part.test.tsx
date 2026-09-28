@@ -27,10 +27,9 @@ describe("工具执行展示", () => {
 
     fireEvent.click(trigger);
 
-    expect(screen.getByRole("button", { name: /已读取 README.md/ })).toHaveAttribute(
-      "aria-expanded",
-      "true",
-    );
+    expect(
+      screen.getByRole("button", { name: /已读取 README.md/ }),
+    ).toHaveAttribute("aria-expanded", "true");
     expect(screen.getByText("输入")).toBeInTheDocument();
     expect(screen.getByText("输出")).toBeInTheDocument();
     expect(screen.getByText("文件内容")).toBeInTheDocument();
@@ -47,14 +46,18 @@ describe("工具执行展示", () => {
     );
 
     expect(screen.getByText("工具调用")).toBeInTheDocument();
-    expect(screen.getByText("str_replace_editor · str_replace")).toBeInTheDocument();
+    expect(
+      screen.getByText("str_replace_editor · str_replace"),
+    ).toBeInTheDocument();
     expect(container.firstElementChild).not.toHaveClass("rounded-xl", "border");
   });
 
   it("运行中的工具显示执行中状态", () => {
     render(<ToolCard view={view({ status: "running", output: "" })} />);
 
-    expect(screen.getByRole("button", { name: /正在读取 README.md/ })).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /正在读取 README.md/ }),
+    ).toBeInTheDocument();
     expect(screen.getByText("执行中")).toBeInTheDocument();
   });
 
@@ -69,12 +72,17 @@ describe("工具执行展示", () => {
   });
 
   it("长输出提供查看完整内容的入口", () => {
-    const output = Array.from({ length: 30 }, (_, index) => `第 ${index + 1} 行`).join("\n");
+    const output = Array.from(
+      { length: 30 },
+      (_, index) => `第 ${index + 1} 行`,
+    ).join("\n");
     render(<ToolCard view={view({ output })} />);
 
     fireEvent.click(screen.getByRole("button", { name: /已读取 README.md/ }));
 
-    expect(screen.getByRole("button", { name: /查看完整 30 行输出/ })).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /查看完整 30 行输出/ }),
+    ).toBeInTheDocument();
     expect(screen.getByText(/另有 20 行未显示/)).toBeInTheDocument();
   });
 
@@ -83,6 +91,8 @@ describe("工具执行展示", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /已读取 README.md/ }));
 
-    expect(screen.queryByRole("button", { name: /查看完整/ })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /查看完整/ }),
+    ).not.toBeInTheDocument();
   });
 });

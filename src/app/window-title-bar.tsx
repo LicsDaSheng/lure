@@ -5,7 +5,9 @@ import {
   PanelLeftOpenIcon,
 } from "lucide-react";
 
-function runWindowCommand(command: (window: ReturnType<typeof getCurrentWindow>) => Promise<void>) {
+function runWindowCommand(
+  command: (window: ReturnType<typeof getCurrentWindow>) => Promise<void>,
+) {
   try {
     void command(getCurrentWindow()).catch(() => {
       // 桌面端窗口命令失败时不应中断页面交互。
@@ -18,13 +20,11 @@ function runWindowCommand(command: (window: ReturnType<typeof getCurrentWindow>)
 export function WindowTitleBar({
   collapsed,
   hasConversation,
-  onTitleChange,
   onToggleSidebar,
   title,
 }: {
   collapsed: boolean;
   hasConversation: boolean;
-  onTitleChange: (title: string) => void;
   onToggleSidebar: () => void;
   title: string;
 }) {
@@ -68,16 +68,22 @@ export function WindowTitleBar({
         )}
         {hasConversation && (
           <>
-            <FolderIcon aria-hidden="true" className="pointer-events-none hidden size-4 shrink-0 text-muted-foreground sm:block" />
+            <FolderIcon
+              aria-hidden="true"
+              className="pointer-events-none hidden size-4 shrink-0 text-muted-foreground sm:block"
+            />
             <input
               aria-label="任务标题"
               className="window-no-drag min-w-0 w-full max-w-[480px] truncate bg-transparent text-[13px] font-medium outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
-              onChange={(event) => onTitleChange(event.target.value)}
+              readOnly
               value={title}
             />
           </>
         )}
-        <div className="min-w-0 flex-1 self-stretch" data-tauri-drag-region="" />
+        <div
+          className="min-w-0 flex-1 self-stretch"
+          data-tauri-drag-region=""
+        />
       </div>
     </header>
   );
@@ -85,7 +91,11 @@ export function WindowTitleBar({
 
 function WindowControls() {
   return (
-    <div aria-label="窗口控制" className="window-no-drag flex items-center" role="group">
+    <div
+      aria-label="窗口控制"
+      className="window-no-drag flex items-center"
+      role="group"
+    >
       <WindowControlButton
         ariaLabel="关闭窗口"
         color="bg-[#FF5F57]"

@@ -33,7 +33,9 @@ export function ConnectionFailureDialog({
       <DialogContent className="rounded-xl">
         <DialogHeader>
           <DialogTitle>{copy.headline}</DialogTitle>
-          <DialogDescription>Pi 连接没有建立，任务暂时无法开始。</DialogDescription>
+          <DialogDescription>
+            Pi 连接没有建立，任务暂时无法开始。
+          </DialogDescription>
         </DialogHeader>
 
         <dl className="space-y-2 text-sm">
@@ -45,7 +47,9 @@ export function ConnectionFailureDialog({
             <dt className="w-14 shrink-0 text-muted-foreground">原因：</dt>
             <dd className="min-w-0 flex-1">
               {copy.cause}
-              {error.message && <span className="ml-1 opacity-70">（{error.message}）</span>}
+              {error.message && (
+                <span className="ml-1 opacity-70">（{error.message}）</span>
+              )}
             </dd>
           </div>
         </dl>

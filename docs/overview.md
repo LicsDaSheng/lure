@@ -145,9 +145,17 @@ Pi 事件只在 `sessions` 的生命周期 listener 中订阅一次。该入口�
 type MessagePart =
   | { id: string; type: "text"; contentIndex: number; text: string }
   | { id: string; type: "thinking"; contentIndex: number; text: string }
-  | { id: string; type: "tool"; contentIndex: number; toolCallId: string; name: string;
-      status: "running" | "completed" | "error"; input: string; output: string;
-      truncatedLines: number | null };
+  | {
+      id: string;
+      type: "tool";
+      contentIndex: number;
+      toolCallId: string;
+      name: string;
+      status: "running" | "completed" | "error";
+      input: string;
+      output: string;
+      truncatedLines: number | null;
+    };
 ```
 
 - 文本与思考带 Pi 的 `contentIndex`，工具调用在 Pi 内容序列中占一个位置，但其 `tool_execution_*` 事件不携带索引，因此由“当前已见最大索引的下一位”推断，并在 `message_end` 用权威内容校正。

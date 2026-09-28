@@ -1,7 +1,11 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import type { ConversationTurn, MessagePart, ToolPart } from "@/features/conversation";
+import type {
+  ConversationTurn,
+  MessagePart,
+  ToolPart,
+} from "@/features/conversation";
 
 import { AssistantTurn } from "./assistant-turn";
 
@@ -9,7 +13,11 @@ function textPart(text: string, contentIndex = 0): MessagePart {
   return { id: `text-${contentIndex}`, type: "text", contentIndex, text };
 }
 
-function toolPart(toolCallId: string, name = "read", label = "package.json"): ToolPart {
+function toolPart(
+  toolCallId: string,
+  name = "read",
+  label = "package.json",
+): ToolPart {
   return {
     id: toolCallId,
     type: "tool",
@@ -18,7 +26,7 @@ function toolPart(toolCallId: string, name = "read", label = "package.json"): To
     name,
     status: "completed",
     input: JSON.stringify({ path: label }),
-    output: "{\"name\":\"lure\"}",
+    output: '{"name":"lure"}',
     truncatedLines: null,
   };
 }
@@ -64,7 +72,9 @@ describe("响应组展示", () => {
       />,
     );
 
-    expect(screen.queryByRole("button", { name: /执行过程|执行中|已停止/ })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /执行过程|执行中|已停止/ }),
+    ).not.toBeInTheDocument();
     expect(screen.getByText("检查完成")).toBeInTheDocument();
   });
 
@@ -100,7 +110,14 @@ describe("响应组展示", () => {
           result: {
             id: "assistant-2",
             kind: "final",
-            parts: [{ id: "text-0", type: "text", contentIndex: 0, text: "配置已确认" }],
+            parts: [
+              {
+                id: "text-0",
+                type: "text",
+                contentIndex: 0,
+                text: "配置已确认",
+              },
+            ],
             stopReason: "stop",
             errorMessage: null,
           },
@@ -108,7 +125,9 @@ describe("响应组展示", () => {
       />,
     );
 
-    const settled = screen.getByRole("button", { name: "用时 50 秒 · 展开执行过程" });
+    const settled = screen.getByRole("button", {
+      name: "用时 50 秒 · 展开执行过程",
+    });
     expect(settled).toHaveAttribute("aria-expanded", "false");
     expect(screen.getByText("配置已确认")).toBeVisible();
     expect(screen.getByText("先读取配置")).not.toBeVisible();
@@ -130,7 +149,9 @@ describe("响应组展示", () => {
     });
     render(<AssistantTurn turn={withProcess} />);
 
-    const toggle = screen.getByRole("button", { name: "1 个工具调用 · 展开执行过程" });
+    const toggle = screen.getByRole("button", {
+      name: "1 个工具调用 · 展开执行过程",
+    });
     expect(toggle.tagName).toBe("BUTTON");
     toggle.focus();
     expect(toggle).toHaveFocus();
@@ -163,19 +184,24 @@ describe("响应组展示", () => {
     });
     render(<AssistantTurn turn={withProcess} />);
 
-    fireEvent.click(screen.getByRole("button", { name: "1 个工具调用 · 展开执行过程" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "1 个工具调用 · 展开执行过程" }),
+    );
     const tool = screen.getByRole("button", { name: /已读取 package.json/ });
     fireEvent.click(tool);
     expect(tool).toHaveAttribute("aria-expanded", "true");
 
     // 收起再展开总过程，工具卡保持自己已展开的选择。
-    fireEvent.click(screen.getByRole("button", { name: "1 个工具调用 · 收起执行过程" }));
-    fireEvent.click(screen.getByRole("button", { name: "1 个工具调用 · 展开执行过程" }));
-
-    expect(screen.getByRole("button", { name: /已读取 package.json/ })).toHaveAttribute(
-      "aria-expanded",
-      "true",
+    fireEvent.click(
+      screen.getByRole("button", { name: "1 个工具调用 · 收起执行过程" }),
     );
+    fireEvent.click(
+      screen.getByRole("button", { name: "1 个工具调用 · 展开执行过程" }),
+    );
+
+    expect(
+      screen.getByRole("button", { name: /已读取 package.json/ }),
+    ).toHaveAttribute("aria-expanded", "true");
   });
 
   it("外层过程展开时不会把已收起工具的箭头误显示为展开方向", () => {
@@ -221,14 +247,18 @@ describe("响应组展示", () => {
           result: {
             id: "assistant-1",
             kind: "partial",
-            parts: [{ id: "text-0", type: "text", contentIndex: 0, text: "写了一半" }],
+            parts: [
+              { id: "text-0", type: "text", contentIndex: 0, text: "写了一半" },
+            ],
             stopReason: "aborted",
             errorMessage: null,
           },
         })}
       />,
     );
-    expect(screen.getByText("任务已由你停止，已完成的内容仍然保留。")).toBeInTheDocument();
+    expect(
+      screen.getByText("任务已由你停止，已完成的内容仍然保留。"),
+    ).toBeInTheDocument();
     expect(screen.getByText("写了一半")).toBeInTheDocument();
 
     rerender(
@@ -245,7 +275,9 @@ describe("响应组展示", () => {
         })}
       />,
     );
-    expect(screen.getByText("这次执行未能完成：模型连接中断")).toBeInTheDocument();
+    expect(
+      screen.getByText("这次执行未能完成：模型连接中断"),
+    ).toBeInTheDocument();
   });
 
   it("过程中失败的中间轮次如实说明，不遮挡后续结果", () => {
@@ -265,7 +297,9 @@ describe("响应组展示", () => {
           result: {
             id: "assistant-2",
             kind: "final",
-            parts: [{ id: "text-0", type: "text", contentIndex: 0, text: "成功响应" }],
+            parts: [
+              { id: "text-0", type: "text", contentIndex: 0, text: "成功响应" },
+            ],
             stopReason: "stop",
             errorMessage: null,
           },

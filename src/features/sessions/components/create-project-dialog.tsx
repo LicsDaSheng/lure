@@ -47,7 +47,10 @@ export function CreateProjectDialog({
 
   return (
     <Dialog onOpenChange={onOpenChange} open={open}>
-      <DialogContent aria-describedby="create-project-description" className="sm:max-w-xl">
+      <DialogContent
+        aria-describedby="create-project-description"
+        className="sm:max-w-xl"
+      >
         <DialogHeader>
           <DialogTitle>创建项目</DialogTitle>
           <DialogDescription id="create-project-description">
@@ -58,7 +61,10 @@ export function CreateProjectDialog({
         <label className="grid gap-2 text-sm font-medium">
           项目名称
           <span className="flex h-12 items-center gap-3 rounded-xl border bg-background px-4 focus-within:ring-2 focus-within:ring-ring/50">
-            <FolderIcon aria-hidden="true" className="size-4 text-muted-foreground" />
+            <FolderIcon
+              aria-hidden="true"
+              className="size-4 text-muted-foreground"
+            />
             <input
               aria-label="项目名称"
               className="min-w-0 flex-1 bg-transparent outline-none placeholder:text-muted-foreground"
@@ -76,7 +82,10 @@ export function CreateProjectDialog({
             onClick={onChooseDirectory}
             type="button"
           >
-            <FolderPlusIcon aria-hidden="true" className="size-5 text-muted-foreground" />
+            <FolderPlusIcon
+              aria-hidden="true"
+              className="size-5 text-muted-foreground"
+            />
             {directory ? (
               <>
                 <span className="font-medium">{directoryName(directory)}</span>
@@ -91,10 +100,18 @@ export function CreateProjectDialog({
         </div>
 
         <DialogFooter>
-          <Button onClick={() => onOpenChange(false)} type="button" variant="ghost">
+          <Button
+            onClick={() => onOpenChange(false)}
+            type="button"
+            variant="ghost"
+          >
             取消
           </Button>
-          <Button disabled={!directory || !name.trim()} onClick={submit} type="button">
+          <Button
+            disabled={!directory || !name.trim()}
+            onClick={submit}
+            type="button"
+          >
             创建项目
           </Button>
         </DialogFooter>

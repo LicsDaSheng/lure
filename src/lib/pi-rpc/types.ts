@@ -1,9 +1,5 @@
 export type ConnectionPhase =
-  | "disconnected"
-  | "connecting"
-  | "ready"
-  | "running"
-  | "failed";
+  "disconnected" | "connecting" | "ready" | "running" | "failed";
 
 export type LureError = {
   code: string;
@@ -80,7 +76,8 @@ export type ConnectionSnapshot = {
   error: LureError | null;
 };
 
-export type RunPhase = "idle" | "running" | "waiting_input" | "retrying" | "compacting";
+export type RunPhase =
+  "idle" | "running" | "waiting_input" | "retrying" | "compacting";
 
 /**
  * 单次用户指令对应响应组的运行阶段。
@@ -88,7 +85,8 @@ export type RunPhase = "idle" | "running" | "waiting_input" | "retrying" | "comp
  * `truncated` 对应 Pi 的 `length` 终止原因，与 `aborted`、`error` 一样
  * 不能作为最终答案，只能呈现为部分结果。
  */
-export type TurnPhase = "running" | "settled" | "aborted" | "truncated" | "error";
+export type TurnPhase =
+  "running" | "settled" | "aborted" | "truncated" | "error";
 
 export type RunState = {
   phase: RunPhase;
@@ -181,7 +179,9 @@ export type ConversationMessage = {
 };
 
 export function messageText(message: ConversationMessage): string {
-  return message.parts.flatMap((part) => (part.type === "text" ? [part.text] : [])).join("");
+  return message.parts
+    .flatMap((part) => (part.type === "text" ? [part.text] : []))
+    .join("");
 }
 
 export function messageThinking(message: ConversationMessage): string {
@@ -202,11 +202,20 @@ export type PiEvent =
       type: "assistant_message_completed";
       text: string;
       thinking: string;
-      blocks?: Array<{ contentIndex: number; kind: "text" | "thinking"; text: string }>;
+      blocks?: Array<{
+        contentIndex: number;
+        kind: "text" | "thinking";
+        text: string;
+      }>;
       stopReason?: string | null;
       errorMessage?: string | null;
     }
-  | { type: "tool_started"; toolCallId: string; toolName: string; input?: string }
+  | {
+      type: "tool_started";
+      toolCallId: string;
+      toolName: string;
+      input?: string;
+    }
   | {
       type: "tool_updated";
       toolCallId: string;
@@ -229,7 +238,11 @@ export type PiEvent =
   | { type: "run_settled" }
   | { type: "queue_changed"; steering: string[]; followUp: string[] }
   | { type: "turn_started" }
-  | { type: "turn_ended"; stopReason?: string | null; errorMessage?: string | null }
+  | {
+      type: "turn_ended";
+      stopReason?: string | null;
+      errorMessage?: string | null;
+    }
   | {
       type: "retry_changed";
       active: boolean;

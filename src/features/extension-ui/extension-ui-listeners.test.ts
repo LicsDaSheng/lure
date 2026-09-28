@@ -16,7 +16,8 @@ function createStore(request: { requestId: string } | null) {
   return configureStore({
     reducer: { extensionUi: extensionUiReducer, sessions: sessionsReducer },
     preloadedState: { extensionUi: { request: request as never } },
-    middleware: (defaults) => defaults().prepend(extensionUiListenerMiddleware.middleware),
+    middleware: (defaults) =>
+      defaults().prepend(extensionUiListenerMiddleware.middleware),
   });
 }
 
@@ -26,8 +27,15 @@ describe("extension UI listeners", () => {
   it("把用户响应关联到当前 request id", async () => {
     mocks.respondToExtensionUi.mockResolvedValue(undefined);
     const store = createStore({ requestId: "request-1" });
-    store.dispatch(extensionUiActions.responseRequested({ value: true, cancelled: false }));
-    await vi.waitFor(() => expect(mocks.respondToExtensionUi).toHaveBeenCalledWith("request-1", true, false));
+    store.dispatch(
+      extensionUiActions.responseRequested({ value: true, cancelled: false }),
+    );
+    await vi.waitFor(() =>
+      expect(mocks.respondToExtensionUi).toHaveBeenCalledWith(
+        "request-1",
+        true,
+        false,
+      ),
+    );
   });
-
 });

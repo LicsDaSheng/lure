@@ -14,12 +14,18 @@ describe("Markdown 回复", () => {
 
   it("代码内容默认不显示行号", async () => {
     const { container } = render(
-      <MarkdownResponse mode="static">{"```text\nproject/\n└── src/\n```"}</MarkdownResponse>,
+      <MarkdownResponse mode="static">
+        {"```text\nproject/\n└── src/\n```"}
+      </MarkdownResponse>,
     );
 
     await waitFor(() =>
-      expect(container.querySelector('[data-streamdown="code-block-body"]')).toBeInTheDocument(),
+      expect(
+        container.querySelector('[data-streamdown="code-block-body"]'),
+      ).toBeInTheDocument(),
     );
-    expect(container.querySelector('[class*="counter-increment"]')).not.toBeInTheDocument();
+    expect(
+      container.querySelector('[class*="counter-increment"]'),
+    ).not.toBeInTheDocument();
   });
 });

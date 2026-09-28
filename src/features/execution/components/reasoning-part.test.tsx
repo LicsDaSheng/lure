@@ -16,13 +16,17 @@ describe("思考过程展示", () => {
 
     rerender(<ReasoningPart streaming={false} text="先确认配置来源" />);
 
-    expect(screen.getByRole("button", { name: /已思考 1 秒/ })).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /已思考 1 秒/ }),
+    ).toBeInTheDocument();
   });
 
   it("历史消息没有耗时信息时显示思考过程", () => {
     render(<ReasoningPart streaming={false} text="先确认配置来源" />);
 
-    expect(screen.getByRole("button", { name: /思考过程/ })).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /思考过程/ }),
+    ).toBeInTheDocument();
   });
 
   it("展开后渲染思考内容", () => {

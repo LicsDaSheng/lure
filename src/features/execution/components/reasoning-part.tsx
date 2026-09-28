@@ -31,7 +31,9 @@ export function ReasoningPart({ streaming, text }: ReasoningPartProps) {
       return;
     }
     if (startedAt.current !== null) {
-      setDuration(Math.max(1, Math.ceil((Date.now() - startedAt.current) / 1000)));
+      setDuration(
+        Math.max(1, Math.ceil((Date.now() - startedAt.current) / 1000)),
+      );
       startedAt.current = null;
     }
   }, [streaming]);

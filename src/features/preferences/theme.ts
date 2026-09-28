@@ -12,15 +12,19 @@ export function readThemePreference(): ThemePreference {
 }
 
 function systemPrefersDark() {
-  return typeof window !== "undefined" &&
+  return (
+    typeof window !== "undefined" &&
     typeof window.matchMedia === "function" &&
-    window.matchMedia("(prefers-color-scheme: dark)").matches;
+    window.matchMedia("(prefers-color-scheme: dark)").matches
+  );
 }
 
 export function useThemePreference() {
-  const [preference, setPreferenceState] = useState<ThemePreference>(readThemePreference);
+  const [preference, setPreferenceState] =
+    useState<ThemePreference>(readThemePreference);
   const [systemDark, setSystemDark] = useState(systemPrefersDark);
-  const resolvedTheme = preference === "system" ? (systemDark ? "dark" : "light") : preference;
+  const resolvedTheme =
+    preference === "system" ? (systemDark ? "dark" : "light") : preference;
 
   useEffect(() => {
     if (typeof window.matchMedia !== "function") return;

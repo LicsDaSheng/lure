@@ -4,13 +4,25 @@ import {
   useAui,
   useAuiState,
 } from "@assistant-ui/react";
-import { CornerDownLeftIcon, FolderIcon, GitBranchIcon, PlusIcon, SquareIcon, XIcon, ZapIcon } from "lucide-react";
+import {
+  CornerDownLeftIcon,
+  FolderIcon,
+  GitBranchIcon,
+  PlusIcon,
+  SquareIcon,
+  XIcon,
+  ZapIcon,
+} from "lucide-react";
 import { useRef, useState, type KeyboardEvent, type Ref } from "react";
 
 import { Button } from "@/components/ui/button";
 import { ModelControls } from "@/features/models";
 import type { SelectedImage } from "@/lib/pi-rpc/client";
-import type { ConnectionPhase, MessageQueue, ModelSnapshot } from "@/lib/pi-rpc/types";
+import type {
+  ConnectionPhase,
+  MessageQueue,
+  ModelSnapshot,
+} from "@/lib/pi-rpc/types";
 
 import { RiskConfirmDialog } from "@/app/risk-confirm-dialog";
 
@@ -85,7 +97,9 @@ export function PromptCard({
     };
     return (
       event.key === "Enter" &&
-      (composingRef.current || nativeEvent.isComposing === true || nativeEvent.keyCode === 229)
+      (composingRef.current ||
+        nativeEvent.isComposing === true ||
+        nativeEvent.keyCode === 229)
     );
   };
 
@@ -193,8 +207,12 @@ export function PromptCard({
                     className="flex items-baseline gap-1.5 text-xs"
                     key={`steering-${index}`}
                   >
-                    <span className="shrink-0 text-amber-600 dark:text-amber-500">插队</span>
-                    <span className="truncate text-muted-foreground">{text}</span>
+                    <span className="shrink-0 text-amber-600 dark:text-amber-500">
+                      插队
+                    </span>
+                    <span className="truncate text-muted-foreground">
+                      {text}
+                    </span>
                   </li>
                 ))}
                 {queue.followUp.map((text, index) => (
@@ -202,8 +220,12 @@ export function PromptCard({
                     className="flex items-baseline gap-1.5 text-xs"
                     key={`follow-up-${index}`}
                   >
-                    <span className="shrink-0 text-muted-foreground/70">排队</span>
-                    <span className="truncate text-muted-foreground">{text}</span>
+                    <span className="shrink-0 text-muted-foreground/70">
+                      排队
+                    </span>
+                    <span className="truncate text-muted-foreground">
+                      {text}
+                    </span>
                   </li>
                 ))}
               </ul>
@@ -224,7 +246,8 @@ export function PromptCard({
               className="max-h-48 min-h-11 w-full resize-none bg-transparent px-3.5 py-3 text-[13px] leading-5 outline-none placeholder:text-muted-foreground"
               onChange={(event) => {
                 const nativeIsComposing =
-                  (event.nativeEvent as { isComposing?: boolean }).isComposing === true;
+                  (event.nativeEvent as { isComposing?: boolean })
+                    .isComposing === true;
                 if (composingRef.current || nativeIsComposing) return;
                 onDraftChange(event.target.value);
               }}
@@ -308,7 +331,12 @@ export function PromptCard({
                     >
                       <CornerDownLeftIcon />
                     </Button>
-                    <Button aria-label="停止生成" onClick={onStop} size="icon-sm" type="button">
+                    <Button
+                      aria-label="停止生成"
+                      onClick={onStop}
+                      size="icon-sm"
+                      type="button"
+                    >
                       <SquareIcon />
                     </Button>
                   </>
@@ -334,7 +362,8 @@ export function PromptCard({
         confirmLabel="继续选择图片"
         details={{
           action: "把所选图片作为附件随指令发送给 Pi。",
-          recoverable: "本地文件不会被修改；图片内容会随指令发送给模型服务，发出后无法撤回。",
+          recoverable:
+            "本地文件不会被修改；图片内容会随指令发送给模型服务，发出后无法撤回。",
           target: "你选择的本地图片文件。",
         }}
         onCancel={() => setConfirmImages(false)}

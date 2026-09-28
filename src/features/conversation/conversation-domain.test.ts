@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
 
+import { initialPiSessionState, piSessionReducer } from "./conversation-domain";
 import {
-  initialPiSessionState,
-  piSessionReducer,
-} from "./conversation-domain";
-import { messageText, messageThinking, type ConversationMessage, type EventEnvelope } from "@/lib/pi-rpc/types";
+  messageText,
+  messageThinking,
+  type ConversationMessage,
+  type EventEnvelope,
+} from "@/lib/pi-rpc/types";
 
 function reduce(events: EventEnvelope[]) {
   return events.reduce(piSessionReducer, initialPiSessionState);
@@ -35,32 +37,60 @@ describe("piSessionReducer", () => {
     const state = reduce([
       {
         sequence: 1,
-        event: { type: "user_message_accepted", requestId: "1", message: "检查项目" },
+        event: {
+          type: "user_message_accepted",
+          requestId: "1",
+          message: "检查项目",
+        },
       },
-      { sequence: 2, event: { type: "user_message_observed", message: "检查项目" } },
+      {
+        sequence: 2,
+        event: { type: "user_message_observed", message: "检查项目" },
+      },
       { sequence: 3, event: { type: "assistant_message_started" } },
       {
         sequence: 4,
-        event: { type: "assistant_message_completed", text: "第一步", thinking: "" },
+        event: {
+          type: "assistant_message_completed",
+          text: "第一步",
+          thinking: "",
+        },
       },
-      { sequence: 5, event: { type: "user_message_observed", message: "继续检查" } },
+      {
+        sequence: 5,
+        event: { type: "user_message_observed", message: "继续检查" },
+      },
     ]);
 
-    expect(state.messages.filter((message) => message.role === "user")).toHaveLength(2);
-    expect(state.messages.map(messageText)).toEqual(["检查项目", "第一步", "继续检查"]);
+    expect(
+      state.messages.filter((message) => message.role === "user"),
+    ).toHaveLength(2);
+    expect(state.messages.map(messageText)).toEqual([
+      "检查项目",
+      "第一步",
+      "继续检查",
+    ]);
   });
 
   it("进程退出会终结当前响应组，不再保留运行中状态", () => {
     const state = reduce([
       {
         sequence: 1,
-        event: { type: "user_message_accepted", requestId: "1", message: "长任务" },
+        event: {
+          type: "user_message_accepted",
+          requestId: "1",
+          message: "长任务",
+        },
       },
       { sequence: 2, event: { type: "run_started" } },
       { sequence: 3, event: { type: "assistant_message_started" } },
       {
         sequence: 4,
-        event: { type: "assistant_text_delta", contentIndex: 0, delta: "已完成一部分" },
+        event: {
+          type: "assistant_text_delta",
+          contentIndex: 0,
+          delta: "已完成一部分",
+        },
       },
       { sequence: 5, event: { type: "process_exited", code: 1 } },
     ]);
@@ -78,26 +108,48 @@ describe("piSessionReducer", () => {
     const state = reduce([
       {
         sequence: 1,
-        event: { type: "user_message_accepted", requestId: "1", message: "第一个问题" },
+        event: {
+          type: "user_message_accepted",
+          requestId: "1",
+          message: "第一个问题",
+        },
       },
       { sequence: 2, event: { type: "run_started" } },
       { sequence: 3, event: { type: "assistant_message_started" } },
       {
         sequence: 4,
-        event: { type: "assistant_message_completed", text: "第一个回答", thinking: "", stopReason: "stop" },
+        event: {
+          type: "assistant_message_completed",
+          text: "第一个回答",
+          thinking: "",
+          stopReason: "stop",
+        },
       },
-      { sequence: 5, event: { type: "user_message_observed", message: "追加问题" } },
+      {
+        sequence: 5,
+        event: { type: "user_message_observed", message: "追加问题" },
+      },
       { sequence: 6, event: { type: "turn_started" } },
       { sequence: 7, event: { type: "assistant_message_started" } },
       {
         sequence: 8,
-        event: { type: "assistant_message_completed", text: "追加回答", thinking: "", stopReason: "aborted" },
+        event: {
+          type: "assistant_message_completed",
+          text: "追加回答",
+          thinking: "",
+          stopReason: "aborted",
+        },
       },
       { sequence: 9, event: { type: "run_settled" } },
     ]);
 
-    const assistants = state.messages.filter((message) => message.role === "assistant");
-    expect(assistants.map((message) => message.turnPhase)).toEqual(["settled", "aborted"]);
+    const assistants = state.messages.filter(
+      (message) => message.role === "assistant",
+    );
+    expect(assistants.map((message) => message.turnPhase)).toEqual([
+      "settled",
+      "aborted",
+    ]);
     expect(assistants.map((message) => message.turnId)).toEqual([
       "user-1",
       "user-observed-5",
@@ -109,7 +161,11 @@ describe("piSessionReducer", () => {
       { sequence: 1, event: { type: "assistant_message_started" } },
       {
         sequence: 2,
-        event: { type: "assistant_text_delta", contentIndex: 0, delta: "先读取配置" },
+        event: {
+          type: "assistant_text_delta",
+          contentIndex: 0,
+          delta: "先读取配置",
+        },
       },
       {
         sequence: 3,
@@ -117,7 +173,7 @@ describe("piSessionReducer", () => {
           type: "tool_started",
           toolCallId: "tool-1",
           toolName: "read",
-          input: "{\"path\":\"a\"}",
+          input: '{"path":"a"}',
         },
       },
       {
@@ -132,7 +188,11 @@ describe("piSessionReducer", () => {
       },
       {
         sequence: 5,
-        event: { type: "assistant_text_delta", contentIndex: 2, delta: "再看入口" },
+        event: {
+          type: "assistant_text_delta",
+          contentIndex: 2,
+          delta: "再看入口",
+        },
       },
       {
         sequence: 6,
@@ -140,12 +200,16 @@ describe("piSessionReducer", () => {
           type: "tool_started",
           toolCallId: "tool-2",
           toolName: "read",
-          input: "{\"path\":\"b\"}",
+          input: '{"path":"b"}',
         },
       },
       {
         sequence: 7,
-        event: { type: "assistant_thinking_delta", contentIndex: 4, delta: "整理结论" },
+        event: {
+          type: "assistant_thinking_delta",
+          contentIndex: 4,
+          delta: "整理结论",
+        },
       },
     ]);
 
@@ -168,7 +232,11 @@ describe("piSessionReducer", () => {
       output: "内容 A",
     });
     expect(parts[2]).toMatchObject({ type: "text", text: "再看入口" });
-    expect(parts[3]).toMatchObject({ type: "tool", toolCallId: "tool-2", status: "running" });
+    expect(parts[3]).toMatchObject({
+      type: "tool",
+      toolCallId: "tool-2",
+      status: "running",
+    });
     expect(parts[4]).toMatchObject({ type: "thinking", text: "整理结论" });
   });
 
@@ -181,11 +249,20 @@ describe("piSessionReducer", () => {
       },
       {
         sequence: 3,
-        event: { type: "tool_started", toolCallId: "tool-1", toolName: "read", input: "{}" },
+        event: {
+          type: "tool_started",
+          toolCallId: "tool-1",
+          toolName: "read",
+          input: "{}",
+        },
       },
       {
         sequence: 4,
-        event: { type: "assistant_text_delta", contentIndex: 2, delta: "临时结尾" },
+        event: {
+          type: "assistant_text_delta",
+          contentIndex: 2,
+          delta: "临时结尾",
+        },
       },
       {
         sequence: 5,
@@ -214,7 +291,11 @@ describe("piSessionReducer", () => {
       { sequence: 1, event: { type: "assistant_message_started" } },
       {
         sequence: 2,
-        event: { type: "assistant_thinking_delta", contentIndex: 0, delta: "分析" },
+        event: {
+          type: "assistant_thinking_delta",
+          contentIndex: 0,
+          delta: "分析",
+        },
       },
       {
         sequence: 3,
@@ -239,7 +320,11 @@ describe("piSessionReducer", () => {
     const running = reduce([
       {
         sequence: 1,
-        event: { type: "user_message_accepted", requestId: "1", message: "检查项目" },
+        event: {
+          type: "user_message_accepted",
+          requestId: "1",
+          message: "检查项目",
+        },
       },
       { sequence: 2, event: { type: "run_started" } },
       { sequence: 3, event: { type: "run_finished", willRetry: false } },
@@ -263,20 +348,32 @@ describe("piSessionReducer", () => {
     const state = reduce([
       {
         sequence: 1,
-        event: { type: "user_message_accepted", requestId: "1", message: "检查项目" },
+        event: {
+          type: "user_message_accepted",
+          requestId: "1",
+          message: "检查项目",
+        },
       },
       { sequence: 2, event: { type: "run_started" } },
       { sequence: 3, event: { type: "assistant_message_started" } },
       {
         sequence: 4,
-        event: { type: "assistant_message_completed", text: "第一次尝试", thinking: "", stopReason: "stop" },
+        event: {
+          type: "assistant_message_completed",
+          text: "第一次尝试",
+          thinking: "",
+          stopReason: "stop",
+        },
       },
       { sequence: 5, event: { type: "run_finished", willRetry: true } },
     ]);
 
     // 自动重试可能继续，这里不能把响应组当作已定案，也不能丢掉已有回复。
     expect(state.run.willRetry).toBe(true);
-    expect(state.messages[1]).toMatchObject({ turnId: "user-1", turnPhase: "running" });
+    expect(state.messages[1]).toMatchObject({
+      turnId: "user-1",
+      turnPhase: "running",
+    });
     expect(state.messages[1]?.runDurationMs).toBeUndefined();
   });
 
@@ -284,14 +381,22 @@ describe("piSessionReducer", () => {
     const state = reduce([
       {
         sequence: 1,
-        event: { type: "user_message_accepted", requestId: "1", message: "长任务" },
+        event: {
+          type: "user_message_accepted",
+          requestId: "1",
+          message: "长任务",
+        },
       },
       { sequence: 2, event: { type: "run_started" } },
       { sequence: 3, event: { type: "assistant_message_started" } },
       { sequence: 4, event: { type: "turn_started" } },
       {
         sequence: 5,
-        event: { type: "assistant_text_delta", contentIndex: 0, delta: "写了一半" },
+        event: {
+          type: "assistant_text_delta",
+          contentIndex: 0,
+          delta: "写了一半",
+        },
       },
       { sequence: 6, event: { type: "turn_ended", stopReason: "aborted" } },
     ]);
@@ -306,7 +411,12 @@ describe("piSessionReducer", () => {
       { sequence: 1, event: { type: "assistant_message_started" } },
       {
         sequence: 2,
-        event: { type: "assistant_message_completed", text: "完整回答", thinking: "", stopReason: "stop" },
+        event: {
+          type: "assistant_message_completed",
+          text: "完整回答",
+          thinking: "",
+          stopReason: "stop",
+        },
       },
       { sequence: 3, event: { type: "turn_ended", stopReason: "pending" } },
     ]);
@@ -318,17 +428,34 @@ describe("piSessionReducer", () => {
     const settled = reduce([
       {
         sequence: 1,
-        event: { type: "user_message_accepted", requestId: "1", message: "检查项目" },
+        event: {
+          type: "user_message_accepted",
+          requestId: "1",
+          message: "检查项目",
+        },
         receivedAtMs: 1_000,
       },
       { sequence: 2, event: { type: "run_started" }, receivedAtMs: 1_000 },
-      { sequence: 3, event: { type: "assistant_message_started" }, receivedAtMs: 1_200 },
+      {
+        sequence: 3,
+        event: { type: "assistant_message_started" },
+        receivedAtMs: 1_200,
+      },
       {
         sequence: 4,
-        event: { type: "assistant_message_completed", text: "已完成", thinking: "", stopReason: "stop" },
+        event: {
+          type: "assistant_message_completed",
+          text: "已完成",
+          thinking: "",
+          stopReason: "stop",
+        },
         receivedAtMs: 50_000,
       },
-      { sequence: 5, event: { type: "run_finished", willRetry: false }, receivedAtMs: 50_100 },
+      {
+        sequence: 5,
+        event: { type: "run_finished", willRetry: false },
+        receivedAtMs: 50_100,
+      },
       { sequence: 6, event: { type: "run_settled" }, receivedAtMs: 51_000 },
     ]);
 
@@ -343,13 +470,22 @@ describe("piSessionReducer", () => {
     const aborted = reduce([
       {
         sequence: 1,
-        event: { type: "user_message_accepted", requestId: "1", message: "检查项目" },
+        event: {
+          type: "user_message_accepted",
+          requestId: "1",
+          message: "检查项目",
+        },
       },
       { sequence: 2, event: { type: "run_started" } },
       { sequence: 3, event: { type: "assistant_message_started" } },
       {
         sequence: 4,
-        event: { type: "assistant_message_completed", text: "一半", thinking: "", stopReason: "aborted" },
+        event: {
+          type: "assistant_message_completed",
+          text: "一半",
+          thinking: "",
+          stopReason: "aborted",
+        },
       },
       { sequence: 5, event: { type: "run_settled" } },
     ]);
@@ -358,13 +494,22 @@ describe("piSessionReducer", () => {
     const truncated = reduce([
       {
         sequence: 1,
-        event: { type: "user_message_accepted", requestId: "1", message: "检查项目" },
+        event: {
+          type: "user_message_accepted",
+          requestId: "1",
+          message: "检查项目",
+        },
       },
       { sequence: 2, event: { type: "run_started" } },
       { sequence: 3, event: { type: "assistant_message_started" } },
       {
         sequence: 4,
-        event: { type: "assistant_message_completed", text: "一半", thinking: "", stopReason: "length" },
+        event: {
+          type: "assistant_message_completed",
+          text: "一半",
+          thinking: "",
+          stopReason: "length",
+        },
       },
       { sequence: 5, event: { type: "run_settled" } },
     ]);
@@ -373,7 +518,11 @@ describe("piSessionReducer", () => {
     const failed = reduce([
       {
         sequence: 1,
-        event: { type: "user_message_accepted", requestId: "1", message: "检查项目" },
+        event: {
+          type: "user_message_accepted",
+          requestId: "1",
+          message: "检查项目",
+        },
       },
       { sequence: 2, event: { type: "run_started" } },
       { sequence: 3, event: { type: "assistant_message_started" } },
@@ -396,7 +545,11 @@ describe("piSessionReducer", () => {
     const state = reduce([
       {
         sequence: 1,
-        event: { type: "user_message_accepted", requestId: "1", message: "检查项目" },
+        event: {
+          type: "user_message_accepted",
+          requestId: "1",
+          message: "检查项目",
+        },
       },
       { sequence: 2, event: { type: "run_started" }, receivedAtMs: 0 },
       { sequence: 3, event: { type: "assistant_message_started" } },
@@ -414,13 +567,22 @@ describe("piSessionReducer", () => {
       { sequence: 6, event: { type: "assistant_message_started" } },
       {
         sequence: 7,
-        event: { type: "assistant_message_completed", text: "成功响应", thinking: "", stopReason: "stop" },
+        event: {
+          type: "assistant_message_completed",
+          text: "成功响应",
+          thinking: "",
+          stopReason: "stop",
+        },
       },
       { sequence: 8, event: { type: "run_finished", willRetry: false } },
       { sequence: 9, event: { type: "run_settled" }, receivedAtMs: 9_000 },
     ]);
 
-    expect(state.messages.map(messageText)).toEqual(["检查项目", "失败响应", "成功响应"]);
+    expect(state.messages.map(messageText)).toEqual([
+      "检查项目",
+      "失败响应",
+      "成功响应",
+    ]);
     expect(state.messages[1]?.errorMessage).toBe("超时");
     // 自动重试计入用户感知总耗时：起点是首次 RunStarted。
     expect(state.messages[2]?.runStartedAtMs).toBe(0);
@@ -450,7 +612,11 @@ describe("piSessionReducer", () => {
       { sequence: 4, event: { type: "assistant_message_started" } },
       {
         sequence: 5,
-        event: { type: "assistant_text_delta", contentIndex: 0, delta: "读取完成" },
+        event: {
+          type: "assistant_text_delta",
+          contentIndex: 0,
+          delta: "读取完成",
+        },
       },
     ]);
 
@@ -463,9 +629,26 @@ describe("piSessionReducer", () => {
   it("按 contentIndex 保留多个思考块与正文的顺序", () => {
     const state = reduce([
       { sequence: 1, event: { type: "assistant_message_started" } },
-      { sequence: 2, event: { type: "assistant_thinking_delta", contentIndex: 0, delta: "一" } },
-      { sequence: 3, event: { type: "assistant_text_delta", contentIndex: 1, delta: "答案" } },
-      { sequence: 4, event: { type: "assistant_thinking_delta", contentIndex: 2, delta: "二" } },
+      {
+        sequence: 2,
+        event: {
+          type: "assistant_thinking_delta",
+          contentIndex: 0,
+          delta: "一",
+        },
+      },
+      {
+        sequence: 3,
+        event: { type: "assistant_text_delta", contentIndex: 1, delta: "答案" },
+      },
+      {
+        sequence: 4,
+        event: {
+          type: "assistant_thinking_delta",
+          contentIndex: 2,
+          delta: "二",
+        },
+      },
     ]);
 
     expect(state.messages[0]?.parts).toEqual([
@@ -486,7 +669,7 @@ describe("piSessionReducer", () => {
           type: "tool_started",
           toolCallId: "tool-1",
           toolName: "read",
-          input: "{\n  \"path\": \"README.md\"\n}",
+          input: '{\n  "path": "README.md"\n}',
         },
       },
       {
@@ -514,7 +697,11 @@ describe("piSessionReducer", () => {
     const compacting = reduce([
       {
         sequence: 1,
-        event: { type: "compaction_changed", active: true, reason: "threshold" },
+        event: {
+          type: "compaction_changed",
+          active: true,
+          reason: "threshold",
+        },
       },
     ]);
     expect(compacting.run.phase).toBe("compacting");
@@ -564,7 +751,11 @@ describe("piSessionReducer", () => {
 
     const resumed = piSessionReducer(waiting, {
       sequence: 3,
-      event: { type: "extension_ui_resolved", requestId: "ui-1", cancelled: false },
+      event: {
+        type: "extension_ui_resolved",
+        requestId: "ui-1",
+        cancelled: false,
+      },
     });
     expect(resumed.run.phase).toBe("running");
     expect(resumed.extensionRequest).toBeNull();
@@ -604,10 +795,16 @@ describe("piSessionReducer", () => {
       },
     ]);
     expect(retrying.run.phase).toBe("retrying");
-    expect(retrying.run.retry).toMatchObject({ active: true, attempt: 2, maxAttempts: 3 });
+    expect(retrying.run.retry).toMatchObject({
+      active: true,
+      attempt: 2,
+      maxAttempts: 3,
+    });
     expect(retrying.messages).toEqual([]);
 
-    const failed = reduce([{ sequence: 1, event: { type: "process_exited", code: 1 } }]);
+    const failed = reduce([
+      { sequence: 1, event: { type: "process_exited", code: 1 } },
+    ]);
     expect(failed.connection.phase).toBe("failed");
     expect(failed.run.phase).toBe("idle");
     expect(failed.messages).toEqual([]);
@@ -624,10 +821,17 @@ describe("piSessionReducer", () => {
       error: null,
     };
     const withMessage = reduce([
-      { sequence: 1, event: { type: "session_ready", snapshot: firstSnapshot } },
+      {
+        sequence: 1,
+        event: { type: "session_ready", snapshot: firstSnapshot },
+      },
       {
         sequence: 2,
-        event: { type: "user_message_accepted", requestId: "1", message: "旧对话" },
+        event: {
+          type: "user_message_accepted",
+          requestId: "1",
+          message: "旧对话",
+        },
       },
     ]);
 
@@ -641,7 +845,11 @@ describe("piSessionReducer", () => {
       sequence: 4,
       event: {
         type: "session_ready",
-        snapshot: { ...firstSnapshot, sessionId: "session-2", sessionFile: "/tmp/2.jsonl" },
+        snapshot: {
+          ...firstSnapshot,
+          sessionId: "session-2",
+          sessionFile: "/tmp/2.jsonl",
+        },
       },
     });
     expect(nextSession.messages).toEqual([]);
@@ -679,11 +887,19 @@ describe("队列投影", () => {
     const state = reduce([
       {
         sequence: 1,
-        event: { type: "queue_changed", steering: ["先停下重构"], followUp: [] },
+        event: {
+          type: "queue_changed",
+          steering: ["先停下重构"],
+          followUp: [],
+        },
       },
       {
         sequence: 2,
-        event: { type: "queue_changed", steering: ["先停下重构"], followUp: ["接着补测试"] },
+        event: {
+          type: "queue_changed",
+          steering: ["先停下重构"],
+          followUp: ["接着补测试"],
+        },
       },
     ]);
 
@@ -697,7 +913,11 @@ describe("队列投影", () => {
     const queued = reduce([
       {
         sequence: 1,
-        event: { type: "queue_changed", steering: [], followUp: ["接着补测试"] },
+        event: {
+          type: "queue_changed",
+          steering: [],
+          followUp: ["接着补测试"],
+        },
       },
     ]);
 
@@ -732,7 +952,10 @@ describe("队列投影", () => {
     const queued = reduce([
       {
         sequence: 1,
-        event: { type: "session_ready", snapshot: { ...base, sessionId: "session-1" } },
+        event: {
+          type: "session_ready",
+          snapshot: { ...base, sessionId: "session-1" },
+        },
       },
       {
         sequence: 2,
@@ -742,7 +965,10 @@ describe("队列投影", () => {
 
     const switched = piSessionReducer(queued, {
       sequence: 3,
-      event: { type: "session_ready", snapshot: { ...base, sessionId: "session-2" } },
+      event: {
+        type: "session_ready",
+        snapshot: { ...base, sessionId: "session-2" },
+      },
     });
 
     expect(switched.queue).toEqual({ steering: [], followUp: [] });

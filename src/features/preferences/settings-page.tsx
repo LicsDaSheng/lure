@@ -1,4 +1,11 @@
-import { ArrowLeftIcon, CheckIcon, MonitorIcon, MoonIcon, PaletteIcon, SunIcon } from "lucide-react";
+import {
+  ArrowLeftIcon,
+  CheckIcon,
+  MonitorIcon,
+  MoonIcon,
+  PaletteIcon,
+  SunIcon,
+} from "lucide-react";
 
 import type { ThemePreference } from "./theme";
 
@@ -23,7 +30,10 @@ export function SettingsPage({
 }) {
   return (
     <div className="flex min-h-0 flex-1 overflow-hidden">
-      <aside aria-label="设置导航" className="flex w-[272px] shrink-0 flex-col border-r border-border bg-sidebar px-3">
+      <aside
+        aria-label="设置导航"
+        className="flex w-[272px] shrink-0 flex-col border-r border-border bg-sidebar px-3"
+      >
         <button
           className="mt-3 flex h-11 items-center gap-2 rounded-lg px-3 text-sm font-medium outline-none hover:bg-[var(--button-subtle-hover)] active:bg-[var(--button-subtle-active)] focus-visible:ring-[3px] focus-visible:ring-ring/50"
           onClick={onBack}
@@ -35,19 +45,31 @@ export function SettingsPage({
 
         <nav aria-label="设置选项" className="mt-8">
           <p className="px-3 text-xs font-medium text-muted-foreground">设置</p>
-          <div aria-current="page" className="mt-2 flex h-10 items-center gap-2 rounded-lg bg-[var(--button-subtle-active)] px-3 text-sm font-medium">
+          <div
+            aria-current="page"
+            className="mt-2 flex h-10 items-center gap-2 rounded-lg bg-[var(--button-subtle-active)] px-3 text-sm font-medium"
+          >
             <PaletteIcon aria-hidden="true" className="size-4" />
             外观
           </div>
         </nav>
       </aside>
 
-      <main aria-label="外观设置" className="min-w-0 flex-1 overflow-y-auto bg-background">
+      <main
+        aria-label="外观设置"
+        className="min-w-0 flex-1 overflow-y-auto bg-background"
+      >
         <div className="mx-auto w-full max-w-[1040px] px-10 py-16 lg:px-16">
           <h1 className="text-3xl font-semibold tracking-tight">外观</h1>
           <section aria-labelledby="theme-heading" className="mt-14">
-            <h2 className="text-sm font-semibold" id="theme-heading">主题</h2>
-            <div aria-label="主题" className="mt-5 grid max-w-[860px] grid-cols-1 gap-4 sm:grid-cols-3" role="radiogroup">
+            <h2 className="text-sm font-semibold" id="theme-heading">
+              主题
+            </h2>
+            <div
+              aria-label="主题"
+              className="mt-5 grid max-w-[860px] grid-cols-1 gap-4 sm:grid-cols-3"
+              role="radiogroup"
+            >
               {themeOptions.map((option) => (
                 <ThemeOption
                   checked={theme === option.value}
@@ -87,11 +109,17 @@ function ThemeOption({
       role="radio"
       type="button"
     >
-      <div className={`relative aspect-[1.42] overflow-hidden rounded-xl border-2 transition-colors ${checked ? "border-[#3B82F6]" : "border-border group-hover:border-muted-foreground/50"}`}>
+      <div
+        className={`relative aspect-[1.42] overflow-hidden rounded-xl border-2 transition-colors ${checked ? "border-[#3B82F6]" : "border-border group-hover:border-muted-foreground/50"}`}
+      >
         <ThemePreview value={value} />
         {checked && (
           <span className="absolute right-2 top-2 grid size-6 place-items-center rounded-full bg-[#3B82F6] text-white">
-            <CheckIcon aria-hidden="true" className="size-4" strokeWidth={2.5} />
+            <CheckIcon
+              aria-hidden="true"
+              className="size-4"
+              strokeWidth={2.5}
+            />
           </span>
         )}
       </div>

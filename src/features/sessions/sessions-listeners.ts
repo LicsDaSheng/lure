@@ -1,9 +1,20 @@
 import { createListenerMiddleware } from "@reduxjs/toolkit";
 import type { Dispatch, UnknownAction } from "@reduxjs/toolkit";
 
-import { conversationActions, disconnectedSnapshot, piSessionReducer, type ConversationState } from "@/features/conversation/public";
-import { executionActions, type ExecutionState } from "@/features/execution/public";
-import { extensionUiActions, type ExtensionUiState } from "@/features/extension-ui/public";
+import {
+  conversationActions,
+  disconnectedSnapshot,
+  piSessionReducer,
+  type ConversationState,
+} from "@/features/conversation/public";
+import {
+  executionActions,
+  type ExecutionState,
+} from "@/features/execution/public";
+import {
+  extensionUiActions,
+  type ExtensionUiState,
+} from "@/features/extension-ui/public";
 import { modelsActions, type ModelsState } from "@/features/models/public";
 import {
   readProjects,
@@ -26,7 +37,11 @@ import {
   selectProjectDirectory,
   switchPiSession,
 } from "@/lib/pi-rpc/client";
-import type { ConnectionSnapshot, EventEnvelope, PiSessionState } from "@/lib/pi-rpc/types";
+import type {
+  ConnectionSnapshot,
+  EventEnvelope,
+  PiSessionState,
+} from "@/lib/pi-rpc/types";
 import { normalizeLureError } from "@/lib/normalize-error";
 
 import { piRuntimeProjected } from "./runtime-events";
@@ -40,7 +55,10 @@ type FeatureState = {
   extensionUi: ExtensionUiState;
 };
 
-export const sessionsListenerMiddleware = createListenerMiddleware<FeatureState, Dispatch<UnknownAction>>();
+export const sessionsListenerMiddleware = createListenerMiddleware<
+  FeatureState,
+  Dispatch<UnknownAction>
+>();
 
 type ListenerApi = {
   dispatch: Dispatch<UnknownAction>;
@@ -85,7 +103,10 @@ function legacyState(state: FeatureState) {
 }
 
 function projectRuntimeEvents(api: ListenerApi, envelopes: EventEnvelope[]) {
-  const projected = envelopes.reduce(piSessionReducer, runtimeState(api.getState()));
+  const projected = envelopes.reduce(
+    piSessionReducer,
+    runtimeState(api.getState()),
+  );
   api.dispatch(piRuntimeProjected({ envelopes, state: projected }));
 }
 
@@ -127,14 +148,19 @@ function isStreamingDelta(envelope: EventEnvelope) {
  * 判断连接快照事件是否已经过期：会话切换事务已把当前会话锚定为
  * `activeSessionSummary`，而事件携带的是另一个更早的临时会话。
  */
-function isStaleConnectionSnapshot(api: ListenerApi, envelope: EventEnvelope): boolean {
+function isStaleConnectionSnapshot(
+  api: ListenerApi,
+  envelope: EventEnvelope,
+): boolean {
   const event = envelope.event;
   if (event.type !== "session_ready") return false;
   const state = api.getState();
   const active = state.sessions.activeSessionSummary;
   const sessionId = event.snapshot.sessionId;
   if (!active || !sessionId) return false;
-  return sessionId !== active.id && sessionId !== state.sessions.connection.sessionId;
+  return (
+    sessionId !== active.id && sessionId !== state.sessions.connection.sessionId
+  );
 }
 
 function flushStreamingEvents(api: ListenerApi) {
@@ -153,7 +179,8 @@ function enqueueStreamingEvent(api: ListenerApi, envelope: EventEnvelope) {
   const event = envelope.event;
   if (
     previous &&
-    (event.type === "assistant_text_delta" || event.type === "assistant_thinking_delta") &&
+    (event.type === "assistant_text_delta" ||
+      event.type === "assistant_thinking_delta") &&
     previous.event.type === event.type &&
     previous.event.contentIndex === event.contentIndex
   ) {
@@ -177,37 +204,68 @@ function clearStreamingEvents() {
 }
 
 function reportError(api: ListenerApi, error: unknown, fallback: string) {
-  api.dispatch(sessionFlowActions.commandFailed(normalizeLureError(error, fallback)));
+  api.dispatch(
+    sessionFlowActions.commandFailed(normalizeLureError(error, fallback)),
+  );
 }
 
 /** 连接失败：连接过程静默执行，只有失败才让界面提醒用户。 */
-function reportConnectionFailure(api: ListenerApi, error: unknown, fallback: string) {
-  api.dispatch(sessionFlowActions.connectionFailed(normalizeLureError(error, fallback)));
+function reportConnectionFailure(
+  api: ListenerApi,
+  error: unknown,
+  fallback: string,
+) {
+  api.dispatch(
+    sessionFlowActions.connectionFailed(normalizeLureError(error, fallback)),
+  );
 }
 
 async function refreshCapabilities(api: ListenerApi) {
-  const [models, commands] = await Promise.allSettled([getAvailableModels(), getPiCommands()]);
-  api.dispatch(modelsActions.modelsLoaded(
-    models.status === "fulfilled" && Array.isArray(models.value) ? models.value : [],
-  ));
-  api.dispatch(conversationActions.commandsLoaded(
-    commands.status === "fulfilled" && Array.isArray(commands.value) ? commands.value : [],
-  ));
+  const [models, commands] = await Promise.allSettled([
+    getAvailableModels(),
+    getPiCommands(),
+  ]);
+  api.dispatch(
+    modelsActions.modelsLoaded(
+      models.status === "fulfilled" && Array.isArray(models.value)
+        ? models.value
+        : [],
+    ),
+  );
+  api.dispatch(
+    conversationActions.commandsLoaded(
+      commands.status === "fulfilled" && Array.isArray(commands.value)
+        ? commands.value
+        : [],
+    ),
+  );
 }
 
 async function loadWorkspaceContext(api: ListenerApi, directory: string) {
   try {
     const context = await getWorkspaceContext(directory);
-    api.dispatch(sessionFlowActions.workspaceContextLoaded(context ?? { branch: null, workingDirectory: directory }));
+    api.dispatch(
+      sessionFlowActions.workspaceContextLoaded(
+        context ?? { branch: null, workingDirectory: directory },
+      ),
+    );
   } catch {
-    api.dispatch(sessionFlowActions.workspaceContextLoaded({ branch: null, workingDirectory: directory }));
+    api.dispatch(
+      sessionFlowActions.workspaceContextLoaded({
+        branch: null,
+        workingDirectory: directory,
+      }),
+    );
   }
 }
 
 async function loadSessionsFor(
   api: ListenerApi,
   directory: string | null,
-  { append = false, limit = INITIAL_SESSION_PAGE_SIZE }: { append?: boolean; limit?: number } = {},
+  {
+    append = false,
+    limit = INITIAL_SESSION_PAGE_SIZE,
+  }: { append?: boolean; limit?: number } = {},
 ) {
   if (!directory) return;
   const state = legacyState(api.getState());
@@ -219,12 +277,14 @@ async function loadSessionsFor(
   api.dispatch(sessionFlowActions.sessionsRequested(directory));
   try {
     const page = await listProjectSessions(directory, offset, limit);
-    api.dispatch(sessionFlowActions.sessionsLoaded({
-      append,
-      directory,
-      hasMore: Boolean(page?.hasMore),
-      sessions: Array.isArray(page?.sessions) ? page.sessions : [],
-    }));
+    api.dispatch(
+      sessionFlowActions.sessionsLoaded({
+        append,
+        directory,
+        hasMore: Boolean(page?.hasMore),
+        sessions: Array.isArray(page?.sessions) ? page.sessions : [],
+      }),
+    );
   } catch (error) {
     // 读取失败不清空已有页或 hasMore，用户可再次点击重试。
     api.dispatch(sessionFlowActions.sessionsRequestFailed(directory));
@@ -233,16 +293,35 @@ async function loadSessionsFor(
 }
 
 /** 刷新指定目录的历史会话：默认工作目录的“最近”、已展开项目，以及正在切换的目标目录。 */
-async function refreshSessionLists(api: ListenerApi, extraDirectories: string[] = []) {
+async function refreshSessionLists(
+  api: ListenerApi,
+  extraDirectories: string[] = [],
+) {
   const state = legacyState(api.getState());
-  const directories = [state.defaultWorkspace, ...state.expandedProjects, ...extraDirectories];
-  const unique = [...new Set(directories.filter((directory): directory is string => Boolean(directory)))];
+  const directories = [
+    state.defaultWorkspace,
+    ...state.expandedProjects,
+    ...extraDirectories,
+  ];
+  const unique = [
+    ...new Set(
+      directories.filter((directory): directory is string =>
+        Boolean(directory),
+      ),
+    ),
+  ];
   await Promise.all(unique.map((directory) => loadSessionsFor(api, directory)));
 }
 
 /** 把连接结果投影到运行状态，并刷新连接级能力与工作区上下文。 */
-async function applyConnectedSession(api: ListenerApi, snapshot: ConnectionSnapshot, directory: string) {
-  projectRuntimeEvents(api, [{ sequence: 0, event: { type: "session_ready", snapshot } }]);
+async function applyConnectedSession(
+  api: ListenerApi,
+  snapshot: ConnectionSnapshot,
+  directory: string,
+) {
+  projectRuntimeEvents(api, [
+    { sequence: 0, event: { type: "session_ready", snapshot } },
+  ]);
   const activeDirectory = snapshot.workingDirectory ?? directory;
   await Promise.all([
     refreshCapabilities(api),
@@ -251,7 +330,11 @@ async function applyConnectedSession(api: ListenerApi, snapshot: ConnectionSnaps
 }
 
 /** 连接或新建会话后的完整水合：连接能力、上下文与历史会话列表。 */
-async function hydrateConnectedSession(api: ListenerApi, snapshot: ConnectionSnapshot, directory: string) {
+async function hydrateConnectedSession(
+  api: ListenerApi,
+  snapshot: ConnectionSnapshot,
+  directory: string,
+) {
   await applyConnectedSession(api, snapshot, directory);
   await refreshSessionLists(api);
 }
@@ -261,8 +344,12 @@ async function initializeProjectCatalog(api: ListenerApi) {
   if (current.defaultWorkspace) return current.defaultWorkspace;
   const defaultWorkspace = await getDefaultWorkspace();
   const saved = readProjects();
-  const projects = saved.filter((project) => project.directory !== defaultWorkspace);
-  api.dispatch(sessionFlowActions.projectCatalogLoaded({ defaultWorkspace, projects }));
+  const projects = saved.filter(
+    (project) => project.directory !== defaultWorkspace,
+  );
+  api.dispatch(
+    sessionFlowActions.projectCatalogLoaded({ defaultWorkspace, projects }),
+  );
   writeProjects(projects);
   return defaultWorkspace;
 }
@@ -271,10 +358,14 @@ async function restoreOrConnectDefault(api: ListenerApi) {
   try {
     const snapshot = await getPiState();
     if (
-      (snapshot.phase === "connecting" || snapshot.phase === "ready" || snapshot.phase === "running") &&
+      (snapshot.phase === "connecting" ||
+        snapshot.phase === "ready" ||
+        snapshot.phase === "running") &&
       snapshot.workingDirectory
     ) {
-      api.dispatch(sessionFlowActions.selectedDirectoryChanged(snapshot.workingDirectory));
+      api.dispatch(
+        sessionFlowActions.selectedDirectoryChanged(snapshot.workingDirectory),
+      );
       await hydrateConnectedSession(api, snapshot, snapshot.workingDirectory);
       return true;
     }
@@ -303,12 +394,17 @@ async function connectDefault(api: ListenerApi) {
 
 async function openProjectConversation(api: ListenerApi, directory: string) {
   const state = legacyState(api.getState());
-  if (!state.eventsReady || state.connection.phase === "running" || state.connection.phase === "connecting") {
+  if (
+    !state.eventsReady ||
+    state.connection.phase === "running" ||
+    state.connection.phase === "connecting"
+  ) {
     return false;
   }
   api.dispatch(sessionFlowActions.commandErrorCleared());
   try {
-    const currentDirectory = state.connection.workingDirectory ?? state.selectedDirectory;
+    const currentDirectory =
+      state.connection.workingDirectory ?? state.selectedDirectory;
     if (currentDirectory === directory && state.connection.phase === "ready") {
       // 新会话还没落盘，导航改用“当前任务”行保留它的入口。
       api.dispatch(sessionFlowActions.activeSessionRecorded(null));
@@ -318,10 +414,12 @@ async function openProjectConversation(api: ListenerApi, directory: string) {
 
     if (state.connection.phase !== "disconnected") {
       await disconnectPi();
-      projectRuntimeEvents(api, [{
-        sequence: 0,
-        event: { type: "connection_changed", snapshot: disconnectedSnapshot },
-      }]);
+      projectRuntimeEvents(api, [
+        {
+          sequence: 0,
+          event: { type: "connection_changed", snapshot: disconnectedSnapshot },
+        },
+      ]);
       clearCapabilities(api);
     }
     api.dispatch(sessionFlowActions.selectedDirectoryChanged(directory));
@@ -417,7 +515,11 @@ sessionsListenerMiddleware.startListening({
   actionCreator: sessionFlowActions.projectDirectorySelectionRequested,
   effect: async (_action, api) => {
     try {
-      api.dispatch(sessionFlowActions.projectDirectorySelected(await selectProjectDirectory()));
+      api.dispatch(
+        sessionFlowActions.projectDirectorySelected(
+          await selectProjectDirectory(),
+        ),
+      );
     } catch (error) {
       reportError(api, error, "无法选择项目目录");
     }
@@ -428,7 +530,8 @@ sessionsListenerMiddleware.startListening({
   actionCreator: sessionFlowActions.projectExpansionToggled,
   effect: async (action, api) => {
     // 折叠时不重复查询，展开时才读取该项目最新的历史会话。
-    if (!legacyState(api.getState()).expandedProjects.includes(action.payload)) return;
+    if (!legacyState(api.getState()).expandedProjects.includes(action.payload))
+      return;
     await loadSessionsFor(api, action.payload);
   },
 });
@@ -436,8 +539,12 @@ sessionsListenerMiddleware.startListening({
 sessionsListenerMiddleware.startListening({
   actionCreator: sessionFlowActions.sessionPageRequested,
   effect: async (action, api) => {
-    if (legacyState(api.getState()).loadingDirectories.includes(action.payload)) return;
-    await loadSessionsFor(api, action.payload, { append: true, limit: SESSION_PAGE_SIZE });
+    if (legacyState(api.getState()).loadingDirectories.includes(action.payload))
+      return;
+    await loadSessionsFor(api, action.payload, {
+      append: true,
+      limit: SESSION_PAGE_SIZE,
+    });
   },
 });
 
@@ -450,7 +557,8 @@ sessionsListenerMiddleware.startListening({
     // 一个切换事务未结束时忽略新的切换请求，避免并发重建 RPC。
     if (state.sessionTransition) return;
 
-    const currentDirectory = state.connection.workingDirectory ?? state.selectedDirectory;
+    const currentDirectory =
+      state.connection.workingDirectory ?? state.selectedDirectory;
     const targetDirectory = session.cwd ?? currentDirectory;
     if (!targetDirectory) return;
     api.dispatch(sessionFlowActions.commandErrorCleared());
@@ -461,25 +569,39 @@ sessionsListenerMiddleware.startListening({
       if (currentDirectory !== targetDirectory) {
         // 会话属于另一个工作目录：Pi 必须在该目录下运行，先重建 RPC 进程。
         await disconnectPi();
-        projectRuntimeEvents(api, [{
-          sequence: 0,
-          event: { type: "connection_changed", snapshot: disconnectedSnapshot },
-        }]);
+        projectRuntimeEvents(api, [
+          {
+            sequence: 0,
+            event: {
+              type: "connection_changed",
+              snapshot: disconnectedSnapshot,
+            },
+          },
+        ]);
         clearCapabilities(api);
-        api.dispatch(sessionFlowActions.selectedDirectoryChanged(targetDirectory));
+        api.dispatch(
+          sessionFlowActions.selectedDirectoryChanged(targetDirectory),
+        );
         writeLastDirectory(targetDirectory);
-        await applyConnectedSession(api, await connectPi(targetDirectory), targetDirectory);
+        await applyConnectedSession(
+          api,
+          await connectPi(targetDirectory),
+          targetDirectory,
+        );
       }
 
       const outcome = await switchPiSession(session.path);
       if (!outcome.switched) {
-        api.dispatch(sessionFlowActions.commandFailed({
-          code: "SESSION_SWITCH_CANCELLED",
-          message: "Pi 扩展取消了这次会话切换，当前对话保持不变。",
-        }));
+        api.dispatch(
+          sessionFlowActions.commandFailed({
+            code: "SESSION_SWITCH_CANCELLED",
+            message: "Pi 扩展取消了这次会话切换，当前对话保持不变。",
+          }),
+        );
         return;
       }
-      const activeDirectory = outcome.snapshot.workingDirectory ?? targetDirectory;
+      const activeDirectory =
+        outcome.snapshot.workingDirectory ?? targetDirectory;
       await applyConnectedSession(api, outcome.snapshot, activeDirectory);
       api.dispatch(sessionFlowActions.activeSessionRecorded(session));
       api.dispatch(sessionFlowActions.historyLoaded(await getSessionEntries()));
@@ -499,12 +621,16 @@ sessionsListenerMiddleware.startListening({
   effect: async (_action, api) => {
     const state = legacyState(api.getState());
     const sessionId = state.connection.sessionId;
-    const directory = state.connection.workingDirectory ?? state.selectedDirectory;
+    const directory =
+      state.connection.workingDirectory ?? state.selectedDirectory;
     if (!sessionId || !directory) return;
     // 会话文件要在第一条消息写入后才落盘，所以只在它尚未出现在列表时补一次扫描。
-    const known = directory === state.defaultWorkspace
-      ? state.recentSessions.some((session) => session.id === sessionId)
-      : (state.projectSessions[directory] ?? []).some((session) => session.id === sessionId);
+    const known =
+      directory === state.defaultWorkspace
+        ? state.recentSessions.some((session) => session.id === sessionId)
+        : (state.projectSessions[directory] ?? []).some(
+            (session) => session.id === sessionId,
+          );
     if (known) return;
     await loadSessionsFor(api, directory);
   },
@@ -518,7 +644,11 @@ sessionsListenerMiddleware.startListening({
     api.dispatch(sessionFlowActions.commandErrorCleared());
     try {
       api.dispatch(sessionFlowActions.activeSessionRecorded(null));
-      await hydrateConnectedSession(api, await connectPi(selectedDirectory), selectedDirectory);
+      await hydrateConnectedSession(
+        api,
+        await connectPi(selectedDirectory),
+        selectedDirectory,
+      );
     } catch (error) {
       reportConnectionFailure(api, error, "连接 Pi 失败");
     }
@@ -532,14 +662,23 @@ sessionsListenerMiddleware.startListening({
     if (state.connection.phase === "failed" && state.connection.sessionId) {
       try {
         await disconnectPi();
-        projectRuntimeEvents(api, [{ sequence: 0, event: { type: "connection_changed", snapshot: disconnectedSnapshot } }]);
+        projectRuntimeEvents(api, [
+          {
+            sequence: 0,
+            event: {
+              type: "connection_changed",
+              snapshot: disconnectedSnapshot,
+            },
+          },
+        ]);
         clearCapabilities(api);
       } catch (error) {
         reportConnectionFailure(api, error, "断开 Pi 失败");
         return;
       }
     }
-    if (legacyState(api.getState()).selectedDirectory) api.dispatch(sessionFlowActions.connectRequested());
+    if (legacyState(api.getState()).selectedDirectory)
+      api.dispatch(sessionFlowActions.connectRequested());
     else await connectDefault(api);
   },
 });
@@ -548,7 +687,10 @@ sessionsListenerMiddleware.startListening({
   actionCreator: sessionFlowActions.newConversationRequested,
   effect: async (_action, api) => {
     const state = legacyState(api.getState());
-    if (state.connection.phase === "disconnected" || state.connection.phase === "failed") {
+    if (
+      state.connection.phase === "disconnected" ||
+      state.connection.phase === "failed"
+    ) {
       await connectDefault(api);
       return;
     }
@@ -556,7 +698,8 @@ sessionsListenerMiddleware.startListening({
     try {
       const snapshot = await newPiSession();
       const directory = snapshot.workingDirectory ?? state.selectedDirectory;
-      if (directory) api.dispatch(sessionFlowActions.selectedDirectoryChanged(directory));
+      if (directory)
+        api.dispatch(sessionFlowActions.selectedDirectoryChanged(directory));
       // 新会话还没落盘，导航改用“当前任务”行保留它的入口。
       api.dispatch(sessionFlowActions.activeSessionRecorded(null));
       await hydrateConnectedSession(api, snapshot, directory ?? "");

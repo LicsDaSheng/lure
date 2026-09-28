@@ -5,10 +5,7 @@ import {
 } from "@assistant-ui/react";
 import { useAppDispatch } from "@/app/hooks";
 import { Button } from "@/components/ui/button";
-import {
-  readImageAttachments,
-  selectImageFiles,
-} from "@/lib/pi-rpc";
+import { readImageAttachments, selectImageFiles } from "@/lib/pi-rpc";
 import {
   ConversationStream,
   EmptyState,
@@ -27,15 +24,20 @@ import {
   ConnectionFailureDialog,
   CreateProjectDialog,
   ErrorPanel,
-  readTitle,
   sessionsActions,
+  sessionTitle,
   TaskNavigation,
   useSessions,
-  writeTitle,
 } from "@/features/sessions";
 import { WindowTitleBar } from "@/app/window-title-bar";
 import { ArrowDownIcon } from "lucide-react";
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 
 function directoryNameOf(directory: string | null) {
   if (!directory) return null;
@@ -78,7 +80,9 @@ export function AppShell() {
   const dispatch = useAppDispatch();
   useEffect(() => {
     dispatch(sessionsActions.eventSubscriptionRequested());
-    return () => { dispatch(sessionsActions.eventSubscriptionReleased()); };
+    return () => {
+      dispatch(sessionsActions.eventSubscriptionReleased());
+    };
   }, [dispatch]);
   const {
     selectedDirectory,
@@ -107,15 +111,34 @@ export function AppShell() {
     clearProjectDirectory,
     projectDirectoryCandidate,
   } = useSessions();
-  const { messages, activeAssistantId, promptSubmissionCount, queue, prompt, abort, steer, followUp, clearQueue } = useConversation();
-  const { availableModels, current: currentModel, thinkingLevel, setModel, setThinkingLevel } = useModels();
-  const { request: extensionRequest, respond: respondToExtension } = useExtensionUi();
+  const {
+    messages,
+    activeAssistantId,
+    promptSubmissionCount,
+    queue,
+    prompt,
+    abort,
+    steer,
+    followUp,
+    clearQueue,
+  } = useConversation();
+  const {
+    availableModels,
+    current: currentModel,
+    thinkingLevel,
+    setModel,
+    setThinkingLevel,
+  } = useModels();
+  const { request: extensionRequest, respond: respondToExtension } =
+    useExtensionUi();
   const submittedPrompts = useRef(promptSubmissionCount);
   const [composerGeneration, setComposerGeneration] = useState(0);
   const [createProjectOpen, setCreateProjectOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const [dismissedConnectionError, setDismissedConnectionError] = useState<string | null>(null);
+  const [dismissedConnectionError, setDismissedConnectionError] = useState<
+    string | null
+  >(null);
   const promptInputRef = useRef<HTMLTextAreaElement>(null);
   const { preference: theme, setPreference: setTheme } = useThemePreference();
 
@@ -126,27 +149,16 @@ export function AppShell() {
   // 连接快照可能被迟到的事件短暂覆盖，用它判定选中态会让列表闪现兑底条目。
   const activeSessionId = activeSessionSummary?.id ?? connection.sessionId;
 
-  // 草稿与标题按工作目录保存在本机，切换任务或意外关闭后可以恢复。
+  // 草稿按工作目录保存在本机，切换任务或意外关闭后可以恢复。
   const persistDraft = useCallback(
     (value: string) => writeDraft(selectedDirectory, value),
     [selectedDirectory],
   );
 
-  const [titleState, setTitleState] = useState(() => ({
-    scope: selectedDirectory,
-    value: readTitle(selectedDirectory),
-  }));
-  if (titleState.scope !== selectedDirectory) {
-    setTitleState({ scope: selectedDirectory, value: readTitle(selectedDirectory) });
-  }
-  const taskTitle = titleState.value ?? directoryName ?? "新任务";
-  const setTaskTitle = useCallback(
-    (value: string) => {
-      writeTitle(selectedDirectory, value);
-      setTitleState({ scope: selectedDirectory, value });
-    },
-    [selectedDirectory],
-  );
+  // 会话摘要是 Pi 对话标题的唯一事实来源；顶栏与导航复用同一标题规则。
+  const taskTitle = activeSessionSummary
+    ? sessionTitle(activeSessionSummary, directoryName ?? "新任务")
+    : (directoryName ?? "新任务");
   const hasConversation = messages.length > 0;
   const isRunning = connection.phase === "running";
   // 会话切换事务未结束时不能发送：目标会话的内容尚未确定。
@@ -157,7 +169,8 @@ export function AppShell() {
     ? `${connectionError.code}:${connectionError.message}`
     : null;
   const connectionFailureOpen =
-    connectionErrorKey !== null && connectionErrorKey !== dismissedConnectionError;
+    connectionErrorKey !== null &&
+    connectionErrorKey !== dismissedConnectionError;
   const clearCommandError = useCallback(() => {
     dispatch(sessionsActions.commandErrorCleared());
   }, [dispatch]);
@@ -185,12 +198,7 @@ export function AppShell() {
   const handleNewTask = useCallback(async () => {
     const target = defaultWorkspace ?? selectedDirectory;
     newDefaultConversation();
-    if (target) {
-      writeDraft(target, "");
-      const nextTitle = directoryNameOf(target) ?? "新任务";
-      writeTitle(target, nextTitle);
-      setTitleState({ scope: target, value: nextTitle });
-    }
+    if (target) writeDraft(target, "");
     setComposerGeneration((value) => value + 1);
   }, [defaultWorkspace, newDefaultConversation, selectedDirectory]);
 
@@ -198,9 +206,6 @@ export function AppShell() {
     (targetDirectory: string) => {
       newProjectConversation(targetDirectory);
       writeDraft(targetDirectory, "");
-      const nextTitle = directoryNameOf(targetDirectory) ?? "新任务";
-      writeTitle(targetDirectory, nextTitle);
-      setTitleState({ scope: targetDirectory, value: nextTitle });
       setComposerGeneration((value) => value + 1);
     },
     [newProjectConversation],
@@ -225,160 +230,174 @@ export function AppShell() {
   }, [persistDraft, promptSubmissionCount]);
 
   return (
-      <PiAssistantRuntimeProvider
-        activeAssistantId={activeAssistantId}
-        canSend={canSend}
-        isRunning={isRunning}
-        key={`${selectedDirectory ?? "pending"}:${composerGeneration}`}
-        messages={messages}
-        onCancel={abort}
-        onNew={handleAssistantNew}
+    <PiAssistantRuntimeProvider
+      activeAssistantId={activeAssistantId}
+      canSend={canSend}
+      isRunning={isRunning}
+      key={`${selectedDirectory ?? "pending"}:${composerGeneration}`}
+      messages={messages}
+      onCancel={abort}
+      onNew={handleAssistantNew}
+    >
+      <ComposerDraftInitializer initialText={readDraft(selectedDirectory)} />
+      <div
+        className="flex h-dvh min-h-0 flex-col overflow-hidden rounded-2xl border border-border bg-background text-foreground"
+        data-testid="app-frame"
       >
-        <ComposerDraftInitializer initialText={readDraft(selectedDirectory)} />
-        <div
-          className="flex h-dvh min-h-0 flex-col overflow-hidden rounded-2xl border border-border bg-background text-foreground"
-          data-testid="app-frame"
-        >
-          <WindowTitleBar
-            collapsed={sidebarCollapsed}
-            hasConversation={!settingsOpen && hasConversation}
-            onTitleChange={setTaskTitle}
-            onToggleSidebar={() => setSidebarCollapsed((collapsed) => !collapsed)}
-            title={taskTitle}
-          />
-          <div className="relative flex min-h-0 flex-1 overflow-hidden overscroll-none">
-            {settingsOpen ? (
-              <SettingsPage
-                onBack={() => setSettingsOpen(false)}
-                onThemeChange={setTheme}
-                theme={theme}
-              />
-            ) : (
-              <>
-            {!sidebarCollapsed && (
-              <TaskNavigation
-                activeDirectory={directory}
-                activeSessionId={activeSessionId}
-                canOpenConversation={canSend}
-                defaultWorkspace={defaultWorkspace}
-                disabled={connection.phase === "running" || connection.phase === "connecting" || switchingSession}
-                expandedProjects={expandedProjects}
-                hasTask={Boolean(directory)}
-                loadingDirectories={loadingDirectories}
-                onNewTask={() => void handleNewTask()}
-                onNewProject={() => setCreateProjectOpen(true)}
-                onNewProjectTask={handleNewProjectTask}
-                onOpenConversation={openConversation}
-                onOpenSettings={() => {
-                  setSidebarCollapsed(false);
-                  setSettingsOpen(true);
-                }}
-                onToggleProject={toggleProject}
-                onLoadMoreSessions={loadMoreSessions}
-                phase={connection.phase}
-                projects={projects}
-                projectSessions={projectSessions}
-                projectSessionsHasMore={projectSessionsHasMore}
-                recentSessions={recentSessions}
-                recentSessionsHasMore={recentSessionsHasMore}
-                sessionTransition={sessionTransition}
-                taskTitle={taskTitle}
-              />
-            )}
+        <WindowTitleBar
+          collapsed={sidebarCollapsed}
+          hasConversation={!settingsOpen && hasConversation}
+          onToggleSidebar={() => setSidebarCollapsed((collapsed) => !collapsed)}
+          title={taskTitle}
+        />
+        <div className="relative flex min-h-0 flex-1 overflow-hidden overscroll-none">
+          {settingsOpen ? (
+            <SettingsPage
+              onBack={() => setSettingsOpen(false)}
+              onThemeChange={setTheme}
+              theme={theme}
+            />
+          ) : (
+            <>
+              {!sidebarCollapsed && (
+                <TaskNavigation
+                  activeDirectory={directory}
+                  activeSessionId={activeSessionId}
+                  canOpenConversation={canSend}
+                  defaultWorkspace={defaultWorkspace}
+                  disabled={
+                    connection.phase === "running" ||
+                    connection.phase === "connecting" ||
+                    switchingSession
+                  }
+                  expandedProjects={expandedProjects}
+                  hasTask={Boolean(directory)}
+                  loadingDirectories={loadingDirectories}
+                  onNewTask={() => void handleNewTask()}
+                  onNewProject={() => setCreateProjectOpen(true)}
+                  onNewProjectTask={handleNewProjectTask}
+                  onOpenConversation={openConversation}
+                  onOpenSettings={() => {
+                    setSidebarCollapsed(false);
+                    setSettingsOpen(true);
+                  }}
+                  onToggleProject={toggleProject}
+                  onLoadMoreSessions={loadMoreSessions}
+                  phase={connection.phase}
+                  projects={projects}
+                  projectSessions={projectSessions}
+                  projectSessionsHasMore={projectSessionsHasMore}
+                  recentSessions={recentSessions}
+                  recentSessionsHasMore={recentSessionsHasMore}
+                  sessionTransition={sessionTransition}
+                  taskTitle={taskTitle}
+                />
+              )}
 
-            <main aria-label="任务工作区" className="flex min-w-0 flex-1 flex-col">
-          {error && (
-            <div className="px-4 pt-3 md:px-6">
-              <ErrorPanel error={error} onDismiss={clearCommandError} />
-            </div>
+              <main
+                aria-label="任务工作区"
+                className="flex min-w-0 flex-1 flex-col"
+              >
+                {error && (
+                  <div className="px-4 pt-3 md:px-6">
+                    <ErrorPanel error={error} onDismiss={clearCommandError} />
+                  </div>
+                )}
+
+                <ThreadPrimitive.Root
+                  aria-label="对话线程"
+                  className="relative flex min-h-0 w-full flex-1 flex-col"
+                  role="log"
+                >
+                  <ThreadPrimitive.Viewport
+                    aria-label="对话滚动区"
+                    className="flex min-h-0 flex-1 flex-col overflow-x-hidden overflow-y-auto overscroll-none"
+                  >
+                    <div
+                      aria-label="对话内容列"
+                      className="mx-auto flex w-full max-w-[768px] flex-1 flex-col gap-4 px-4 py-6 md:px-6"
+                    >
+                      {hasConversation ? (
+                        <ConversationStream />
+                      ) : (
+                        <ComposerEmptyState
+                          onDraftChange={persistDraft}
+                          projectName={directoryName}
+                        />
+                      )}
+                    </div>
+                    <ThreadPrimitive.ScrollToBottom asChild>
+                      <Button
+                        aria-label="滚动到最新消息"
+                        className="sticky bottom-4 left-1/2 -translate-x-1/2 rounded-full shadow-sm disabled:hidden"
+                        size="icon"
+                        type="button"
+                        variant="outline"
+                      >
+                        <ArrowDownIcon className="size-4" />
+                      </Button>
+                    </ThreadPrimitive.ScrollToBottom>
+
+                    <PromptCard
+                      branch={branch}
+                      directoryName={directoryName}
+                      isRunning={isRunning}
+                      isSwitchingSession={switchingSession}
+                      model={currentModel}
+                      models={availableModels}
+                      onAddImages={pickImages}
+                      onClearQueue={() => clearQueue()}
+                      onDraftChange={persistDraft}
+                      onFollowUp={(message) => followUp(message)}
+                      onSelectModel={(provider, modelId) =>
+                        void setModel(provider, modelId)
+                      }
+                      onSelectThinkingLevel={(level) =>
+                        void setThinkingLevel(level)
+                      }
+                      onSteer={(message) => steer(message)}
+                      onStop={() => void abort()}
+                      phase={connection.phase}
+                      queue={queue}
+                      textareaRef={promptInputRef}
+                      thinkingLevel={thinkingLevel}
+                    />
+                  </ThreadPrimitive.Viewport>
+                </ThreadPrimitive.Root>
+              </main>
+            </>
           )}
 
-          <ThreadPrimitive.Root
-            aria-label="对话线程"
-            className="relative flex min-h-0 w-full flex-1 flex-col"
-            role="log"
-          >
-            <ThreadPrimitive.Viewport
-              aria-label="对话滚动区"
-              className="flex min-h-0 flex-1 flex-col overflow-x-hidden overflow-y-auto overscroll-none"
-            >
-              <div
-                aria-label="对话内容列"
-                className="mx-auto flex w-full max-w-[768px] flex-1 flex-col gap-4 px-4 py-6 md:px-6"
-              >
-                {hasConversation ? (
-                  <ConversationStream />
-                ) : (
-                  <ComposerEmptyState
-                    onDraftChange={persistDraft}
-                    projectName={directoryName}
-                  />
-                )}
-              </div>
-              <ThreadPrimitive.ScrollToBottom asChild>
-                <Button
-                  aria-label="滚动到最新消息"
-                  className="sticky bottom-4 left-1/2 -translate-x-1/2 rounded-full shadow-sm disabled:hidden"
-                  size="icon"
-                  type="button"
-                  variant="outline"
-                >
-                  <ArrowDownIcon className="size-4" />
-                </Button>
-              </ThreadPrimitive.ScrollToBottom>
+          <ExtensionUiDialog
+            onRespond={(value, cancelled) => {
+              respondToExtension(value, cancelled);
+              return Promise.resolve();
+            }}
+            request={extensionRequest}
+          />
 
-              <PromptCard
-                branch={branch}
-                directoryName={directoryName}
-                isRunning={isRunning}
-                isSwitchingSession={switchingSession}
-                model={currentModel}
-                models={availableModels}
-                onAddImages={pickImages}
-                onClearQueue={() => clearQueue()}
-                onDraftChange={persistDraft}
-                onFollowUp={(message) => followUp(message)}
-                onSelectModel={(provider, modelId) => void setModel(provider, modelId)}
-                onSelectThinkingLevel={(level) => void setThinkingLevel(level)}
-                onSteer={(message) => steer(message)}
-                onStop={() => void abort()}
-                phase={connection.phase}
-                queue={queue}
-                textareaRef={promptInputRef}
-                thinkingLevel={thinkingLevel}
-              />
-            </ThreadPrimitive.Viewport>
-          </ThreadPrimitive.Root>
+          <CreateProjectDialog
+            directory={projectDirectoryCandidate}
+            onChooseDirectory={chooseProjectDirectory}
+            onCreate={handleCreateProject}
+            onOpenChange={(open) => {
+              setCreateProjectOpen(open);
+              if (!open) clearProjectDirectory();
+            }}
+            open={createProjectOpen}
+          />
 
-            </main>
-
-              </>
-            )}
-
-        <ExtensionUiDialog onRespond={(value, cancelled) => { respondToExtension(value, cancelled); return Promise.resolve(); }} request={extensionRequest} />
-
-        <CreateProjectDialog
-          directory={projectDirectoryCandidate}
-          onChooseDirectory={chooseProjectDirectory}
-          onCreate={handleCreateProject}
-          onOpenChange={(open) => {
-            setCreateProjectOpen(open);
-            if (!open) clearProjectDirectory();
-          }}
-          open={createProjectOpen}
-        />
-
-        <ConnectionFailureDialog
-          error={connectionError}
-          onDismiss={() => setDismissedConnectionError(connectionErrorKey)}
-          onRetry={() => {
-            setDismissedConnectionError(null);
-            retry();
-          }}
-          open={connectionFailureOpen}
-        />
-          </div>
+          <ConnectionFailureDialog
+            error={connectionError}
+            onDismiss={() => setDismissedConnectionError(connectionErrorKey)}
+            onRetry={() => {
+              setDismissedConnectionError(null);
+              retry();
+            }}
+            open={connectionFailureOpen}
+          />
         </div>
-      </PiAssistantRuntimeProvider>
+      </div>
+    </PiAssistantRuntimeProvider>
   );
 }

@@ -64,7 +64,9 @@ function combined(store: ReturnType<typeof configureListenerStore>) {
   };
 }
 
-function runtime(store: ReturnType<typeof configureListenerStore>): PiSessionState {
+function runtime(
+  store: ReturnType<typeof configureListenerStore>,
+): PiSessionState {
   const state = combined(store);
   return {
     connection: state.connection,
@@ -129,9 +131,14 @@ beforeEach(() => {
     thinkingLevel: "medium",
     workingDirectory: "/tmp/lure",
   });
-  mocks.getAvailableModels.mockResolvedValue([{ id: "gpt-5", provider: "openai" }]);
+  mocks.getAvailableModels.mockResolvedValue([
+    { id: "gpt-5", provider: "openai" },
+  ]);
   mocks.getPiCommands.mockResolvedValue([]);
-  mocks.getWorkspaceContext.mockResolvedValue({ branch: "main", workingDirectory: "/tmp/lure" });
+  mocks.getWorkspaceContext.mockResolvedValue({
+    branch: "main",
+    workingDirectory: "/tmp/lure",
+  });
   mocks.listProjectSessions.mockResolvedValue({ hasMore: false, sessions: [] });
   mocks.selectProjectDirectory.mockResolvedValue(null);
 });
@@ -152,7 +159,9 @@ describe("Pi session listener middleware", () => {
     await flushListeners();
 
     expect(mocks.selectProjectDirectory).toHaveBeenCalledOnce();
-    expect(store.getState().sessions.projectDirectoryCandidate).toBe("/tmp/project");
+    expect(store.getState().sessions.projectDirectoryCandidate).toBe(
+      "/tmp/project",
+    );
   });
 
   it("项目目录选择失败时写入归一化错误", async () => {
@@ -249,7 +258,9 @@ describe("Pi session listener middleware", () => {
 
     onEvent?.({ sequence: 1, event: { type: "assistant_message_started" } });
     let updates = 0;
-    const unsubscribeStore = store.subscribe(() => { updates += 1; });
+    const unsubscribeStore = store.subscribe(() => {
+      updates += 1;
+    });
     for (let index = 2; index <= 1001; index += 1) {
       onEvent?.({
         sequence: index,
@@ -261,7 +272,10 @@ describe("Pi session listener middleware", () => {
     unsubscribeStore();
 
     const message = combined(store).messages[0];
-    expect(message?.parts[0]).toMatchObject({ type: "text", text: "x".repeat(1000) });
+    expect(message?.parts[0]).toMatchObject({
+      type: "text",
+      text: "x".repeat(1000),
+    });
     expect(updates).toBe(1);
   });
 });
@@ -281,7 +295,10 @@ describe("历史会话", () => {
 
   it("连接后只加载默认工作目录的历史会话到最近", async () => {
     mocks.listenToPiEvents.mockResolvedValue(vi.fn());
-    mocks.listProjectSessions.mockResolvedValue({ hasMore: false, sessions: [recordedSession] });
+    mocks.listProjectSessions.mockResolvedValue({
+      hasMore: false,
+      sessions: [recordedSession],
+    });
     const store = createStore();
 
     store.dispatch(sessionsActions.eventSubscriptionRequested());
@@ -297,9 +314,9 @@ describe("历史会话", () => {
     mocks.listenToPiEvents.mockResolvedValue(vi.fn());
     mocks.listProjectSessions.mockImplementation(async (directory: string) => ({
       hasMore: false,
-      sessions: directory === "/tmp/project" ? [projectSession] : [recordedSession],
-    }),
-    );
+      sessions:
+        directory === "/tmp/project" ? [projectSession] : [recordedSession],
+    }));
     const store = createStore();
     store.dispatch(sessionsActions.eventSubscriptionRequested());
     await flushListeners();
@@ -307,7 +324,11 @@ describe("历史会话", () => {
     store.dispatch(sessionsActions.projectExpansionToggled("/tmp/project"));
     await flushListeners();
 
-    expect(mocks.listProjectSessions).toHaveBeenCalledWith("/tmp/project", 0, 3);
+    expect(mocks.listProjectSessions).toHaveBeenCalledWith(
+      "/tmp/project",
+      0,
+      3,
+    );
     expect(combined(store).projectSessions["/tmp/project"]).toEqual([
       projectSession,
     ]);
@@ -324,27 +345,42 @@ describe("历史会话", () => {
 
   it("更多消息从后端读取下一页并追加到项目列表", async () => {
     mocks.listenToPiEvents.mockResolvedValue(vi.fn());
-    mocks.listProjectSessions.mockResolvedValue({ hasMore: false, sessions: [] });
+    mocks.listProjectSessions.mockResolvedValue({
+      hasMore: false,
+      sessions: [],
+    });
     const store = createStore();
     store.dispatch(sessionsActions.eventSubscriptionRequested());
     await flushListeners();
     store.dispatch(sessionsActions.projectExpansionToggled("/tmp/project"));
     await flushListeners();
 
-    store.dispatch(sessionsActions.sessionsLoaded({
-      append: false,
-      directory: "/tmp/project",
-      hasMore: true,
-      sessions: [projectSession],
-    }));
+    store.dispatch(
+      sessionsActions.sessionsLoaded({
+        append: false,
+        directory: "/tmp/project",
+        hasMore: true,
+        sessions: [projectSession],
+      }),
+    );
     mocks.listProjectSessions.mockResolvedValue({
       hasMore: false,
-      sessions: [{ ...projectSession, id: "session-older", path: "/tmp/project/older.jsonl" }],
+      sessions: [
+        {
+          ...projectSession,
+          id: "session-older",
+          path: "/tmp/project/older.jsonl",
+        },
+      ],
     });
     store.dispatch(sessionsActions.sessionPageRequested("/tmp/project"));
     await flushListeners();
 
-    expect(mocks.listProjectSessions).toHaveBeenLastCalledWith("/tmp/project", 1, 5);
+    expect(mocks.listProjectSessions).toHaveBeenLastCalledWith(
+      "/tmp/project",
+      1,
+      5,
+    );
     expect(combined(store).projectSessions["/tmp/project"]).toHaveLength(2);
     expect(combined(store).projectSessionsHasMore["/tmp/project"]).toBe(false);
   });
@@ -379,25 +415,35 @@ describe("历史会话", () => {
 
   it("跨项目连接期间保留所有历史列表，并标记目标会话正在打开", async () => {
     mocks.listenToPiEvents.mockResolvedValue(vi.fn());
-    mocks.listProjectSessions.mockResolvedValue({ hasMore: false, sessions: [recordedSession] });
+    mocks.listProjectSessions.mockResolvedValue({
+      hasMore: false,
+      sessions: [recordedSession],
+    });
     const store = createStore();
     store.dispatch(sessionsActions.eventSubscriptionRequested());
     await flushListeners();
-    store.dispatch(sessionsActions.sessionsLoaded({
-      append: false,
-      directory: "/tmp/project",
-      hasMore: false,
-      sessions: [projectSession],
-    }));
+    store.dispatch(
+      sessionsActions.sessionsLoaded({
+        append: false,
+        directory: "/tmp/project",
+        hasMore: false,
+        sessions: [projectSession],
+      }),
+    );
 
-    const targetConnection = deferred<Awaited<ReturnType<typeof mocks.connectPi>>>();
+    const targetConnection =
+      deferred<Awaited<ReturnType<typeof mocks.connectPi>>>();
     mocks.connectPi.mockImplementationOnce(() => targetConnection.promise);
     store.dispatch(sessionsActions.conversationOpenRequested(projectSession));
     await flushListeners();
 
     expect(combined(store).recentSessions).toEqual([recordedSession]);
-    expect(combined(store).projectSessions["/tmp/project"]).toEqual([projectSession]);
-    expect(store.getState().sessions.sessionTransition).toBe(projectSession.path);
+    expect(combined(store).projectSessions["/tmp/project"]).toEqual([
+      projectSession,
+    ]);
+    expect(store.getState().sessions.sessionTransition).toBe(
+      projectSession.path,
+    );
 
     targetConnection.resolve({
       error: null,
@@ -408,15 +454,18 @@ describe("历史会话", () => {
       thinkingLevel: "medium",
       workingDirectory: "/tmp/project",
     });
-    mocks.switchPiSession.mockResolvedValue({ switched: false, snapshot: {
-      error: null,
-      model: null,
-      phase: "ready",
-      sessionFile: "/tmp/project/current.jsonl",
-      sessionId: "session-current",
-      thinkingLevel: "medium",
-      workingDirectory: "/tmp/project",
-    } });
+    mocks.switchPiSession.mockResolvedValue({
+      switched: false,
+      snapshot: {
+        error: null,
+        model: null,
+        phase: "ready",
+        sessionFile: "/tmp/project/current.jsonl",
+        sessionId: "session-current",
+        thinkingLevel: "medium",
+        workingDirectory: "/tmp/project",
+      },
+    });
     await flushListeners();
   });
 
@@ -440,7 +489,9 @@ describe("历史会话", () => {
     await flushListeners();
 
     const backgroundRefresh = deferred<{ hasMore: boolean; sessions: [] }>();
-    mocks.listProjectSessions.mockImplementation(() => backgroundRefresh.promise);
+    mocks.listProjectSessions.mockImplementation(
+      () => backgroundRefresh.promise,
+    );
     store.dispatch(sessionsActions.conversationOpenRequested(projectSession));
     await flushListeners();
 
@@ -480,12 +531,20 @@ describe("历史会话", () => {
     });
     mocks.getSessionEntries.mockResolvedValue({
       entries: [
-        { type: "message", id: "e1", parentId: null, message: { role: "user", content: "历史提问" } },
+        {
+          type: "message",
+          id: "e1",
+          parentId: null,
+          message: { role: "user", content: "历史提问" },
+        },
         {
           type: "message",
           id: "e2",
           parentId: "e1",
-          message: { role: "assistant", content: [{ type: "text", text: "历史回复" }] },
+          message: {
+            role: "assistant",
+            content: [{ type: "text", text: "历史回复" }],
+          },
         },
       ],
       leafId: "e2",
@@ -526,12 +585,18 @@ describe("历史会话", () => {
     await flushListeners();
     const envelope: EventEnvelope = {
       sequence: 0,
-      event: { type: "user_message_accepted", requestId: "keep", message: "当前对话" },
+      event: {
+        type: "user_message_accepted",
+        requestId: "keep",
+        message: "当前对话",
+      },
     };
-    store.dispatch(piRuntimeProjected({
-      envelopes: [envelope],
-      state: piSessionReducer(runtime(store), envelope),
-    }));
+    store.dispatch(
+      piRuntimeProjected({
+        envelopes: [envelope],
+        state: piSessionReducer(runtime(store), envelope),
+      }),
+    );
 
     store.dispatch(sessionsActions.conversationOpenRequested(recordedSession));
     await flushListeners();

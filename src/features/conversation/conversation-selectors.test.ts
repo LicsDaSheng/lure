@@ -1,10 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { conversationTurns } from "./conversation-selectors";
-import type {
-  ConversationMessage,
-  MessagePart,
-} from "@/lib/pi-rpc/types";
+import type { ConversationMessage, MessagePart } from "@/lib/pi-rpc/types";
 
 describe("conversationTurns", () => {
   function userMessage(id: string, text: string): ConversationMessage {
@@ -57,7 +54,10 @@ describe("conversationTurns", () => {
 
     expect(turns).toHaveLength(1);
     expect(turns[0]?.process).toEqual([]);
-    expect(turns[0]?.result).toMatchObject({ kind: "final", id: "assistant-1" });
+    expect(turns[0]?.result).toMatchObject({
+      kind: "final",
+      id: "assistant-1",
+    });
     expect(turns[0]?.phase).toBe("settled");
   });
 
@@ -86,11 +86,15 @@ describe("conversationTurns", () => {
         turnId: "user-1",
         turnPhase: "running",
       }),
-      assistantMessage("assistant-2", [textPart("继续读取"), toolPart("tool-1")], {
-        stopReason: "toolUse",
-        turnId: "user-1",
-        turnPhase: "running",
-      }),
+      assistantMessage(
+        "assistant-2",
+        [textPart("继续读取"), toolPart("tool-1")],
+        {
+          stopReason: "toolUse",
+          turnId: "user-1",
+          turnPhase: "running",
+        },
+      ),
     ];
 
     const running = conversationTurns(messages, "running", "assistant-2");
@@ -102,7 +106,9 @@ describe("conversationTurns", () => {
 
     const settled = conversationTurns(
       messages.map((message) =>
-        message.role === "assistant" ? { ...message, turnPhase: "settled" as const } : message,
+        message.role === "assistant"
+          ? { ...message, turnPhase: "settled" as const }
+          : message,
       ),
       "ready",
       null,
@@ -114,11 +120,15 @@ describe("conversationTurns", () => {
     const turns = conversationTurns(
       [
         userMessage("user-1", "检查项目"),
-        assistantMessage("assistant-1", [textPart("先读取配置"), toolPart("tool-1")], {
-          stopReason: "toolUse",
-          turnId: "user-1",
-          turnPhase: "settled",
-        }),
+        assistantMessage(
+          "assistant-1",
+          [textPart("先读取配置"), toolPart("tool-1")],
+          {
+            stopReason: "toolUse",
+            turnId: "user-1",
+            turnPhase: "settled",
+          },
+        ),
         assistantMessage("assistant-2", [textPart("配置已确认")], {
           stopReason: "stop",
           turnId: "user-1",
@@ -129,10 +139,16 @@ describe("conversationTurns", () => {
       null,
     );
 
-    expect(turns[0]?.result).toMatchObject({ kind: "final", id: "assistant-2" });
+    expect(turns[0]?.result).toMatchObject({
+      kind: "final",
+      id: "assistant-2",
+    });
     expect(turns[0]?.toolCount).toBe(1);
     expect(turns[0]?.process.map((group) => group.id)).toEqual(["assistant-1"]);
-    expect(turns[0]?.process[0]?.parts.map((part) => part.type)).toEqual(["text", "tool"]);
+    expect(turns[0]?.process[0]?.parts.map((part) => part.type)).toEqual([
+      "text",
+      "tool",
+    ]);
   });
 
   it("自动重试时失败响应进入过程，最后一次成功响应才是结果", () => {
@@ -155,7 +171,10 @@ describe("conversationTurns", () => {
       null,
     );
 
-    expect(turns[0]?.result).toMatchObject({ kind: "final", id: "assistant-2" });
+    expect(turns[0]?.result).toMatchObject({
+      kind: "final",
+      id: "assistant-2",
+    });
     expect(turns[0]?.process.map((group) => group.id)).toEqual(["assistant-1"]);
     expect(turns[0]?.process[0]?.errorMessage).toBe("超时");
   });
@@ -220,18 +239,25 @@ describe("conversationTurns", () => {
     );
 
     expect(turns.map((turn) => turn.user?.id)).toEqual(["user-1", "user-2"]);
-    expect(turns.map((turn) => turn.result?.id)).toEqual(["assistant-1", "assistant-2"]);
+    expect(turns.map((turn) => turn.result?.id)).toEqual([
+      "assistant-1",
+      "assistant-2",
+    ]);
   });
 
   it("历史会话沿用同一分类规则与耗时缺失", () => {
     const turns = conversationTurns(
       [
         userMessage("user-1", "检查项目"),
-        assistantMessage("assistant-1", [textPart("先读取配置"), toolPart("tool-1")], {
-          stopReason: "toolUse",
-          turnId: "user-1",
-          turnPhase: "settled",
-        }),
+        assistantMessage(
+          "assistant-1",
+          [textPart("先读取配置"), toolPart("tool-1")],
+          {
+            stopReason: "toolUse",
+            turnId: "user-1",
+            turnPhase: "settled",
+          },
+        ),
         assistantMessage("assistant-2", [textPart("配置已确认")], {
           stopReason: "stop",
           turnId: "user-1",

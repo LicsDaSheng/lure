@@ -1,5 +1,9 @@
 import type { ProjectDescriptor } from "@/lib/pi-rpc/types";
-import { directoryScope, readLocalValue, writeLocalValue } from "@/lib/local-storage";
+import {
+  directoryScope,
+  readLocalValue,
+  writeLocalValue,
+} from "@/lib/local-storage";
 
 /**
  * 本地界面偏好：记住项目导航、上次工作目录、未发送草稿与任务标题。

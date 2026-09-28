@@ -14,7 +14,10 @@ const extensionUiSlice = createSlice({
   initialState: initialExtensionUiState,
   reducers: {
     extensionUiReset: () => initialExtensionUiState,
-    responseRequested: (_state, _action: PayloadAction<{ value: unknown; cancelled: boolean }>) => undefined,
+    responseRequested: (
+      _state,
+      _action: PayloadAction<{ value: unknown; cancelled: boolean }>,
+    ) => undefined,
   },
   extraReducers: (builder) => {
     builder.addCase(piRuntimeProjected, (state, action) => {

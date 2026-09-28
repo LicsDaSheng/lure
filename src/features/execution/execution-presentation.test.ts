@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { relativeTimeLabel, sessionTitle } from "@/features/sessions/session-presentation";
+import {
+  relativeTimeLabel,
+  sessionTitle,
+} from "@/features/sessions/session-presentation";
 import {
   executionProcessLabel,
   formatDuration,
@@ -18,12 +21,11 @@ const completedView: ToolView = {
   truncatedLines: null,
 };
 
-
 describe("主工作区展示适配", () => {
   it("将已知工具转换为用户可理解的摘要", () => {
-    expect(formatToolSummary({ ...completedView, name: "read", status: "running" })).toBe(
-      "正在读取 src/App.tsx",
-    );
+    expect(
+      formatToolSummary({ ...completedView, name: "read", status: "running" }),
+    ).toBe("正在读取 src/App.tsx");
     expect(formatToolSummary(completedView)).toBe("已修改 src/App.tsx");
   });
 
@@ -36,7 +38,6 @@ describe("主工作区展示适配", () => {
       }),
     ).toBe(10);
   });
-
 });
 
 describe("执行过程折叠文案", () => {
@@ -49,37 +50,92 @@ describe("执行过程折叠文案", () => {
 
   it("同时说明状态与点击后的行为", () => {
     expect(
-      executionProcessLabel({ durationMs: null, expanded: true, phase: "running", toolCount: 2 }),
+      executionProcessLabel({
+        durationMs: null,
+        expanded: true,
+        phase: "running",
+        toolCount: 2,
+      }),
     ).toBe("执行中");
     expect(
-      executionProcessLabel({ durationMs: null, expanded: false, phase: "running", toolCount: 2 }),
+      executionProcessLabel({
+        durationMs: null,
+        expanded: false,
+        phase: "running",
+        toolCount: 2,
+      }),
     ).toBe("执行中 · 展开执行过程");
     expect(
-      executionProcessLabel({ durationMs: 50_000, expanded: false, phase: "settled", toolCount: 1 }),
+      executionProcessLabel({
+        durationMs: 50_000,
+        expanded: false,
+        phase: "settled",
+        toolCount: 1,
+      }),
     ).toBe("用时 50 秒 · 展开执行过程");
     expect(
-      executionProcessLabel({ durationMs: 50_000, expanded: true, phase: "settled", toolCount: 1 }),
+      executionProcessLabel({
+        durationMs: 50_000,
+        expanded: true,
+        phase: "settled",
+        toolCount: 1,
+      }),
     ).toBe("用时 50 秒 · 收起执行过程");
     expect(
-      executionProcessLabel({ durationMs: null, expanded: false, phase: "settled", toolCount: 3 }),
+      executionProcessLabel({
+        durationMs: null,
+        expanded: false,
+        phase: "settled",
+        toolCount: 3,
+      }),
     ).toBe("3 个工具调用 · 展开执行过程");
     expect(
-      executionProcessLabel({ durationMs: null, expanded: false, phase: "settled", toolCount: 0 }),
+      executionProcessLabel({
+        durationMs: null,
+        expanded: false,
+        phase: "settled",
+        toolCount: 0,
+      }),
     ).toBe("执行过程 · 展开执行过程");
     expect(
-      executionProcessLabel({ durationMs: null, expanded: false, phase: "aborted", toolCount: 1 }),
+      executionProcessLabel({
+        durationMs: null,
+        expanded: false,
+        phase: "aborted",
+        toolCount: 1,
+      }),
     ).toBe("已停止 · 查看已完成过程");
     expect(
-      executionProcessLabel({ durationMs: null, expanded: true, phase: "aborted", toolCount: 1 }),
+      executionProcessLabel({
+        durationMs: null,
+        expanded: true,
+        phase: "aborted",
+        toolCount: 1,
+      }),
     ).toBe("已停止 · 收起执行过程");
     expect(
-      executionProcessLabel({ durationMs: null, expanded: false, phase: "aborted", toolCount: 0 }),
+      executionProcessLabel({
+        durationMs: null,
+        expanded: false,
+        phase: "aborted",
+        toolCount: 0,
+      }),
     ).toBe("已停止 · 查看已完成过程");
     expect(
-      executionProcessLabel({ durationMs: null, expanded: false, phase: "truncated", toolCount: 1 }),
+      executionProcessLabel({
+        durationMs: null,
+        expanded: false,
+        phase: "truncated",
+        toolCount: 1,
+      }),
     ).toBe("响应被截断 · 查看过程");
     expect(
-      executionProcessLabel({ durationMs: null, expanded: false, phase: "error", toolCount: 1 }),
+      executionProcessLabel({
+        durationMs: null,
+        expanded: false,
+        phase: "error",
+        toolCount: 1,
+      }),
     ).toBe("执行未完成 · 查看过程");
   });
 });
@@ -98,11 +154,18 @@ describe("历史会话展示", () => {
   };
 
   it("按会话名、首条用户消息、目录名的顺序生成列表标题", () => {
-    expect(sessionTitle({ ...session, name: "重构任务" }, "lure")).toBe("重构任务");
-    expect(sessionTitle({ ...session, firstMessage: "帮我看看\n第二行" }, "lure")).toBe("帮我看看");
+    expect(sessionTitle({ ...session, name: "重构任务" }, "lure")).toBe(
+      "重构任务",
+    );
+    expect(
+      sessionTitle({ ...session, firstMessage: "帮我看看\n第二行" }, "lure"),
+    ).toBe("帮我看看");
     expect(sessionTitle(session, "lure")).toBe("lure");
     expect(
-      sessionTitle({ ...session, firstMessage: `很长的首条消息${"啊".repeat(80)}` }, "lure").length,
+      sessionTitle(
+        { ...session, firstMessage: `很长的首条消息${"啊".repeat(80)}` },
+        "lure",
+      ).length,
     ).toBeLessThanOrEqual(61);
   });
 

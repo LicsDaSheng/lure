@@ -10,6 +10,10 @@ export function useExtensionUi() {
   const dispatch = useAppDispatch();
   return {
     ...state,
-    respond: useCallback((value: unknown, cancelled = false) => dispatch(extensionUiActions.responseRequested({ cancelled, value })), [dispatch]),
+    respond: useCallback(
+      (value: unknown, cancelled = false) =>
+        dispatch(extensionUiActions.responseRequested({ cancelled, value })),
+      [dispatch],
+    ),
   };
 }

@@ -6,9 +6,12 @@ import { normalizeLureError } from "@/lib/normalize-error";
 
 import { extensionUiActions } from "./extension-ui-slice";
 
-type ExtensionState = { extensionUi: { request: { requestId: string } | null } };
+type ExtensionState = {
+  extensionUi: { request: { requestId: string } | null };
+};
 
-export const extensionUiListenerMiddleware = createListenerMiddleware<ExtensionState>();
+export const extensionUiListenerMiddleware =
+  createListenerMiddleware<ExtensionState>();
 
 extensionUiListenerMiddleware.startListening({
   actionCreator: extensionUiActions.responseRequested,
@@ -16,9 +19,17 @@ extensionUiListenerMiddleware.startListening({
     const request = api.getState().extensionUi.request;
     if (!request) return;
     try {
-      await respondToExtensionUi(request.requestId, action.payload.value, action.payload.cancelled);
+      await respondToExtensionUi(
+        request.requestId,
+        action.payload.value,
+        action.payload.cancelled,
+      );
     } catch (error) {
-      api.dispatch(sessionsActions.commandFailed(normalizeLureError(error, "无法提交交互响应")));
+      api.dispatch(
+        sessionsActions.commandFailed(
+          normalizeLureError(error, "无法提交交互响应"),
+        ),
+      );
     }
   },
 });

@@ -2,7 +2,11 @@ import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { Button } from "./button";
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "./collapsible";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "./collapsible";
 
 describe("全局微交互", () => {
   it("按钮使用明确的状态色以及 focus、active 微交互", () => {

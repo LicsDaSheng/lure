@@ -33,7 +33,9 @@ export type SelectedImage = ImageAttachment & { name: string };
 
 export async function selectImageFiles(): Promise<string[]> {
   const selection = await open({
-    filters: [{ extensions: ["png", "jpg", "jpeg", "gif", "webp"], name: "图片" }],
+    filters: [
+      { extensions: ["png", "jpg", "jpeg", "gif", "webp"], name: "图片" },
+    ],
     multiple: true,
   });
   if (Array.isArray(selection)) return selection;
@@ -45,7 +47,9 @@ export async function selectProjectDirectory(): Promise<string | null> {
   return typeof selection === "string" ? selection : null;
 }
 
-export function readImageAttachments(paths: string[]): Promise<SelectedImage[]> {
+export function readImageAttachments(
+  paths: string[],
+): Promise<SelectedImage[]> {
   return invoke("read_image_attachments", { paths });
 }
 
@@ -58,7 +62,9 @@ export function getPiState(): Promise<ConnectionSnapshot> {
   return invoke("get_pi_state");
 }
 
-export function connectPi(workingDirectory: string): Promise<ConnectionSnapshot> {
+export function connectPi(
+  workingDirectory: string,
+): Promise<ConnectionSnapshot> {
   return invoke("connect_pi", { workingDirectory });
 }
 
@@ -106,7 +112,10 @@ export function getAvailableModels(): Promise<ModelSnapshot[]> {
   return invoke("get_available_models");
 }
 
-export function selectModel(provider: string, modelId: string): Promise<ModelSnapshot> {
+export function selectModel(
+  provider: string,
+  modelId: string,
+): Promise<ModelSnapshot> {
   return invoke("set_model", { modelId, provider });
 }
 
@@ -126,7 +135,9 @@ export function respondToExtensionUi(
   return invoke("respond_extension_ui", { cancelled, requestId, value });
 }
 
-export function getWorkspaceContext(workingDirectory: string): Promise<WorkspaceContext> {
+export function getWorkspaceContext(
+  workingDirectory: string,
+): Promise<WorkspaceContext> {
   return invoke("get_workspace_context", { workingDirectory });
 }
 
@@ -140,7 +151,9 @@ export function listProjectSessions(
 }
 
 /** 切换到已记录的 Pi 会话；`switched` 为 false 表示 Pi 扩展取消了这次切换。 */
-export function switchPiSession(sessionPath: string): Promise<SessionSwitchOutcome> {
+export function switchPiSession(
+  sessionPath: string,
+): Promise<SessionSwitchOutcome> {
   return invoke("switch_pi_session", { sessionPath });
 }
 
@@ -157,5 +170,7 @@ export type SessionSwitchOutcome = {
 export function listenToPiEvents(
   onEvent: (event: EventEnvelope) => void,
 ): Promise<UnlistenFn> {
-  return listen<EventEnvelope>(PI_EVENT_NAME, ({ payload }) => onEvent(payload));
+  return listen<EventEnvelope>(PI_EVENT_NAME, ({ payload }) =>
+    onEvent(payload),
+  );
 }
