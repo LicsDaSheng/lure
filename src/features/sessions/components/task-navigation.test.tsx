@@ -71,7 +71,11 @@ function renderNavigation({
       onOpenSettings={vi.fn()}
       onToggleProject={vi.fn()}
       phase={phase}
-      projects={projectSessions["/tmp/project"] ? [{ name: "示例项目", directory: "/tmp/project" }] : []}
+      projects={
+        projectSessions["/tmp/project"]
+          ? [{ name: "示例项目", directory: "/tmp/project" }]
+          : []
+      }
       projectSessions={projectSessions}
       projectSessionsHasMore={projectSessionsHasMore}
       recentSessions={recentSessions}
@@ -88,11 +92,15 @@ describe("任务导航会话列表", () => {
     const { onLoadMoreSessions } = renderNavigation();
     const recent = screen.getByRole("region", { name: "最近" });
 
-    expect(within(recent).getAllByRole("button", { name: /会话 \d/ })).toHaveLength(3);
+    expect(
+      within(recent).getAllByRole("button", { name: /会话 \d/ }),
+    ).toHaveLength(3);
     expect(within(recent).getByText("会话 1")).toBeInTheDocument();
     expect(within(recent).queryByText("会话 4")).not.toBeInTheDocument();
 
-    fireEvent.click(within(recent).getByRole("button", { name: "显示更多最近会话" }));
+    fireEvent.click(
+      within(recent).getByRole("button", { name: "显示更多最近会话" }),
+    );
     expect(onLoadMoreSessions).toHaveBeenCalledWith("/tmp/lure");
   });
 
@@ -100,8 +108,12 @@ describe("任务导航会话列表", () => {
     const { onNewTask } = renderNavigation();
     const recent = screen.getByRole("region", { name: "最近" });
 
-    expect(within(recent).getByRole("button", { name: "显示更多最近会话" })).toBeInTheDocument();
-    fireEvent.click(within(recent).getByRole("button", { name: "在默认工作目录中新建任务" }));
+    expect(
+      within(recent).getByRole("button", { name: "显示更多最近会话" }),
+    ).toBeInTheDocument();
+    fireEvent.click(
+      within(recent).getByRole("button", { name: "在默认工作目录中新建任务" }),
+    );
     expect(onNewTask).toHaveBeenCalledOnce();
   });
 
@@ -110,9 +122,15 @@ describe("任务导航会话列表", () => {
       projectSessions: { "/tmp/project": sessions("/tmp/project", 1) },
     });
 
-    expect(screen.getByRole("button", { name: "最近历史会话" })).toHaveClass("text-xs");
-    expect(screen.getByRole("heading", { name: "项目" })).toHaveClass("text-xs");
-    expect(screen.getByRole("button", { name: "示例项目 历史会话" })).toHaveClass("text-xs");
+    expect(screen.getByRole("button", { name: "最近历史会话" })).toHaveClass(
+      "text-xs",
+    );
+    expect(screen.getByRole("heading", { name: "项目" })).toHaveClass(
+      "text-xs",
+    );
+    expect(
+      screen.getByRole("button", { name: "示例项目 历史会话" }),
+    ).toHaveClass("text-xs");
   });
 
   it("最近会话使用醒目的单列标题，不显示时间", () => {
@@ -146,9 +164,13 @@ describe("任务导航会话列表", () => {
       projectSessionsHasMore: { "/tmp/project": true },
       expandedProjects: ["/tmp/project"],
     });
-    const project = screen.getByRole("region", { name: "示例项目历史会话列表" });
+    const project = screen.getByRole("region", {
+      name: "示例项目历史会话列表",
+    });
 
-    expect(within(project).getAllByRole("button", { name: /会话 \d/ })).toHaveLength(3);
+    expect(
+      within(project).getAllByRole("button", { name: /会话 \d/ }),
+    ).toHaveLength(3);
     const showMore = within(project).getByRole("button", { name: "显示更多" });
     expect(showMore).toHaveTextContent("显示更多");
     fireEvent.click(showMore);
@@ -164,17 +186,25 @@ describe("任务导航会话列表", () => {
     const opening = within(recent).getByRole("button", { name: /会话 2/ });
     expect(opening).toHaveAttribute("aria-busy", "true");
     // 不再显示“正在打开”这类连接过程提示，条目也不显示时间列。
-    expect(within(recent).queryByText(/正在打开|正在连接/)).not.toBeInTheDocument();
+    expect(
+      within(recent).queryByText(/正在打开|正在连接/),
+    ).not.toBeInTheDocument();
     expect(opening).not.toHaveTextContent("刚刚");
-    expect(within(recent).getByRole("button", { name: /会话 1/ })).toBeDisabled();
+    expect(
+      within(recent).getByRole("button", { name: /会话 1/ }),
+    ).toBeDisabled();
     // 切换期间列表本身不消失，仍显示全部已加载记录。
-    expect(within(recent).getAllByRole("button", { name: /会话 \d/ })).toHaveLength(3);
+    expect(
+      within(recent).getAllByRole("button", { name: /会话 \d/ }),
+    ).toHaveLength(3);
   });
 
   it("导航不展示 RPC 连接状态标签", () => {
     renderNavigation();
 
-    expect(screen.queryByText(/已连接|正在连接|未连接|连接失败/)).not.toBeInTheDocument();
+    expect(
+      screen.queryByText(/已连接|正在连接|未连接|连接失败/),
+    ).not.toBeInTheDocument();
   });
 
   it("最近列表不在会话行内展示运行状态", () => {
@@ -203,7 +233,9 @@ describe("任务导航会话列表", () => {
     renderNavigation();
 
     const recent = screen.getByRole("region", { name: "最近" });
-    for (const row of within(recent).getAllByRole("button", { name: /会话 \d/ })) {
+    for (const row of within(recent).getAllByRole("button", {
+      name: /会话 \d/,
+    })) {
       expect(row).not.toHaveAttribute("title");
     }
   });

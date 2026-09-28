@@ -64,17 +64,29 @@ describe("运行中的排队操作", () => {
   it("运行中提供插队引导、排队发送和停止入口", () => {
     renderCard({ isRunning: true });
 
-    expect(screen.getByRole("button", { name: "插队引导" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "排队发送" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "停止生成" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "插队引导" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "排队发送" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "停止生成" }),
+    ).toBeInTheDocument();
   });
 
   it("空闲时不提供排队入口", () => {
     renderCard({ isRunning: false });
 
-    expect(screen.queryByRole("button", { name: "插队引导" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "排队发送" })).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "发送消息" })).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "插队引导" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "排队发送" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "发送消息" }),
+    ).toBeInTheDocument();
   });
 
   it("无文本时排队入口不可用", () => {
@@ -137,7 +149,10 @@ describe("待处理队列展示", () => {
   it("队列非空时列出插队与排队消息", () => {
     renderCard({
       isRunning: true,
-      queue: { steering: ["先停下重构"], followUp: ["接着补测试", "再更新文档"] },
+      queue: {
+        steering: ["先停下重构"],
+        followUp: ["接着补测试", "再更新文档"],
+      },
     });
 
     expect(screen.getByText(/已排队 3 条/)).toBeInTheDocument();
@@ -149,7 +164,9 @@ describe("待处理队列展示", () => {
   it("队列为空时不显示队列区", () => {
     renderCard({ isRunning: true });
 
-    expect(screen.queryByRole("group", { name: "待处理队列" })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("group", { name: "待处理队列" }),
+    ).not.toBeInTheDocument();
   });
 
   it("清空按钮触发清空队列", () => {

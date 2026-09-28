@@ -20,8 +20,10 @@ const modelsSlice = createSlice({
   initialState: initialModelsState,
   reducers: {
     modelsReset: () => initialModelsState,
-    modelSelectionRequested: (_state, _action: PayloadAction<ModelSnapshot>) => undefined,
-    thinkingLevelSelectionRequested: (_state, _action: PayloadAction<string>) => undefined,
+    modelSelectionRequested: (_state, _action: PayloadAction<ModelSnapshot>) =>
+      undefined,
+    thinkingLevelSelectionRequested: (_state, _action: PayloadAction<string>) =>
+      undefined,
     modelSelected: (state, action: PayloadAction<ModelSnapshot>) => {
       state.current = action.payload;
     },

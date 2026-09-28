@@ -1,4 +1,8 @@
-import { directoryScope, readLocalValue, writeLocalValue } from "@/lib/local-storage";
+import {
+  directoryScope,
+  readLocalValue,
+  writeLocalValue,
+} from "@/lib/local-storage";
 
 const DRAFT_PREFIX = "lure:draft:";
 

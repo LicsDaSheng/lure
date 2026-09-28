@@ -12,10 +12,17 @@ modelsListenerMiddleware.startListening({
   actionCreator: modelsActions.modelSelectionRequested,
   effect: async (action, api) => {
     try {
-      const model = await selectModel(action.payload.provider, action.payload.id);
+      const model = await selectModel(
+        action.payload.provider,
+        action.payload.id,
+      );
       api.dispatch(modelsActions.modelSelected(model));
     } catch (error) {
-      api.dispatch(sessionsActions.commandFailed(normalizeLureError(error, "切换模型失败")));
+      api.dispatch(
+        sessionsActions.commandFailed(
+          normalizeLureError(error, "切换模型失败"),
+        ),
+      );
     }
   },
 });
@@ -24,9 +31,17 @@ modelsListenerMiddleware.startListening({
   actionCreator: modelsActions.thinkingLevelSelectionRequested,
   effect: async (action, api) => {
     try {
-      api.dispatch(modelsActions.thinkingLevelSelected(await selectThinkingLevel(action.payload)));
+      api.dispatch(
+        modelsActions.thinkingLevelSelected(
+          await selectThinkingLevel(action.payload),
+        ),
+      );
     } catch (error) {
-      api.dispatch(sessionsActions.commandFailed(normalizeLureError(error, "切换思考强度失败")));
+      api.dispatch(
+        sessionsActions.commandFailed(
+          normalizeLureError(error, "切换思考强度失败"),
+        ),
+      );
     }
   },
 });

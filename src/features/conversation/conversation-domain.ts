@@ -58,7 +58,12 @@ export function conversationFromEntries(
         id: turnId,
         role: "user",
         parts: [
-          { id: "text-0", type: "text", contentIndex: 0, text: contentText(message.content) },
+          {
+            id: "text-0",
+            type: "text",
+            contentIndex: 0,
+            text: contentText(message.content),
+          },
         ],
       });
       continue;
@@ -78,7 +83,10 @@ export function conversationFromEntries(
         // 历史回放沿用与实时相同的响应组规则：组由触发它的用户消息定义，
         // 阶段由 Pi 记录的终止原因定案；没有可靠计时就不伪造耗时。
         turnId,
-        turnPhase: turnPhaseFromMessage(message.stopReason, message.errorMessage),
+        turnPhase: turnPhaseFromMessage(
+          message.stopReason,
+          message.errorMessage,
+        ),
       });
       continue;
     }
@@ -96,7 +104,10 @@ export function conversationFromEntries(
 }
 
 /** 沿 parentId 回溯活动分支；缺少叶子信息时保守地按追加顺序返回。 */
-function activeBranch(entries: SessionEntry[], leafId: string | null): SessionEntry[] {
+function activeBranch(
+  entries: SessionEntry[],
+  leafId: string | null,
+): SessionEntry[] {
   if (!leafId) return entries;
 
   const byId = new Map<string, SessionEntry>();
@@ -124,7 +135,12 @@ function assistantParts(content: unknown): MessagePart[] {
   content.forEach((block, contentIndex) => {
     if (!isRecord(block)) return;
     if (block.type === "text" && typeof block.text === "string") {
-      parts.push({ id: `text-${contentIndex}`, type: "text", contentIndex, text: block.text });
+      parts.push({
+        id: `text-${contentIndex}`,
+        type: "text",
+        contentIndex,
+        text: block.text,
+      });
       return;
     }
     if (block.type === "thinking" && typeof block.thinking === "string") {
@@ -159,7 +175,11 @@ function contentText(content: unknown): string {
   if (typeof content === "string") return content;
   if (!Array.isArray(content)) return "";
   return content
-    .flatMap((block) => (isRecord(block) && block.type === "text" && typeof block.text === "string" ? [block.text] : []))
+    .flatMap((block) =>
+      isRecord(block) && block.type === "text" && typeof block.text === "string"
+        ? [block.text]
+        : [],
+    )
     .join("\n");
 }
 
@@ -176,7 +196,11 @@ function formatInput(arguments_: unknown): string {
 function truncatedLines(details: unknown): number | null {
   if (!isRecord(details) || !isRecord(details.truncation)) return null;
   const { truncated, totalLines, outputLines } = details.truncation;
-  if (truncated !== true || typeof totalLines !== "number" || typeof outputLines !== "number") {
+  if (
+    truncated !== true ||
+    typeof totalLines !== "number" ||
+    typeof outputLines !== "number"
+  ) {
     return null;
   }
   return Math.max(totalLines - outputLines, 0);
@@ -235,7 +259,10 @@ export function piSessionReducer(
   const event = envelope.event;
   switch (event.type) {
     case "connection_changed":
-      if (event.snapshot.phase === "disconnected" || event.snapshot.phase === "failed") {
+      if (
+        event.snapshot.phase === "disconnected" ||
+        event.snapshot.phase === "failed"
+      ) {
         const interrupted = failActiveRun(
           state,
           event.snapshot.error?.message ?? "Pi 连接已断开",
@@ -255,7 +282,8 @@ export function piSessionReducer(
         error: event.snapshot.error,
       };
     case "session_ready": {
-      const sessionChanged = state.connection.sessionId !== event.snapshot.sessionId;
+      const sessionChanged =
+        state.connection.sessionId !== event.snapshot.sessionId;
       return {
         ...state,
         connection: event.snapshot,
@@ -276,18 +304,32 @@ export function piSessionReducer(
     case "user_message_accepted":
       return appendUserMessage(state, `user-${event.requestId}`, event.message);
     case "user_message_observed":
-      return appendUserMessage(state, `user-observed-${envelope.sequence}`, event.message);
+      return appendUserMessage(
+        state,
+        `user-observed-${envelope.sequence}`,
+        event.message,
+      );
     case "assistant_message_started":
       return startAssistantMessage(state, envelope.sequence);
     case "assistant_text_delta":
       return updateActiveAssistant(state, envelope.sequence, (message) => ({
         ...message,
-        parts: appendTextDelta(message.parts, "text", event.contentIndex, event.delta),
+        parts: appendTextDelta(
+          message.parts,
+          "text",
+          event.contentIndex,
+          event.delta,
+        ),
       }));
     case "assistant_thinking_delta":
       return updateActiveAssistant(state, envelope.sequence, (message) => ({
         ...message,
-        parts: appendTextDelta(message.parts, "thinking", event.contentIndex, event.delta),
+        parts: appendTextDelta(
+          message.parts,
+          "thinking",
+          event.contentIndex,
+          event.delta,
+        ),
       }));
     case "assistant_message_completed":
       return updateActiveAssistant(state, envelope.sequence, (message) => ({
@@ -300,11 +342,25 @@ export function piSessionReducer(
         errorMessage: event.errorMessage,
       }));
     case "tool_started":
-      return updateTool(state, envelope.sequence, event.toolCallId, event.toolName, "running", {
-        input: event.input,
-      });
+      return updateTool(
+        state,
+        envelope.sequence,
+        event.toolCallId,
+        event.toolName,
+        "running",
+        {
+          input: event.input,
+        },
+      );
     case "tool_updated":
-      return updateTool(state, envelope.sequence, event.toolCallId, event.toolName, "running", event);
+      return updateTool(
+        state,
+        envelope.sequence,
+        event.toolCallId,
+        event.toolName,
+        "running",
+        event,
+      );
     case "tool_completed":
       return updateTool(
         state,
@@ -361,13 +417,16 @@ export function piSessionReducer(
       // agent_settled 需要一次定案所有仍在 running 的组，而不是只处理
       // RunState 里最后一个 turnId。
       const runningIndices = state.messages.flatMap((message, index) =>
-        message.role === "assistant" && message.turnPhase === "running" ? [index] : [],
+        message.role === "assistant" && message.turnPhase === "running"
+          ? [index]
+          : [],
       );
       const settledIndices =
         runningIndices.length > 0
           ? runningIndices
           : state.messages.flatMap((message, index) =>
-              message.role === "assistant" && index === state.messages.length - 1
+              message.role === "assistant" &&
+              index === state.messages.length - 1
                 ? [index]
                 : [],
             );
@@ -395,7 +454,8 @@ export function piSessionReducer(
                 settledIndices.includes(index)
                   ? {
                       ...message,
-                      turnPhase: phaseByTurn.get(message.turnId ?? null) ?? "settled",
+                      turnPhase:
+                        phaseByTurn.get(message.turnId ?? null) ?? "settled",
                       ...(index === lastIndex
                         ? {
                             runStartedAtMs: state.run.startedAtMs,
@@ -414,7 +474,7 @@ export function piSessionReducer(
     case "retry_changed":
       return {
         ...state,
-        notice: event.active ? event.message ?? null : null,
+        notice: event.active ? (event.message ?? null) : null,
         run: {
           ...state.run,
           phase: event.active
@@ -569,7 +629,10 @@ function failActiveRun(state: PiSessionState, message: string): PiSessionState {
   };
 }
 
-function startAssistantMessage(state: PiSessionState, sequence: number): PiSessionState {
+function startAssistantMessage(
+  state: PiSessionState,
+  sequence: number,
+): PiSessionState {
   const id = `assistant-${sequence}`;
   return {
     ...state,
@@ -626,7 +689,9 @@ function updateActiveAssistant(
   sequence: number,
   update: (message: ConversationMessage) => ConversationMessage,
 ): PiSessionState {
-  const started = state.activeAssistantId ? state : startAssistantMessage(state, sequence);
+  const started = state.activeAssistantId
+    ? state
+    : startAssistantMessage(state, sequence);
   const id = started.activeAssistantId;
   return {
     ...started,
@@ -637,7 +702,9 @@ function updateActiveAssistant(
 }
 
 function sortParts(parts: MessagePart[]): MessagePart[] {
-  return [...parts].sort((left, right) => left.contentIndex - right.contentIndex);
+  return [...parts].sort(
+    (left, right) => left.contentIndex - right.contentIndex,
+  );
 }
 
 function nextContentIndex(parts: MessagePart[]): number {
@@ -672,7 +739,11 @@ function appendTextDelta(
 /** 用 message_end 的权威内容重建文本与思考，同时保留已执行工具的位置。 */
 function mergeCompletedParts(
   parts: MessagePart[],
-  blocks: Array<{ contentIndex: number; kind: "text" | "thinking"; text: string }>,
+  blocks: Array<{
+    contentIndex: number;
+    kind: "text" | "thinking";
+    text: string;
+  }>,
 ): MessagePart[] {
   const rebuilt: MessagePart[] = blocks.map((block) => ({
     id: `${block.kind}-${block.contentIndex}`,
@@ -694,13 +765,25 @@ function fallbackCompletedParts(
   thinking: string,
 ): MessagePart[] {
   const rebuilt: MessagePart[] = [];
-  const base = parts.some((part) => part.type === "tool") ? nextContentIndex(parts) : 0;
+  const base = parts.some((part) => part.type === "tool")
+    ? nextContentIndex(parts)
+    : 0;
   if (thinking) {
-    rebuilt.push({ id: `thinking-${base}`, type: "thinking", contentIndex: base, text: thinking });
+    rebuilt.push({
+      id: `thinking-${base}`,
+      type: "thinking",
+      contentIndex: base,
+      text: thinking,
+    });
   }
   if (text) {
     const index = base + rebuilt.length;
-    rebuilt.push({ id: `text-${index}`, type: "text", contentIndex: index, text });
+    rebuilt.push({
+      id: `text-${index}`,
+      type: "text",
+      contentIndex: index,
+      text,
+    });
   }
   if (rebuilt.length === 0) return parts;
   const tools = parts.filter((part): part is ToolPart => part.type === "tool");
@@ -715,7 +798,8 @@ function upsertToolPart(
   details: { input?: string; output?: string; truncatedLines?: number | null },
 ): MessagePart[] {
   const existing = parts.find(
-    (part): part is ToolPart => part.type === "tool" && part.toolCallId === toolCallId,
+    (part): part is ToolPart =>
+      part.type === "tool" && part.toolCallId === toolCallId,
   );
   if (existing) {
     return parts.map((part) =>

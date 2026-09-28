@@ -3,7 +3,11 @@ import { createSlice, type PayloadAction } from "@reduxjs/toolkit";
 import { conversationFromEntries, emptyQueue } from "./conversation-domain";
 import { piRuntimeProjected } from "@/features/sessions/runtime-events";
 import type { ImageAttachment, PiCommand } from "@/lib/pi-rpc/client";
-import type { ConversationMessage, MessageQueue, SessionEntries } from "@/lib/pi-rpc/types";
+import type {
+  ConversationMessage,
+  MessageQueue,
+  SessionEntries,
+} from "@/lib/pi-rpc/types";
 
 export type ConversationState = {
   messages: ConversationMessage[];
@@ -35,18 +39,30 @@ const conversationSlice = createSlice({
   initialState: initialConversationState,
   reducers: {
     conversationReset: () => initialConversationState,
-    promptRequested: (_state, _action: PayloadAction<{ message: string; images: ImageAttachment[] }>) => undefined,
+    promptRequested: (
+      _state,
+      _action: PayloadAction<{ message: string; images: ImageAttachment[] }>,
+    ) => undefined,
     promptAccepted: (state) => {
       state.promptSubmissionCount += 1;
     },
     abortRequested: () => undefined,
     /** 运行中插队引导：当前工具调用结束后、下一次模型调用前交付。 */
-    steerRequested: (_state, _action: PayloadAction<{ message: string; images: ImageAttachment[] }>) => undefined,
+    steerRequested: (
+      _state,
+      _action: PayloadAction<{ message: string; images: ImageAttachment[] }>,
+    ) => undefined,
     /** 运行中排队后续：当前运行完全结束后继续执行。 */
-    followUpRequested: (_state, _action: PayloadAction<{ message: string; images: ImageAttachment[] }>) => undefined,
+    followUpRequested: (
+      _state,
+      _action: PayloadAction<{ message: string; images: ImageAttachment[] }>,
+    ) => undefined,
     queueClearRequested: () => undefined,
     historyLoaded: (state, action: PayloadAction<SessionEntries>) => {
-      state.messages = conversationFromEntries(action.payload.entries, action.payload.leafId);
+      state.messages = conversationFromEntries(
+        action.payload.entries,
+        action.payload.leafId,
+      );
       state.activeAssistantId = null;
       state.deferredMessages = null;
     },

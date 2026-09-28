@@ -16,7 +16,11 @@ const streamdownPlugins = {
 };
 
 export const MarkdownResponse = memo(
-  ({ className, lineNumbers = false, ...props }: ComponentProps<typeof Streamdown>) => (
+  ({
+    className,
+    lineNumbers = false,
+    ...props
+  }: ComponentProps<typeof Streamdown>) => (
     <Streamdown
       className={cn(
         "pi-markdown w-full min-w-0 [&>*:first-child]:mt-0 [&>*:last-child]:mb-0",
@@ -28,7 +32,8 @@ export const MarkdownResponse = memo(
     />
   ),
   (previous, next) =>
-    previous.children === next.children && previous.isAnimating === next.isAnimating,
+    previous.children === next.children &&
+    previous.isAnimating === next.isAnimating,
 );
 
 MarkdownResponse.displayName = "MarkdownResponse";

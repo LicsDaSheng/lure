@@ -1,7 +1,13 @@
 import { createListenerMiddleware } from "@reduxjs/toolkit";
 
 import { sessionsActions } from "@/features/sessions";
-import { abortPi, clearPiQueue, followUpPi, sendPrompt, steerPi } from "@/lib/pi-rpc/client";
+import {
+  abortPi,
+  clearPiQueue,
+  followUpPi,
+  sendPrompt,
+  steerPi,
+} from "@/lib/pi-rpc/client";
 import { normalizeLureError } from "@/lib/normalize-error";
 
 import { conversationActions } from "./conversation-slice";
@@ -16,7 +22,11 @@ conversationListenerMiddleware.startListening({
       await sendPrompt(action.payload.message, action.payload.images);
       api.dispatch(conversationActions.promptAccepted());
     } catch (error) {
-      api.dispatch(sessionsActions.commandFailed(normalizeLureError(error, "发送消息失败")));
+      api.dispatch(
+        sessionsActions.commandFailed(
+          normalizeLureError(error, "发送消息失败"),
+        ),
+      );
     }
   },
 });
@@ -27,7 +37,11 @@ conversationListenerMiddleware.startListening({
     try {
       await abortPi();
     } catch (error) {
-      api.dispatch(sessionsActions.commandFailed(normalizeLureError(error, "停止运行失败")));
+      api.dispatch(
+        sessionsActions.commandFailed(
+          normalizeLureError(error, "停止运行失败"),
+        ),
+      );
     }
   },
 });
@@ -39,7 +53,11 @@ conversationListenerMiddleware.startListening({
     try {
       await steerPi(action.payload.message, action.payload.images);
     } catch (error) {
-      api.dispatch(sessionsActions.commandFailed(normalizeLureError(error, "插队引导失败")));
+      api.dispatch(
+        sessionsActions.commandFailed(
+          normalizeLureError(error, "插队引导失败"),
+        ),
+      );
     }
   },
 });
@@ -51,7 +69,11 @@ conversationListenerMiddleware.startListening({
     try {
       await followUpPi(action.payload.message, action.payload.images);
     } catch (error) {
-      api.dispatch(sessionsActions.commandFailed(normalizeLureError(error, "排队发送失败")));
+      api.dispatch(
+        sessionsActions.commandFailed(
+          normalizeLureError(error, "排队发送失败"),
+        ),
+      );
     }
   },
 });
@@ -63,7 +85,11 @@ conversationListenerMiddleware.startListening({
     try {
       await clearPiQueue();
     } catch (error) {
-      api.dispatch(sessionsActions.commandFailed(normalizeLureError(error, "清空队列失败")));
+      api.dispatch(
+        sessionsActions.commandFailed(
+          normalizeLureError(error, "清空队列失败"),
+        ),
+      );
     }
   },
 });

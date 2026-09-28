@@ -14,18 +14,29 @@ import type {
 } from "@/features/conversation";
 
 import { MarkdownResponse } from "@/components/markdown-response";
-import { executionProcessLabel, toolPartToView } from "../execution-presentation";
+import {
+  executionProcessLabel,
+  toolPartToView,
+} from "../execution-presentation";
 import { ReasoningPart } from "./reasoning-part";
 import { ToolCard } from "./tool-part";
 
 /** 响应组内的过程内容按 Pi 的真实顺序渲染，工具卡保留各自的展开状态。 */
-function ProcessParts({ parts, streaming }: { parts: MessagePart[]; streaming: boolean }) {
+function ProcessParts({
+  parts,
+  streaming,
+}: {
+  parts: MessagePart[];
+  streaming: boolean;
+}) {
   return parts.map((part) => {
     if (part.type === "text") {
       return <MarkdownResponse key={part.id}>{part.text}</MarkdownResponse>;
     }
     if (part.type === "thinking") {
-      return <ReasoningPart key={part.id} streaming={streaming} text={part.text} />;
+      return (
+        <ReasoningPart key={part.id} streaming={streaming} text={part.text} />
+      );
     }
     return <ToolCard key={part.id} view={toolPartToView(part)} />;
   });
@@ -67,12 +78,18 @@ function ProcessNote({ group }: { group: ConversationProcessGroup }) {
   if (group.stopReason === "error" || group.errorMessage) {
     return (
       <p className="text-xs text-[var(--pi-error)]">
-        {group.errorMessage ? `这一次执行未能完成：${group.errorMessage}` : "这一次执行未能完成。"}
+        {group.errorMessage
+          ? `这一次执行未能完成：${group.errorMessage}`
+          : "这一次执行未能完成。"}
       </p>
     );
   }
   if (group.stopReason === "length") {
-    return <p className="text-xs text-[var(--pi-warning)]">这一次响应被截断，随后继续执行。</p>;
+    return (
+      <p className="text-xs text-[var(--pi-warning)]">
+        这一次响应被截断，随后继续执行。
+      </p>
+    );
   }
   if (group.stopReason === "aborted") {
     return (
@@ -119,14 +136,24 @@ export function AssistantTurn({ turn }: { turn: ConversationTurn }) {
       data-phase={turn.phase}
     >
       {hasProcess && (
-        <Collapsible className="not-prose w-full" onOpenChange={setExpanded} open={expanded}>
+        <Collapsible
+          className="not-prose w-full"
+          onOpenChange={setExpanded}
+          open={expanded}
+        >
           <CollapsibleTrigger
             aria-controls={contentId}
             aria-label={label}
             className="group/trigger flex min-h-9 w-full items-center gap-1.5 rounded-lg pr-2 text-left text-xs text-[var(--pi-muted)] outline-none transition-colors hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/50"
           >
-            <ChevronRightIcon aria-hidden="true" className="size-3.5 shrink-0 group-data-[state=open]/trigger:hidden" />
-            <ChevronDownIcon aria-hidden="true" className="hidden size-3.5 shrink-0 group-data-[state=open]/trigger:block" />
+            <ChevronRightIcon
+              aria-hidden="true"
+              className="size-3.5 shrink-0 group-data-[state=open]/trigger:hidden"
+            />
+            <ChevronDownIcon
+              aria-hidden="true"
+              className="hidden size-3.5 shrink-0 group-data-[state=open]/trigger:block"
+            />
             <span className="min-w-0 truncate">{label}</span>
           </CollapsibleTrigger>
           {/* 折叠时保留挂载，避免销毁工具卡与思考块的局部展开状态；

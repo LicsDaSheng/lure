@@ -40,7 +40,10 @@ export type ConversationTurn = {
 };
 
 export const selectConversation = (state: RootState) => state.conversation;
-export const selectMessages = createSelector(selectConversation, (state) => state.messages);
+export const selectMessages = createSelector(
+  selectConversation,
+  (state) => state.messages,
+);
 
 /** Pi 中代表“不能称为最终答案”的终止原因。 */
 const INCOMPLETE_STOP_REASONS = new Set(["error", "length", "aborted"]);
@@ -55,7 +58,10 @@ function hasTool(message: ConversationMessage): boolean {
 
 /** 正常完成：既没有错误，也不是截断或中止。 */
 function isNormalStop(message: ConversationMessage): boolean {
-  return !message.errorMessage && !INCOMPLETE_STOP_REASONS.has(message.stopReason ?? "");
+  return (
+    !message.errorMessage &&
+    !INCOMPLETE_STOP_REASONS.has(message.stopReason ?? "")
+  );
 }
 
 /**
@@ -71,7 +77,10 @@ export function conversationTurns(
   phase: ConnectionPhase,
   activeAssistantId: string | null,
 ): ConversationTurn[] {
-  const grouped: Array<{ user: ConversationMessage | null; assistants: ConversationMessage[] }> = [];
+  const grouped: Array<{
+    user: ConversationMessage | null;
+    assistants: ConversationMessage[];
+  }> = [];
 
   for (const message of messages) {
     if (message.role === "user") {
@@ -88,7 +97,7 @@ export function conversationTurns(
     const isRunning = groupIndex === grouped.length - 1 && phase === "running";
     const turnPhase: TurnPhase = isRunning
       ? "running"
-      : lastAssistant?.turnPhase ?? "settled";
+      : (lastAssistant?.turnPhase ?? "settled");
     const textMessages = group.assistants.filter(hasText);
     // 候选或最终结果必须来自组内最后一条 assistant 消息。
     // 若最后一条进入了工具调用，更早的纯文本也已是执行过程，
@@ -100,7 +109,9 @@ export function conversationTurns(
         ? lastAssistant
         : null;
     const normalResult =
-      resultMessage !== null && !hasTool(resultMessage) && isNormalStop(resultMessage);
+      resultMessage !== null &&
+      !hasTool(resultMessage) &&
+      isNormalStop(resultMessage);
     const result: ConversationResult | null = resultMessage
       ? {
           id: resultMessage.id,
@@ -116,7 +127,10 @@ export function conversationTurns(
           errorMessage: resultMessage.errorMessage ?? null,
         }
       : // 没有文本内容但被停止、截断或失败时，也要在响应组内如实说明。
-        !isRunning && textMessages.length === 0 && turnPhase !== "settled" && lastAssistant
+        !isRunning &&
+          textMessages.length === 0 &&
+          turnPhase !== "settled" &&
+          lastAssistant
         ? {
             id: lastAssistant.id,
             kind: "partial",
@@ -126,24 +140,30 @@ export function conversationTurns(
           }
         : null;
 
-    const process = group.assistants.flatMap<ConversationProcessGroup>((message) => {
-      const isResultMessage = message.id === result?.id;
-      const parts = isResultMessage
-        ? message.parts.filter((part) => part.type !== "text")
-        : message.parts;
-      const stopReason = isResultMessage ? null : message.stopReason ?? null;
-      const errorMessage = isResultMessage ? null : message.errorMessage ?? null;
-      if (parts.length === 0 && !stopReason && !errorMessage) return [];
-      return [
-        {
-          id: message.id,
-          parts,
-          stopReason,
-          errorMessage,
-          isRunning: isRunning && message.id === activeAssistantId,
-        },
-      ];
-    });
+    const process = group.assistants.flatMap<ConversationProcessGroup>(
+      (message) => {
+        const isResultMessage = message.id === result?.id;
+        const parts = isResultMessage
+          ? message.parts.filter((part) => part.type !== "text")
+          : message.parts;
+        const stopReason = isResultMessage
+          ? null
+          : (message.stopReason ?? null);
+        const errorMessage = isResultMessage
+          ? null
+          : (message.errorMessage ?? null);
+        if (parts.length === 0 && !stopReason && !errorMessage) return [];
+        return [
+          {
+            id: message.id,
+            parts,
+            stopReason,
+            errorMessage,
+            isRunning: isRunning && message.id === activeAssistantId,
+          },
+        ];
+      },
+    );
 
     return {
       id: group.user?.id ?? group.assistants[0]?.id ?? `turn-${groupIndex}`,
@@ -165,5 +185,9 @@ export function conversationTurns(
 export const selectConversationTurns = createSelector(
   [selectConversation, selectSessionConnection],
   (conversation, connection) =>
-    conversationTurns(conversation.messages, connection.phase, conversation.activeAssistantId),
+    conversationTurns(
+      conversation.messages,
+      connection.phase,
+      conversation.activeAssistantId,
+    ),
 );

@@ -6,10 +6,15 @@ import type { PiSessionSummary } from "@/lib/pi-rpc/types";
 import type { SessionsState } from "./sessions-slice";
 
 export const selectSessions = (state: RootState) => state.sessions;
-export const selectSessionConnection = createSelector(selectSessions, (state) => state.connection);
+export const selectSessionConnection = createSelector(
+  selectSessions,
+  (state) => state.connection,
+);
 
 function byRecentActivity(sessions: PiSessionSummary[]): PiSessionSummary[] {
-  return [...sessions].sort((left, right) => right.modifiedAtMs - left.modifiedAtMs);
+  return [...sessions].sort(
+    (left, right) => right.modifiedAtMs - left.modifiedAtMs,
+  );
 }
 
 /**
@@ -22,7 +27,8 @@ function withActiveSession(
   sessions: PiSessionSummary[],
   active: PiSessionSummary | null,
 ): PiSessionSummary[] {
-  if (!active || sessions.some((session) => session.path === active.path)) return sessions;
+  if (!active || sessions.some((session) => session.path === active.path))
+    return sessions;
   return [...sessions, active];
 }
 
@@ -34,24 +40,55 @@ function activeSessionDirectory(state: SessionsState): string | null {
 
 export const selectRecentSessions = createSelector(selectSessions, (state) => {
   const directory = activeSessionDirectory(state);
-  const inDefaultWorkspace = directory && directory === state.defaultWorkspace ? state.activeSessionSummary : null;
-  return byRecentActivity(withActiveSession(state.recentSessions, inDefaultWorkspace));
+  const inDefaultWorkspace =
+    directory && directory === state.defaultWorkspace
+      ? state.activeSessionSummary
+      : null;
+  return byRecentActivity(
+    withActiveSession(state.recentSessions, inDefaultWorkspace),
+  );
 });
 export const selectProjectSessions = createSelector(selectSessions, (state) => {
   const active = state.activeSessionSummary;
   const directory = activeSessionDirectory(state);
-  const entries: Record<string, PiSessionSummary[]> = { ...state.projectSessions };
+  const entries: Record<string, PiSessionSummary[]> = {
+    ...state.projectSessions,
+  };
   if (active && directory && directory !== state.defaultWorkspace) {
     entries[directory] = withActiveSession(entries[directory] ?? [], active);
   }
   return Object.fromEntries(
-    Object.entries(entries).map(([key, sessions]) => [key, byRecentActivity(sessions)]),
+    Object.entries(entries).map(([key, sessions]) => [
+      key,
+      byRecentActivity(sessions),
+    ]),
   );
 });
-export const selectExpandedProjects = createSelector(selectSessions, (state) => state.expandedProjects);
-export const selectSessionTransition = createSelector(selectSessions, (state) => state.sessionTransition);
-export const selectLoadingDirectories = createSelector(selectSessions, (state) => state.loadingDirectories);
-export const selectSessionError = createSelector(selectSessions, (state) => state.commandError);
-export const selectConnectionError = createSelector(selectSessions, (state) => state.error);
-export const selectCanSend = createSelector(selectSessionConnection, (connection) => connection.phase === "ready");
-export const selectIsRunning = createSelector(selectSessionConnection, (connection) => connection.phase === "running");
+export const selectExpandedProjects = createSelector(
+  selectSessions,
+  (state) => state.expandedProjects,
+);
+export const selectSessionTransition = createSelector(
+  selectSessions,
+  (state) => state.sessionTransition,
+);
+export const selectLoadingDirectories = createSelector(
+  selectSessions,
+  (state) => state.loadingDirectories,
+);
+export const selectSessionError = createSelector(
+  selectSessions,
+  (state) => state.commandError,
+);
+export const selectConnectionError = createSelector(
+  selectSessions,
+  (state) => state.error,
+);
+export const selectCanSend = createSelector(
+  selectSessionConnection,
+  (connection) => connection.phase === "ready",
+);
+export const selectIsRunning = createSelector(
+  selectSessionConnection,
+  (connection) => connection.phase === "running",
+);

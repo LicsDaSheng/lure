@@ -34,7 +34,9 @@ export function ErrorPanel({
           <dt className="shrink-0 text-foreground/80">原因：</dt>
           <dd>
             {copy.cause}
-            {error.message && <span className="ml-1 opacity-70">（{error.message}）</span>}
+            {error.message && (
+              <span className="ml-1 opacity-70">（{error.message}）</span>
+            )}
           </dd>
         </div>
       </dl>

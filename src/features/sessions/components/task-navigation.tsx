@@ -7,7 +7,11 @@ import type {
   PiSessionSummary,
   ProjectDescriptor,
 } from "@/lib/pi-rpc/types";
-import { directoryName, relativeTimeLabel, sessionTitle } from "@/features/sessions/session-presentation";
+import {
+  directoryName,
+  relativeTimeLabel,
+  sessionTitle,
+} from "@/features/sessions/session-presentation";
 import type { SessionTransition } from "@/features/sessions/sessions-slice";
 import {
   ChevronRightIcon,
@@ -107,15 +111,24 @@ export function TaskNavigation({
                 className={`size-4 shrink-0 transition-transform ${recentExpanded ? "rotate-90" : ""}`}
               />
             </button>
-            {defaultWorkspace && loadingDirectories.includes(defaultWorkspace) && (
-              <span className="ml-1 text-[10px] text-muted-foreground">读取中</span>
-            )}
+            {defaultWorkspace &&
+              loadingDirectories.includes(defaultWorkspace) && (
+                <span className="ml-1 text-[10px] text-muted-foreground">
+                  读取中
+                </span>
+              )}
             <div className="ml-auto flex items-center">
               <Button
                 aria-label="显示更多最近会话"
                 className="size-9 text-muted-foreground"
-                disabled={!recentSessionsHasMore || !defaultWorkspace || loadingDirectories.includes(defaultWorkspace)}
-                onClick={() => defaultWorkspace && onLoadMoreSessions(defaultWorkspace)}
+                disabled={
+                  !recentSessionsHasMore ||
+                  !defaultWorkspace ||
+                  loadingDirectories.includes(defaultWorkspace)
+                }
+                onClick={() =>
+                  defaultWorkspace && onLoadMoreSessions(defaultWorkspace)
+                }
                 size="icon"
                 type="button"
                 variant="ghost"
@@ -139,7 +152,8 @@ export function TaskNavigation({
             <div className="mt-1 grid gap-0.5">
               {recentSessions.map((session) => {
                 const active =
-                  activeDirectory === defaultWorkspace && session.id === activeSessionId;
+                  activeDirectory === defaultWorkspace &&
+                  session.id === activeSessionId;
                 return (
                   <SessionRow
                     active={active}
@@ -155,7 +169,9 @@ export function TaskNavigation({
                 );
               })}
               {recentSessions.length === 0 && (
-                <p className="px-3 py-2 text-xs text-muted-foreground">暂无历史会话</p>
+                <p className="px-3 py-2 text-xs text-muted-foreground">
+                  暂无历史会话
+                </p>
               )}
             </div>
           )}
@@ -163,7 +179,10 @@ export function TaskNavigation({
 
         <section aria-labelledby="projects-heading" className="mt-5">
           <div className="group/projects-heading flex h-9 items-center px-2">
-            <h2 className="text-xs font-medium text-muted-foreground" id="projects-heading">
+            <h2
+              className="text-xs font-medium text-muted-foreground"
+              id="projects-heading"
+            >
               项目
             </h2>
             <Button
@@ -200,9 +219,17 @@ export function TaskNavigation({
                       type="button"
                     >
                       {expanded ? (
-                        <FolderOpenIcon aria-hidden="true" className="size-5 shrink-0" strokeWidth={1.75} />
+                        <FolderOpenIcon
+                          aria-hidden="true"
+                          className="size-5 shrink-0"
+                          strokeWidth={1.75}
+                        />
                       ) : (
-                        <FolderIcon aria-hidden="true" className="size-5 shrink-0" strokeWidth={1.75} />
+                        <FolderIcon
+                          aria-hidden="true"
+                          className="size-5 shrink-0"
+                          strokeWidth={1.75}
+                        />
                       )}
                       <span className="truncate">{project.name}</span>
                     </button>
@@ -227,12 +254,15 @@ export function TaskNavigation({
                     >
                       {/* 切换事务进行中不弹“当前任务”兔底行：连接此刻指向的临时会话
                           不是用户要打开的目标，避免列表闪现一条以项目名命名的条目。 */}
-                      {active && hasTask && !currentSessionListed && !sessionTransition && (
-                        <CurrentTaskFallbackRow
-                          phase={phase}
-                          taskTitle={taskTitle}
-                        />
-                      )}
+                      {active &&
+                        hasTask &&
+                        !currentSessionListed &&
+                        !sessionTransition && (
+                          <CurrentTaskFallbackRow
+                            phase={phase}
+                            taskTitle={taskTitle}
+                          />
+                        )}
                       {sessions.map((session) => (
                         <SessionRow
                           active={active && session.id === activeSessionId}
@@ -254,10 +284,14 @@ export function TaskNavigation({
                         />
                       )}
                       {loading && sessions.length === 0 && (
-                        <p className="py-2 pr-3 pl-[38px] text-xs text-muted-foreground">正在读取历史会话…</p>
+                        <p className="py-2 pr-3 pl-[38px] text-xs text-muted-foreground">
+                          正在读取历史会话…
+                        </p>
                       )}
                       {!loading && sessions.length === 0 && (
-                        <p className="py-2 pr-3 pl-[38px] text-xs text-muted-foreground">暂无历史会话</p>
+                        <p className="py-2 pr-3 pl-[38px] text-xs text-muted-foreground">
+                          暂无历史会话
+                        </p>
                       )}
                     </div>
                   )}
@@ -268,7 +302,12 @@ export function TaskNavigation({
         </section>
       </div>
 
-      <Button className="mb-3 h-11 w-full justify-start px-5" onClick={onOpenSettings} type="button" variant="ghost">
+      <Button
+        className="mb-3 h-11 w-full justify-start px-5"
+        onClick={onOpenSettings}
+        type="button"
+        variant="ghost"
+      >
         <SettingsIcon />
         设置
       </Button>

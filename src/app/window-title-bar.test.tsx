@@ -25,7 +25,6 @@ describe("自定义窗口标题栏", () => {
       <WindowTitleBar
         collapsed={false}
         hasConversation
-        onTitleChange={vi.fn()}
         onToggleSidebar={vi.fn()}
         title="测试任务"
       />,
@@ -34,7 +33,9 @@ describe("自定义窗口标题栏", () => {
     expect(screen.getByRole("banner", { name: "应用标题栏" })).toHaveAttribute(
       "data-tauri-drag-region",
     );
-    expect(screen.getByRole("banner", { name: "应用标题栏" })).toHaveClass("h-12");
+    expect(screen.getByRole("banner", { name: "应用标题栏" })).toHaveClass(
+      "h-12",
+    );
 
     fireEvent.click(screen.getByRole("button", { name: "最小化窗口" }));
     fireEvent.click(screen.getByRole("button", { name: "最大化或还原窗口" }));
@@ -51,7 +52,6 @@ describe("自定义窗口标题栏", () => {
       <WindowTitleBar
         collapsed={false}
         hasConversation
-        onTitleChange={vi.fn()}
         onToggleSidebar={onToggleSidebar}
         title="测试任务"
       />,
@@ -59,19 +59,29 @@ describe("自定义窗口标题栏", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "折叠左侧栏" }));
     expect(onToggleSidebar).toHaveBeenCalledOnce();
-    expect(screen.getByRole("textbox", { name: "任务标题" })).toHaveValue("测试任务");
-    expect(screen.getByRole("button", { name: "折叠左侧栏" }).parentElement).toHaveClass("ml-1");
+    expect(screen.getByRole("textbox", { name: "任务标题" })).toHaveValue(
+      "测试任务",
+    );
+    expect(screen.getByRole("textbox", { name: "任务标题" })).toHaveAttribute(
+      "readonly",
+    );
+    expect(
+      screen.getByRole("button", { name: "折叠左侧栏" }).parentElement,
+    ).toHaveClass("ml-1");
 
     rerender(
       <WindowTitleBar
         collapsed
         hasConversation={false}
-        onTitleChange={vi.fn()}
         onToggleSidebar={onToggleSidebar}
         title="新任务"
       />,
     );
-    expect(screen.getByRole("button", { name: "展开左侧栏" })).toBeInTheDocument();
-    expect(screen.queryByRole("textbox", { name: "任务标题" })).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "展开左侧栏" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("textbox", { name: "任务标题" }),
+    ).not.toBeInTheDocument();
   });
 });

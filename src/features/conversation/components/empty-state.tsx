@@ -19,7 +19,9 @@ export function EmptyState({
       <div className="grid size-12 place-items-center rounded-xl bg-muted text-foreground">
         <BotIcon className="size-5" />
       </div>
-      <h2 className="mt-6 text-xl font-semibold tracking-tight">开始一个新任务</h2>
+      <h2 className="mt-6 text-xl font-semibold tracking-tight">
+        开始一个新任务
+      </h2>
       <p className="mt-5 max-w-lg text-sm leading-6 text-muted-foreground">
         {projectName
           ? `Pi 会在 ${projectName} 中工作，描述你想完成的事情。`

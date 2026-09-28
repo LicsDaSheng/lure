@@ -12,7 +12,10 @@ import type { WorkspaceContext } from "@/lib/pi-rpc/client";
 
 import { piRuntimeProjected } from "./runtime-events";
 
-export type SessionConnection = Omit<ConnectionSnapshot, "model" | "thinkingLevel">;
+export type SessionConnection = Omit<
+  ConnectionSnapshot,
+  "model" | "thinkingLevel"
+>;
 
 /**
  * 历史会话切换事务：连接重建与会话切换是跨多个 RPC 调用的过程，
@@ -45,7 +48,11 @@ export type SessionsState = {
 };
 
 function sessionConnection(snapshot: ConnectionSnapshot): SessionConnection {
-  const { model: _model, thinkingLevel: _thinkingLevel, ...connection } = snapshot;
+  const {
+    model: _model,
+    thinkingLevel: _thinkingLevel,
+    ...connection
+  } = snapshot;
   return connection;
 }
 
@@ -81,8 +88,12 @@ const sessionsSlice = createSlice({
     retryRequested: () => undefined,
     newConversationRequested: () => undefined,
     defaultConversationRequested: () => undefined,
-    projectConversationRequested: (_state, _action: PayloadAction<string>) => undefined,
-    conversationOpenRequested: (_state, _action: PayloadAction<PiSessionSummary>) => undefined,
+    projectConversationRequested: (_state, _action: PayloadAction<string>) =>
+      undefined,
+    conversationOpenRequested: (
+      _state,
+      _action: PayloadAction<PiSessionSummary>,
+    ) => undefined,
     projectDirectorySelectionRequested: () => undefined,
     projectDirectorySelected: (state, action: PayloadAction<string | null>) => {
       state.projectDirectoryCandidate = action.payload;
@@ -92,7 +103,10 @@ const sessionsSlice = createSlice({
     },
     projectCatalogLoaded: (
       state,
-      action: PayloadAction<{ defaultWorkspace: string; projects: ProjectDescriptor[] }>,
+      action: PayloadAction<{
+        defaultWorkspace: string;
+        projects: ProjectDescriptor[];
+      }>,
     ) => {
       state.defaultWorkspace = action.payload.defaultWorkspace;
       state.projects = action.payload.projects;
@@ -100,7 +114,9 @@ const sessionsSlice = createSlice({
     projectAdded: (state, action: PayloadAction<ProjectDescriptor>) => {
       const project = action.payload;
       if (project.directory === state.defaultWorkspace) return;
-      const existing = state.projects.find((item) => item.directory === project.directory);
+      const existing = state.projects.find(
+        (item) => item.directory === project.directory,
+      );
       if (existing) existing.name = project.name;
       else state.projects.push(project);
     },
@@ -117,14 +133,20 @@ const sessionsSlice = createSlice({
     sessionSwitchCleared: (state) => {
       state.sessionTransition = null;
     },
-    activeSessionRecorded: (state, action: PayloadAction<PiSessionSummary | null>) => {
+    activeSessionRecorded: (
+      state,
+      action: PayloadAction<PiSessionSummary | null>,
+    ) => {
       state.activeSessionSummary = action.payload;
     },
     sessionsRequested: (state, action: PayloadAction<string>) => {
-      if (!state.loadingDirectories.includes(action.payload)) state.loadingDirectories.push(action.payload);
+      if (!state.loadingDirectories.includes(action.payload))
+        state.loadingDirectories.push(action.payload);
     },
     sessionsRequestFailed: (state, action: PayloadAction<string>) => {
-      state.loadingDirectories = state.loadingDirectories.filter((item) => item !== action.payload);
+      state.loadingDirectories = state.loadingDirectories.filter(
+        (item) => item !== action.payload,
+      );
     },
     sessionsLoaded: (
       state,
@@ -136,21 +158,42 @@ const sessionsSlice = createSlice({
       }>,
     ) => {
       const { append, directory, hasMore, sessions } = action.payload;
-      state.loadingDirectories = state.loadingDirectories.filter((item) => item !== directory);
+      state.loadingDirectories = state.loadingDirectories.filter(
+        (item) => item !== directory,
+      );
       if (directory === state.defaultWorkspace) {
-        state.recentSessions = append ? mergeSessions(state.recentSessions, sessions) : sessions;
+        state.recentSessions = append
+          ? mergeSessions(state.recentSessions, sessions)
+          : sessions;
         state.recentSessionsHasMore = hasMore;
       } else {
         const current = state.projectSessions[directory] ?? [];
-        state.projectSessions[directory] = append ? mergeSessions(current, sessions) : sessions;
+        state.projectSessions[directory] = append
+          ? mergeSessions(current, sessions)
+          : sessions;
         state.projectSessionsHasMore[directory] = hasMore;
       }
+
+      // 当前会话首次落盘后，用 Pi 返回的摘要替换本地临时状态；
+      // 导航和顶栏即可共享同一会话标题事实。
+      const activeDirectory =
+        state.connection.workingDirectory ?? state.selectedDirectory;
+      if (directory === activeDirectory && state.connection.sessionId) {
+        const active = sessions.find(
+          (session) => session.id === state.connection.sessionId,
+        );
+        if (active) state.activeSessionSummary = active;
+      }
     },
-    historyLoaded: (_state, _action: PayloadAction<SessionEntries>) => undefined,
+    historyLoaded: (_state, _action: PayloadAction<SessionEntries>) =>
+      undefined,
     eventsReadinessChanged: (state, action: PayloadAction<boolean>) => {
       state.eventsReady = action.payload;
     },
-    workspaceContextLoaded: (state, action: PayloadAction<WorkspaceContext>) => {
+    workspaceContextLoaded: (
+      state,
+      action: PayloadAction<WorkspaceContext>,
+    ) => {
       state.workspaceContext = action.payload;
     },
     commandFailed: (state, action: PayloadAction<LureError>) => {

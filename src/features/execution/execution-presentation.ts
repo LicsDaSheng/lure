@@ -22,7 +22,10 @@ export function toolPartToView(tool: ToolPart): ToolView {
   };
 }
 
-const statusVerbs: Record<ToolStatus, { active: string; done: string; failed: string }> = {
+const statusVerbs: Record<
+  ToolStatus,
+  { active: string; done: string; failed: string }
+> = {
   running: { active: "正在", done: "正在", failed: "正在" },
   completed: { active: "已", done: "已", failed: "已" },
   error: { active: "无法", done: "无法", failed: "无法" },

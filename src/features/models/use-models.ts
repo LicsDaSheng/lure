@@ -10,7 +10,15 @@ export function useModels() {
   const dispatch = useAppDispatch();
   return {
     ...state,
-    setModel: useCallback((provider: string, id: string) => dispatch(modelsActions.modelSelectionRequested({ provider, id })), [dispatch]),
-    setThinkingLevel: useCallback((level: string) => dispatch(modelsActions.thinkingLevelSelectionRequested(level)), [dispatch]),
+    setModel: useCallback(
+      (provider: string, id: string) =>
+        dispatch(modelsActions.modelSelectionRequested({ provider, id })),
+      [dispatch],
+    ),
+    setThinkingLevel: useCallback(
+      (level: string) =>
+        dispatch(modelsActions.thinkingLevelSelectionRequested(level)),
+      [dispatch],
+    ),
   };
 }

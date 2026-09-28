@@ -12,8 +12,9 @@
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {
-  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", ui-sans-serif,
-    system-ui, sans-serif;
+  --font-sans:
+    -apple-system, BlinkMacSystemFont, "Segoe UI", ui-sans-serif, system-ui,
+    sans-serif;
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-card: var(--card);
@@ -35,7 +36,8 @@
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
   --radius-xl: calc(var(--radius) + 4px);
-  --animate-marquee: marquee-scroll var(--marquee-duration, 4s) ease-in-out infinite alternate;
+  --animate-marquee: marquee-scroll var(--marquee-duration, 4s) ease-in-out
+    infinite alternate;
 }
 
 /* 跑马灯往复滚动：距离与时長由 MarqueeText 按溢出量写入 CSS 变量。 */
@@ -53,7 +55,8 @@
 .marquee-row:focus .marquee-overflow {
   overflow: visible;
   text-overflow: clip;
-  animation: marquee-scroll var(--marquee-duration, 4s) ease-in-out infinite alternate;
+  animation: marquee-scroll var(--marquee-duration, 4s) ease-in-out infinite
+    alternate;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -66,51 +69,51 @@
 :root {
   color-scheme: light;
   --radius: 0.5rem;
-  --background: #FFFFFF;
+  --background: #ffffff;
   --foreground: #303136;
-  --card: #FFFFFF;
+  --card: #ffffff;
   --card-foreground: #303136;
-  --primary: #34353A;
-  --primary-foreground: #FFFFFF;
-  --secondary: #F3F3F5;
+  --primary: #34353a;
+  --primary-foreground: #ffffff;
+  --secondary: #f3f3f5;
   --secondary-foreground: #303136;
-  --muted: #F3F3F5;
-  --muted-foreground: #74757B;
-  --accent: #ECECEF;
+  --muted: #f3f3f5;
+  --muted-foreground: #74757b;
+  --accent: #ececef;
   --accent-foreground: #303136;
   --destructive: oklch(0.577 0.245 27.325);
-  --border: #E5E5E8;
-  --input: #E0E0E4;
-  --ring: #9A9BA1;
-  --sidebar: #F6F6F8;
+  --border: #e5e5e8;
+  --input: #e0e0e4;
+  --ring: #9a9ba1;
+  --sidebar: #f6f6f8;
 
-  --button-primary: #34353A;
-  --button-primary-hover: #292A2E;
+  --button-primary: #34353a;
+  --button-primary-hover: #292a2e;
   --button-primary-active: #202125;
-  --button-primary-disabled: #D6D6DA;
-  --button-primary-disabled-foreground: #FAFAFB;
-  --button-secondary-hover: #EAEAED;
-  --button-secondary-active: #E1E1E5;
-  --button-subtle-hover: #ECECEF;
-  --button-subtle-active: #E3E3E7;
-  --button-disabled-foreground: #ADADB3;
+  --button-primary-disabled: #d6d6da;
+  --button-primary-disabled-foreground: #fafafb;
+  --button-secondary-hover: #eaeaed;
+  --button-secondary-active: #e1e1e5;
+  --button-subtle-hover: #ececef;
+  --button-subtle-active: #e3e3e7;
+  --button-disabled-foreground: #adadb3;
 
-  --pi-user-bg: #E8F2FD;
+  --pi-user-bg: #e8f2fd;
   --pi-custom-bg: oklch(0.95 0.02 280);
   --pi-tool-pending: oklch(0.95 0.01 260);
   --pi-tool-success: oklch(0.95 0.03 145);
   --pi-tool-error: oklch(0.95 0.03 10);
-  --pi-accent: #53676C;
+  --pi-accent: #53676c;
   --pi-success: oklch(0.5 0.1 110);
   --pi-error: oklch(0.52 0.16 15);
   --pi-warning: oklch(0.62 0.14 85);
-  --pi-dim: #9A9BA1;
-  --pi-muted: #65666C;
-  --pi-code-bg: #F6F8FA;
-  --pi-code-border: #D8DEE4;
-  --pi-code-foreground: #1F2328;
-  --pi-inline-code-bg: #EFF1F3;
-  --pi-inline-code-foreground: #39414A;
+  --pi-dim: #9a9ba1;
+  --pi-muted: #65666c;
+  --pi-code-bg: #f6f8fa;
+  --pi-code-border: #d8dee4;
+  --pi-code-foreground: #1f2328;
+  --pi-inline-code-bg: #eff1f3;
+  --pi-inline-code-foreground: #39414a;
 
   /* Casoon 微交互沿用 Pi 的低饱和焦点色。 */
   --cs-color-focus: var(--pi-accent);
@@ -120,50 +123,50 @@
 .dark {
   color-scheme: dark;
   --background: #191919;
-  --foreground: #ECECEC;
+  --foreground: #ececec;
   --card: #232323;
-  --card-foreground: #ECECEC;
-  --primary: #E7E7E7;
-  --primary-foreground: #1B1B1B;
+  --card-foreground: #ececec;
+  --primary: #e7e7e7;
+  --primary-foreground: #1b1b1b;
   --secondary: #292929;
-  --secondary-foreground: #ECECEC;
+  --secondary-foreground: #ececec;
   --muted: #292929;
-  --muted-foreground: #A7A7A7;
+  --muted-foreground: #a7a7a7;
   --accent: #343434;
-  --accent-foreground: #F2F2F2;
+  --accent-foreground: #f2f2f2;
   --destructive: oklch(0.55 0.12 15);
   --border: #383838;
   --input: #444444;
-  --ring: #76A7F5;
+  --ring: #76a7f5;
   --sidebar: #333333;
 
-  --button-primary: #E7E7E7;
-  --button-primary-hover: #FFFFFF;
-  --button-primary-active: #D4D4D4;
-  --button-primary-disabled: #3B3B3B;
+  --button-primary: #e7e7e7;
+  --button-primary-hover: #ffffff;
+  --button-primary-active: #d4d4d4;
+  --button-primary-disabled: #3b3b3b;
   --button-primary-disabled-foreground: #777777;
   --button-secondary-hover: #353535;
-  --button-secondary-active: #3D3D3D;
+  --button-secondary-active: #3d3d3d;
   --button-subtle-hover: #414141;
   --button-subtle-active: #494949;
   --button-disabled-foreground: #777777;
 
-  --pi-user-bg: #174F8F;
+  --pi-user-bg: #174f8f;
   --pi-custom-bg: oklch(0.22 0.02 280);
   --pi-tool-pending: oklch(0.22 0.01 260);
   --pi-tool-success: oklch(0.24 0.02 145);
   --pi-tool-error: oklch(0.26 0.02 10);
-  --pi-accent: #76A7F5;
+  --pi-accent: #76a7f5;
   --pi-success: oklch(0.72 0.08 110);
   --pi-error: oklch(0.55 0.12 15);
   --pi-warning: oklch(0.85 0.15 105);
   --pi-dim: #737373;
   --pi-muted: #949494;
-  --pi-code-bg: #161B22;
-  --pi-code-border: #30363D;
-  --pi-code-foreground: #E6EDF3;
-  --pi-inline-code-bg: #252B33;
-  --pi-inline-code-foreground: #E6EDF3;
+  --pi-code-bg: #161b22;
+  --pi-code-border: #30363d;
+  --pi-code-foreground: #e6edf3;
+  --pi-inline-code-bg: #252b33;
+  --pi-inline-code-foreground: #e6edf3;
 }
 
 @layer base {
@@ -254,7 +257,8 @@
   }
 
   .pi-markdown blockquote {
-    border-left: 2px solid color-mix(in oklch, var(--pi-accent) 45%, transparent);
+    border-left: 2px solid
+      color-mix(in oklch, var(--pi-accent) 45%, transparent);
     padding-left: 1rem;
   }
 

@@ -11,17 +11,16 @@ import {
 import { useMemo, type ReactNode } from "react";
 
 import type { ImageAttachment } from "@/lib/pi-rpc/client";
-import type {
-  ConversationMessage,
-  MessagePart,
-} from "@/features/conversation";
+import type { ConversationMessage, MessagePart } from "@/features/conversation";
 import { toolPartToView } from "@/features/execution";
 
 function parseToolArgs(input: string): ToolCallMessagePart["args"] {
   if (!input.trim()) return {};
   try {
     const parsed: unknown = JSON.parse(input);
-    return parsed !== null && typeof parsed === "object" && !Array.isArray(parsed)
+    return parsed !== null &&
+      typeof parsed === "object" &&
+      !Array.isArray(parsed)
       ? (parsed as ToolCallMessagePart["args"])
       : {};
   } catch {
@@ -33,7 +32,9 @@ function convertAssistantPart(
   part: MessagePart,
   isRunning: boolean,
 ): ThreadAssistantMessagePart {
-  const status = { type: isRunning ? ("running" as const) : ("complete" as const) };
+  const status = {
+    type: isRunning ? ("running" as const) : ("complete" as const),
+  };
   if (part.type === "text") return { type: "text", text: part.text, status };
   if (part.type === "thinking") {
     return { type: "reasoning", text: part.text, status };
@@ -152,7 +153,9 @@ export function PiAssistantRuntimeProvider({
       messages.map((message) =>
         convertPiMessage(
           message,
-          isRunning && message.role === "assistant" && message.id === activeAssistantId,
+          isRunning &&
+            message.role === "assistant" &&
+            message.id === activeAssistantId,
         ),
       ),
     [activeAssistantId, isRunning, messages],
