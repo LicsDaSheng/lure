@@ -74,6 +74,7 @@ function runtime(store: ReturnType<typeof configureListenerStore>): PiSessionSta
     notice: state.notice,
     diagnostics: state.diagnostics,
     run: state.run,
+    queue: state.queue,
     extensionRequest: state.extensionRequest,
   };
 }

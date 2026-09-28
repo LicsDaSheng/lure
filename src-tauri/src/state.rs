@@ -38,6 +38,9 @@ pub(crate) enum Operation {
     Prompt,
     Abort,
     SwitchSession,
+    /// 运行中排队消息（`steer` 插队引导 / `follow_up` 排队后续）。
+    QueueMessage,
+    ClearQueue,
 }
 
 pub(crate) fn ensure_operation_allowed(
@@ -50,7 +53,8 @@ pub(crate) fn ensure_operation_allowed(
             ConnectionPhase::Ready,
             Operation::NewSession | Operation::Prompt | Operation::SwitchSession,
         )
-        | (ConnectionPhase::Running, Operation::Abort) => Ok(()),
+        | (ConnectionPhase::Running, Operation::Abort | Operation::QueueMessage)
+        | (ConnectionPhase::Ready | ConnectionPhase::Running, Operation::ClearQueue) => Ok(()),
         (
             ConnectionPhase::Connecting | ConnectionPhase::Ready | ConnectionPhase::Running,
             Operation::Connect,
@@ -65,9 +69,18 @@ pub(crate) fn ensure_operation_allowed(
             ErrorCode::RunAlreadyActive,
             "Pi 正在执行任务，请先停止当前运行",
         )),
+        (ConnectionPhase::Ready, Operation::QueueMessage) => Err(LureError::new(
+            ErrorCode::RpcCommandRejected,
+            "当前没有正在运行的任务，直接发送消息即可",
+        )),
         (
             _,
-            Operation::NewSession | Operation::Prompt | Operation::Abort | Operation::SwitchSession,
+            Operation::NewSession
+            | Operation::Prompt
+            | Operation::Abort
+            | Operation::SwitchSession
+            | Operation::QueueMessage
+            | Operation::ClearQueue,
         ) => Err(LureError::new(
             ErrorCode::NotConnected,
             "当前没有可用的 Pi RPC 会话",
@@ -93,6 +106,27 @@ mod tests {
     fn only_running_sessions_accept_abort() {
         assert!(ensure_operation_allowed(ConnectionPhase::Running, Operation::Abort).is_ok());
         assert!(ensure_operation_allowed(ConnectionPhase::Ready, Operation::Abort).is_err());
+    }
+
+    #[test]
+    fn only_running_sessions_accept_queued_messages() {
+        assert!(
+            ensure_operation_allowed(ConnectionPhase::Running, Operation::QueueMessage).is_ok()
+        );
+        assert!(ensure_operation_allowed(ConnectionPhase::Ready, Operation::QueueMessage).is_err());
+        assert!(
+            ensure_operation_allowed(ConnectionPhase::Disconnected, Operation::QueueMessage)
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn clearing_the_queue_is_allowed_whenever_a_session_is_available() {
+        assert!(ensure_operation_allowed(ConnectionPhase::Running, Operation::ClearQueue).is_ok());
+        assert!(ensure_operation_allowed(ConnectionPhase::Ready, Operation::ClearQueue).is_ok());
+        assert!(
+            ensure_operation_allowed(ConnectionPhase::Disconnected, Operation::ClearQueue).is_err()
+        );
     }
 
     #[test]

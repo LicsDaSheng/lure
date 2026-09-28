@@ -62,3 +62,11 @@ pub enum SessionSwitch {
     Switched(Box<RpcSessionState>),
     Cancelled,
 }
+
+/// `clear_queue` 返回的被清空队列内容，可用于恢复到输入草稿。
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ClearedQueue {
+    pub steering: Vec<String>,
+    pub follow_up: Vec<String>,
+}

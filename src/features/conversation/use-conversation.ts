@@ -13,5 +13,8 @@ export function useConversation() {
     ...state,
     prompt: useCallback((message: string, images: ImageAttachment[] = []) => dispatch(conversationActions.promptRequested({ images, message })), [dispatch]),
     abort: useCallback(() => dispatch(conversationActions.abortRequested()), [dispatch]),
+    steer: useCallback((message: string, images: ImageAttachment[] = []) => dispatch(conversationActions.steerRequested({ images, message })), [dispatch]),
+    followUp: useCallback((message: string, images: ImageAttachment[] = []) => dispatch(conversationActions.followUpRequested({ images, message })), [dispatch]),
+    clearQueue: useCallback(() => dispatch(conversationActions.queueClearRequested()), [dispatch]),
   };
 }

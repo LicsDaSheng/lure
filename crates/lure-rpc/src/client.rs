@@ -16,7 +16,8 @@ use crate::RpcError;
 use crate::jsonl::read_json_lines;
 use crate::normalize::normalize_event;
 use crate::protocol::{
-    RequestContext, RpcCommand, RpcImage, RpcModel, RpcSessionState, SessionEntries, SessionSwitch,
+    ClearedQueue, RequestContext, RpcCommand, RpcImage, RpcModel, RpcSessionState, SessionEntries,
+    SessionSwitch,
 };
 
 const DEFAULT_FRAME_LIMIT: usize = 16 * 1024 * 1024;
@@ -471,6 +472,69 @@ impl PiRpcClient {
             body["value"] = value;
         }
         self.notify(body).await
+    }
+
+    /// 排队一条插队引导消息：当前 assistant 轮次的工具调用结束后、下一次模型调用前交付。
+    ///
+    /// 与 `prompt` 不同，接受时不会产生 `UserMessageAccepted`；消息被 Pi 实际消费时
+    /// 以 `UserMessageObserved` 出现在事件流中，队列归属由 `QueueChanged` 反映。
+    ///
+    /// # Errors
+    ///
+    /// Pi 进程不可用、请求超时或命令被拒绝（如扩展命令）时返回错误。
+    pub async fn steer(
+        &self,
+        message: impl Into<String>,
+        images: Vec<RpcImage>,
+    ) -> Result<(), RpcError> {
+        self.queue_message("steer", message, images).await
+    }
+
+    /// 排队一条后续消息：当前运行完全结束、且没有更多工具调用或插队消息后交付。
+    ///
+    /// 事件流语义与 [`Self::steer`] 相同。
+    ///
+    /// # Errors
+    ///
+    /// Pi 进程不可用、请求超时或命令被拒绝（如扩展命令）时返回错误。
+    pub async fn follow_up(
+        &self,
+        message: impl Into<String>,
+        images: Vec<RpcImage>,
+    ) -> Result<(), RpcError> {
+        self.queue_message("follow_up", message, images).await
+    }
+
+    async fn queue_message(
+        &self,
+        command: &str,
+        message: impl Into<String>,
+        images: Vec<RpcImage>,
+    ) -> Result<(), RpcError> {
+        let mut body = json!({"type":command,"message":message.into()});
+        if !images.is_empty() {
+            body["images"] = json!(images);
+        }
+        self.request(body, RequestContext::Plain, self.command_timeout)
+            .await?;
+        Ok(())
+    }
+
+    /// 清空待处理队列（插队引导与排队后续），返回被清空的内容以便恢复草稿。
+    ///
+    /// # Errors
+    ///
+    /// Pi 进程不可用、请求超时或响应无效时返回错误。
+    pub async fn clear_queue(&self) -> Result<ClearedQueue, RpcError> {
+        let response = self
+            .request(
+                json!({"type":"clear_queue"}),
+                RequestContext::Plain,
+                self.command_timeout,
+            )
+            .await?;
+        serde_json::from_value(response["data"].clone())
+            .map_err(|error| RpcError::Protocol(format!("clear_queue 响应无效：{error}")))
     }
 
     /// 中止当前 Pi 运行。

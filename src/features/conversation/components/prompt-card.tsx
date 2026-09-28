@@ -4,13 +4,13 @@ import {
   useAui,
   useAuiState,
 } from "@assistant-ui/react";
-import { CornerDownLeftIcon, FolderIcon, GitBranchIcon, PlusIcon, SquareIcon, XIcon } from "lucide-react";
-import { useRef, useState, type Ref } from "react";
+import { CornerDownLeftIcon, FolderIcon, GitBranchIcon, PlusIcon, SquareIcon, XIcon, ZapIcon } from "lucide-react";
+import { useRef, useState, type KeyboardEvent, type Ref } from "react";
 
 import { Button } from "@/components/ui/button";
 import { ModelControls } from "@/features/models";
 import type { SelectedImage } from "@/lib/pi-rpc/client";
-import type { ConnectionPhase, ModelSnapshot } from "@/lib/pi-rpc/types";
+import type { ConnectionPhase, MessageQueue, ModelSnapshot } from "@/lib/pi-rpc/types";
 
 import { RiskConfirmDialog } from "@/app/risk-confirm-dialog";
 
@@ -23,8 +23,12 @@ export function PromptCard({
   thinkingLevel,
   isRunning,
   isSwitchingSession = false,
+  queue,
   onDraftChange,
   onStop,
+  onSteer,
+  onFollowUp,
+  onClearQueue,
   onAddImages,
   onSelectModel,
   onSelectThinkingLevel,
@@ -39,8 +43,15 @@ export function PromptCard({
   isRunning: boolean;
   /** 历史会话切换事务进行中：目标会话尚未就绪，输入区说明原因。 */
   isSwitchingSession?: boolean;
+  /** Pi 待处理队列：steering 插队引导、followUp 排队后续。 */
+  queue: MessageQueue;
   onDraftChange: (value: string) => void;
   onStop: () => void;
+  /** 插队引导：当前工具调用结束后、下一次模型调用前交付（仅文本）。 */
+  onSteer: (message: string) => void;
+  /** 排队后续：当前运行完全结束后继续执行（仅文本）。 */
+  onFollowUp: (message: string) => void;
+  onClearQueue: () => void;
   onAddImages: () => Promise<SelectedImage[]>;
   onSelectModel: (provider: string, modelId: string) => void;
   onSelectThinkingLevel: (level: string) => void;
@@ -49,9 +60,33 @@ export function PromptCard({
   const aui = useAui();
   const attachments = useAuiState(({ composer }) => composer.attachments);
   const canSubmit = useAuiState(({ composer }) => composer.canSend);
+  const composerText = useAuiState(({ composer }) => composer.text);
   const composingRef = useRef(false);
   const [isComposing, setIsComposing] = useState(false);
   const [confirmImages, setConfirmImages] = useState(false);
+
+  const queuedCount = queue.steering.length + queue.followUp.length;
+  const canQueue = isRunning && composerText.trim().length > 0;
+
+  /** 运行中排队：steer 插队引导、follow_up 排队后续；发送后清空输入草稿。 */
+  const queueMessage = (steering: boolean) => {
+    const text = composerText.trim();
+    if (!canQueue || !text) return;
+    if (steering) onSteer(text);
+    else onFollowUp(text);
+    aui.composer.setText("");
+    onDraftChange("");
+  };
+
+  /** 运行中 Enter 视为排队发送；IME 组合中与不运行的场景交给 assistant-ui 默认行为。 */
+  const handleRunningEnter = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (!isRunning || event.key !== "Enter" || event.shiftKey) return;
+    const nativeIsComposing =
+      (event.nativeEvent as { isComposing?: boolean }).isComposing === true;
+    if (composingRef.current || nativeIsComposing) return;
+    event.preventDefault();
+    queueMessage(false);
+  };
 
   const addImages = async () => {
     setConfirmImages(false);
@@ -117,6 +152,48 @@ export function PromptCard({
             </ul>
           )}
 
+          {queuedCount > 0 && (
+            <div
+              aria-label="待处理队列"
+              className="flex flex-col gap-1 border-b border-border px-4 py-2"
+              role="group"
+            >
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-xs text-muted-foreground">
+                  已排队 {queuedCount} 条，随当前任务进展依次交付
+                </span>
+                <button
+                  aria-label="清空队列"
+                  className="shrink-0 text-xs text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50"
+                  onClick={onClearQueue}
+                  type="button"
+                >
+                  清空
+                </button>
+              </div>
+              <ul className="flex flex-col gap-0.5">
+                {queue.steering.map((text, index) => (
+                  <li
+                    className="flex items-baseline gap-1.5 text-xs"
+                    key={`steering-${index}`}
+                  >
+                    <span className="shrink-0 text-amber-600 dark:text-amber-500">插队</span>
+                    <span className="truncate text-muted-foreground">{text}</span>
+                  </li>
+                ))}
+                {queue.followUp.map((text, index) => (
+                  <li
+                    className="flex items-baseline gap-1.5 text-xs"
+                    key={`follow-up-${index}`}
+                  >
+                    <span className="shrink-0 text-muted-foreground/70">排队</span>
+                    <span className="truncate text-muted-foreground">{text}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
           <ComposerPrimitive.Root>
             {/*
               焦点由本地交互决定：运行开始或滚动到底部都不应该抢走用户当前的焦点，
@@ -144,9 +221,10 @@ export function PromptCard({
                 composingRef.current = true;
                 setIsComposing(true);
               }}
+              onKeyDown={handleRunningEnter}
               placeholder={
                 isRunning
-                  ? "Pi 正在执行，可继续编辑下一条消息"
+                  ? "Pi 正在执行，可排队或插队引导"
                   : isSwitchingSession
                     ? "正在打开历史会话，完成后即可发送"
                     : phase === "ready"
@@ -185,14 +263,38 @@ export function PromptCard({
               <div className="ml-auto flex min-w-0 shrink items-center gap-2">
                 <span className="hidden min-w-0 truncate text-xs text-muted-foreground/70 lg:block">
                   {isRunning
-                    ? "Ctrl+L 选择模型 · 可随时停止"
+                    ? "Enter 排队发送 · 可插队引导 · 可随时停止"
                     : "Ctrl+L 选择模型 · Enter 发送 · Shift+Enter 换行"}
                 </span>
 
                 {isRunning ? (
-                  <Button aria-label="停止生成" onClick={onStop} size="icon-sm" type="button">
-                    <SquareIcon />
-                  </Button>
+                  <>
+                    <Button
+                      aria-label="插队引导"
+                      disabled={!canQueue || isComposing}
+                      onClick={() => queueMessage(true)}
+                      size="icon-sm"
+                      title="当前工具调用结束后优先处理"
+                      type="button"
+                      variant="ghost"
+                    >
+                      <ZapIcon />
+                    </Button>
+                    <Button
+                      aria-label="排队发送"
+                      disabled={!canQueue || isComposing}
+                      onClick={() => queueMessage(false)}
+                      size="icon-sm"
+                      title="当前任务结束后继续执行"
+                      type="button"
+                      variant="ghost"
+                    >
+                      <CornerDownLeftIcon />
+                    </Button>
+                    <Button aria-label="停止生成" onClick={onStop} size="icon-sm" type="button">
+                      <SquareIcon />
+                    </Button>
+                  </>
                 ) : (
                   <ComposerPrimitive.Send asChild>
                     <Button

@@ -5,6 +5,7 @@ import { open } from "@tauri-apps/plugin-dialog";
 import type {
   ConnectionSnapshot,
   EventEnvelope,
+  MessageQueue,
   ModelSnapshot,
   PiSessionPage,
   SessionEntries,
@@ -78,6 +79,27 @@ export function sendPrompt(
 
 export function abortPi(): Promise<void> {
   return invoke("abort_pi");
+}
+
+/** 运行中插队引导：当前工具调用结束后、下一次模型调用前交付。 */
+export function steerPi(
+  message: string,
+  images: ImageAttachment[] = [],
+): Promise<{ accepted: boolean }> {
+  return invoke("steer_pi", { images, message });
+}
+
+/** 运行中排队后续：当前运行完全结束后继续执行。 */
+export function followUpPi(
+  message: string,
+  images: ImageAttachment[] = [],
+): Promise<{ accepted: boolean }> {
+  return invoke("follow_up_pi", { images, message });
+}
+
+/** 清空待处理队列，返回被清空的内容。 */
+export function clearPiQueue(): Promise<MessageQueue> {
+  return invoke("clear_pi_queue");
 }
 
 export function getAvailableModels(): Promise<ModelSnapshot[]> {

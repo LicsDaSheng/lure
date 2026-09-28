@@ -14,6 +14,7 @@ if sys.argv[1:] != ["--mode", "rpc"]:
 
 session_number = 1
 switched_path = None
+queue = {}
 
 for raw_line in sys.stdin:
     command = json.loads(raw_line)
@@ -162,6 +163,18 @@ for raw_line in sys.stdin:
         print(json.dumps({"type": "turn_end", "message": {"role": "assistant", "stopReason": "stop"}, "toolResults": []}), flush=True)
         print(json.dumps({"type": "agent_end", "messages": [], "willRetry": False}), flush=True)
         print(json.dumps({"type": "agent_settled"}), flush=True)
+    elif command_type in ("steer", "follow_up"):
+        if command["message"] == "extension":
+            print(json.dumps({"id": request_id, "type": "response", "command": command_type, "success": False, "error": "extension commands are not supported"}), flush=True)
+            continue
+        queue.setdefault(command_type, []).append(command["message"])
+        print(json.dumps({"id": request_id, "type": "response", "command": command_type, "success": True}), flush=True)
+        print(json.dumps({"type": "queue_update", "steering": queue.get("steer", []), "followUp": queue.get("follow_up", [])}), flush=True)
+    elif command_type == "clear_queue":
+        cleared = {"steering": queue.get("steer", []), "followUp": queue.get("follow_up", [])}
+        queue.clear()
+        print(json.dumps({"id": request_id, "type": "response", "command": "clear_queue", "success": True, "data": cleared}), flush=True)
+        print(json.dumps({"type": "queue_update", "steering": [], "followUp": []}), flush=True)
     elif command_type == "abort":
         print(json.dumps({"id": request_id, "type": "response", "command": "abort", "success": True}), flush=True)
     elif command_type == "extension_ui_response":

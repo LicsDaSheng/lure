@@ -68,6 +68,7 @@ function runtimeState(state: FeatureState): PiSessionState {
     notice: state.execution.notice,
     diagnostics: state.execution.diagnostics,
     run: state.execution.run,
+    queue: state.conversation.queue,
     extensionRequest: state.extensionUi.request,
   };
 }

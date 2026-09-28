@@ -47,6 +47,10 @@ pub(crate) fn normalize_event(value: &Value) -> NormalizedFrame {
             will_retry: value["willRetry"].as_bool().unwrap_or(false),
         }),
         "agent_settled" => events.push(LureEvent::RunSettled),
+        "queue_update" => events.push(LureEvent::QueueChanged {
+            steering: string_array_field(value, "steering"),
+            follow_up: string_array_field(value, "followUp"),
+        }),
         "turn_start" => events.push(LureEvent::TurnStarted),
         "turn_end" => events.push(LureEvent::TurnEnded {
             stop_reason: value
@@ -254,6 +258,20 @@ fn extract_truncated_lines(result: &Value) -> Option<u64> {
     Some(total.saturating_sub(shown))
 }
 
+fn string_array_field(value: &Value, field: &str) -> Vec<String> {
+    value
+        .get(field)
+        .and_then(Value::as_array)
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(Value::as_str)
+                .map(ToOwned::to_owned)
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
 fn string_field(value: &Value, field: &str) -> String {
     value[field].as_str().unwrap_or_default().to_owned()
 }
@@ -317,6 +335,33 @@ mod tests {
         assert!(matches!(
             frame.events.first(),
             Some(LureEvent::UserMessageObserved { message }) if message == "继续检查"
+        ));
+    }
+
+    #[test]
+    fn queue_update_preserves_steering_and_follow_up_messages() {
+        let frame = normalize_event(&json!({
+            "type":"queue_update",
+            "steering":["先停下重构"],
+            "followUp":["接着补测试","再更新文档"]
+        }));
+
+        assert!(matches!(
+            frame.events.first(),
+            Some(LureEvent::QueueChanged { steering, follow_up })
+                if steering == &vec!["先停下重构".to_owned()]
+                    && follow_up == &vec!["接着补测试".to_owned(), "再更新文档".to_owned()]
+        ));
+    }
+
+    #[test]
+    fn queue_update_tolerates_missing_arrays() {
+        let frame = normalize_event(&json!({"type":"queue_update"}));
+
+        assert!(matches!(
+            frame.events.first(),
+            Some(LureEvent::QueueChanged { steering, follow_up })
+                if steering.is_empty() && follow_up.is_empty()
         ));
     }
 

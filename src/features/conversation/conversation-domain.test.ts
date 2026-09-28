@@ -673,3 +673,78 @@ describe("piSessionReducer", () => {
     expect(state.error?.code).toBe("PROCESS_EXITED");
   });
 });
+
+describe("队列投影", () => {
+  it("queue_changed 替换待处理队列", () => {
+    const state = reduce([
+      {
+        sequence: 1,
+        event: { type: "queue_changed", steering: ["先停下重构"], followUp: [] },
+      },
+      {
+        sequence: 2,
+        event: { type: "queue_changed", steering: ["先停下重构"], followUp: ["接着补测试"] },
+      },
+    ]);
+
+    expect(state.queue).toEqual({
+      steering: ["先停下重构"],
+      followUp: ["接着补测试"],
+    });
+  });
+
+  it("断连时清空队列", () => {
+    const queued = reduce([
+      {
+        sequence: 1,
+        event: { type: "queue_changed", steering: [], followUp: ["接着补测试"] },
+      },
+    ]);
+
+    const disconnected = piSessionReducer(queued, {
+      sequence: 2,
+      event: {
+        type: "connection_changed",
+        snapshot: {
+          phase: "disconnected",
+          workingDirectory: null,
+          sessionId: null,
+          sessionFile: null,
+          model: null,
+          thinkingLevel: null,
+          error: null,
+        },
+      },
+    });
+
+    expect(disconnected.queue).toEqual({ steering: [], followUp: [] });
+  });
+
+  it("切换到其他会话时清空队列", () => {
+    const base = {
+      phase: "ready" as const,
+      workingDirectory: "/tmp",
+      sessionFile: "/tmp/1.jsonl",
+      model: null,
+      thinkingLevel: null,
+      error: null,
+    };
+    const queued = reduce([
+      {
+        sequence: 1,
+        event: { type: "session_ready", snapshot: { ...base, sessionId: "session-1" } },
+      },
+      {
+        sequence: 2,
+        event: { type: "queue_changed", steering: ["插队"], followUp: [] },
+      },
+    ]);
+
+    const switched = piSessionReducer(queued, {
+      sequence: 3,
+      event: { type: "session_ready", snapshot: { ...base, sessionId: "session-2" } },
+    });
+
+    expect(switched.queue).toEqual({ steering: [], followUp: [] });
+  });
+});
