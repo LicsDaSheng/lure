@@ -6,7 +6,7 @@ use lure_core::{
 };
 use lure_rpc::{
     ClearedQueue, PiProcessConfig, PiRpcClient, RpcCommand, RpcError, RpcImage, RpcModel,
-    RpcSessionState, SessionEntries, SessionSwitch,
+    RpcSessionState, SessionEntries, SessionSwitch, SpawnEnv,
 };
 use lure_session::agent_directory;
 use serde::Serialize;
@@ -102,7 +102,11 @@ pub(crate) async fn connect_pi(
     };
     *state.snapshot.write().await = connecting;
 
-    let config = PiProcessConfig::for_working_directory(&canonical);
+    let mut config = PiProcessConfig::for_working_directory(&canonical);
+    // GUI 启动的 Lure 不加载用户 shell 启动文件，这里合成完整环境
+    // （shell 环境捕获 + 系统代理补缺），保证自定义 provider 的 API key
+    // 与代理设置对 Pi 子进程可见。
+    config.spawn_env = SpawnEnv::Provided(state.spawn_env_resolver.resolve().await);
     let (client, rpc_state) = match PiRpcClient::connect(config).await {
         Ok(value) => value,
         Err(error) => {

@@ -110,6 +110,16 @@ React UI ⇄ Tauri command/event ⇄ lure-desktop
 
 桌面边界在基础连接与运行控制之外，已经支持图片附件、模型与 thinking level、历史会话切换、命令发现和 extension UI 响应；这些能力仍以 Pi RPC 返回的数据为事实来源。
 
+### Pi 子进程环境合成（`lure_rpc::env`）
+
+GUI 方式（Finder / Dock / Spotlight）启动的 Lure 不加载用户 shell 启动文件，`~/.zshrc.local` 中导出的自定义 provider API key（如 `ASIAINFO_AIGW_API_KEY`）与代理变量对 Pi 子进程不可见，Pi 会把凭证不可解析的 provider 从 `get_available_models` 中整体过滤。为此 `connect_pi` 在 spawn 前合成完整子进程环境（`SpawnEnvResolver`）：
+
+1. **登录 shell 环境捕获**：以 `$SHELL -lic '哨兵行; env -0'` 捕获完整环境，哨兵行隔离 rc 噪音、NUL 分隔保留含换行的值；应用存活期内缓存一次，超时或失败时回退为继承 Lure 进程环境。
+2. **macOS 系统代理补缺**：每次连接读取 `scutil --proxy`，映射为 `HTTP(S)_PROXY` / `ALL_PROXY` / `NO_PROXY`（大小写双写，`*.x` → `.x`，`<local>` 丢弃，需认证的代理跳过）；仅补充 shell 环境中不存在的同族键，rc 显式导出优先。tun 类 VPN 工作在网络层，不依赖环境变量，天然生效。
+3. **运行时 PATH**：仍按 `pi_runtime_path` 规则强制覆盖。
+
+合成结果以 `SpawnEnv::Provided` 传入 `PiProcessConfig`，spawn 时 `env_clear` 后整体应用；`SpawnEnv::Inherit`（默认）保持仅覆盖 PATH 的既有行为，供测试与嵌入式使用。
+
 ### 运行中队列（steer / follow_up / clear_queue）
 
 运行中的任务接受两类排队消息：`steer`（插队引导，当前工具调用结束后、下一次模型调用前交付）和 `follow_up`（排队后续，运行完全结束后继续执行），并可通过 `clear_queue` 清空待处理队列（响应返回被清空的内容）。排队消息被接受时不产生 `user_message_accepted`；Pi 实际消费时以 `user_message_observed` 进入对话流，队列归属由 `queue_update`（规范化为 `queue_changed`）事件驱动。前端在输入卡中提供插队引导、排队发送（运行中 Enter）与停止入口，并在队列非空时展示待处理队列与清空操作。
