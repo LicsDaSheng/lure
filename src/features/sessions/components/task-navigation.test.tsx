@@ -1,5 +1,6 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { useState } from "react";
 
 import type { PiSessionSummary } from "@/lib/pi-rpc/types";
 import type { ConnectionPhase } from "@/lib/pi-rpc/types";
@@ -53,41 +54,81 @@ function renderNavigation({
 } = {}) {
   const onLoadMoreSessions = vi.fn();
   const onNewTask = vi.fn();
-  render(
-    <TaskNavigation
-      activeDirectory="/tmp/lure"
-      activeSessionId={activeSessionId}
-      canOpenConversation
-      defaultWorkspace="/tmp/lure"
-      disabled={false}
-      expandedProjects={expandedProjects}
-      hasTask={false}
-      loadingDirectories={[]}
-      onNewProject={vi.fn()}
-      onNewProjectTask={vi.fn()}
-      onNewTask={onNewTask}
-      onLoadMoreSessions={onLoadMoreSessions}
-      onOpenConversation={vi.fn()}
-      onOpenSettings={vi.fn()}
-      onToggleProject={vi.fn()}
-      phase={phase}
-      projects={
-        projectSessions["/tmp/project"]
-          ? [{ name: "示例项目", directory: "/tmp/project" }]
-          : []
-      }
-      projectSessions={projectSessions}
-      projectSessionsHasMore={projectSessionsHasMore}
-      recentSessions={recentSessions}
-      recentSessionsHasMore={recentSessionsHasMore}
-      sessionTransition={sessionTransition}
-      taskTitle="当前任务"
-    />,
-  );
+  function NavigationHarness() {
+    const [activeView, setActiveView] = useState<"conversations" | "projects">(
+      "conversations",
+    );
+    return (
+      <TaskNavigation
+        activeView={activeView}
+        activeDirectory="/tmp/lure"
+        activeSessionId={activeSessionId}
+        canOpenConversation
+        defaultWorkspace="/tmp/lure"
+        disabled={false}
+        expandedProjects={expandedProjects}
+        hasTask={false}
+        loadingDirectories={[]}
+        onNewProject={vi.fn()}
+        onNewProjectTask={vi.fn()}
+        onActiveViewChange={setActiveView}
+        onNewTask={onNewTask}
+        onLoadMoreSessions={onLoadMoreSessions}
+        onOpenConversation={vi.fn()}
+        onOpenSettings={vi.fn()}
+        onToggleProject={vi.fn()}
+        phase={phase}
+        projects={
+          projectSessions["/tmp/project"]
+            ? [{ name: "示例项目", directory: "/tmp/project" }]
+            : []
+        }
+        projectSessions={projectSessions}
+        projectSessionsHasMore={projectSessionsHasMore}
+        recentSessions={recentSessions}
+        recentSessionsHasMore={recentSessionsHasMore}
+        sessionTransition={sessionTransition}
+        taskTitle="当前任务"
+      />
+    );
+  }
+  render(<NavigationHarness />);
   return { onLoadMoreSessions, onNewTask };
 }
 
 describe("任务导航会话列表", () => {
+  it("默认显示对话内容，并在项目 Tab 中隐藏新建对话与最近", () => {
+    renderNavigation({
+      projectSessions: { "/tmp/project": sessions("/tmp/project", 1) },
+    });
+
+    expect(screen.getByRole("tab", { name: "对话" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+    expect(
+      screen.getByRole("button", { name: "新建对话" }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "最近" })).toBeInTheDocument();
+    expect(
+      screen.queryByRole("heading", { name: "项目" }),
+    ).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("tab", { name: "项目" }));
+
+    expect(screen.getByRole("tab", { name: "项目" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+    expect(
+      screen.queryByRole("button", { name: "新建对话" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("region", { name: "最近" }),
+    ).not.toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "项目" })).toBeInTheDocument();
+  });
+
   it("最近显示后端返回的一页，并从显示更多请求下一页", () => {
     const { onLoadMoreSessions } = renderNavigation();
     const recent = screen.getByRole("region", { name: "最近" });
@@ -104,7 +145,7 @@ describe("任务导航会话列表", () => {
     expect(onLoadMoreSessions).toHaveBeenCalledWith("/tmp/lure");
   });
 
-  it("最近标题右侧提供更多和新建任务操作", () => {
+  it("最近标题右侧提供更多和新建对话操作", () => {
     const { onNewTask } = renderNavigation();
     const recent = screen.getByRole("region", { name: "最近" });
 
@@ -112,7 +153,7 @@ describe("任务导航会话列表", () => {
       within(recent).getByRole("button", { name: "显示更多最近会话" }),
     ).toBeInTheDocument();
     fireEvent.click(
-      within(recent).getByRole("button", { name: "在默认工作目录中新建任务" }),
+      within(recent).getByRole("button", { name: "在默认工作目录中新建对话" }),
     );
     expect(onNewTask).toHaveBeenCalledOnce();
   });
@@ -125,6 +166,7 @@ describe("任务导航会话列表", () => {
     expect(screen.getByRole("button", { name: "最近历史会话" })).toHaveClass(
       "text-xs",
     );
+    fireEvent.click(screen.getByRole("tab", { name: "项目" }));
     expect(screen.getByRole("heading", { name: "项目" })).toHaveClass(
       "text-xs",
     );
@@ -164,6 +206,7 @@ describe("任务导航会话列表", () => {
       projectSessionsHasMore: { "/tmp/project": true },
       expandedProjects: ["/tmp/project"],
     });
+    fireEvent.click(screen.getByRole("tab", { name: "项目" }));
     const project = screen.getByRole("region", {
       name: "示例项目历史会话列表",
     });
