@@ -2,7 +2,7 @@ use std::sync::Arc;
 use std::sync::atomic::AtomicU64;
 
 use lure_core::{ConnectionPhase, ConnectionSnapshot, ErrorCode, LureError};
-use lure_rpc::PiRpcClient;
+use lure_rpc::{PiRpcClient, SpawnEnvResolver};
 use tokio::sync::{Mutex, RwLock};
 use tokio::task::JoinHandle;
 
@@ -16,6 +16,8 @@ pub(crate) struct AppState {
     pub session: Mutex<Option<DesktopSession>>,
     pub snapshot: RwLock<ConnectionSnapshot>,
     pub sequence: AtomicU64,
+    /// Pi 子进程环境合成器：登录 shell 环境捕获缓存于此，系统代理每次连接重读。
+    pub spawn_env_resolver: SpawnEnvResolver,
 }
 
 impl Default for AppState {
@@ -25,6 +27,7 @@ impl Default for AppState {
             session: Mutex::new(None),
             snapshot: RwLock::new(ConnectionSnapshot::default()),
             sequence: AtomicU64::new(1),
+            spawn_env_resolver: SpawnEnvResolver::new(),
         }
     }
 }

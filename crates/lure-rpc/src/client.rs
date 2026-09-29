@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::ffi::{OsStr, OsString};
+use std::ffi::OsStr;
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
@@ -13,6 +13,7 @@ use tokio::sync::{broadcast, mpsc, oneshot};
 use tokio::time::{Instant, MissedTickBehavior};
 
 use crate::RpcError;
+use crate::env::{SpawnEnv, pi_runtime_path};
 use crate::jsonl::read_json_lines;
 use crate::normalize::normalize_event;
 use crate::protocol::{
@@ -30,6 +31,8 @@ pub struct PiProcessConfig {
     pub handshake_timeout: Duration,
     pub command_timeout: Duration,
     pub frame_limit: usize,
+    /// 子进程环境来源；默认为继承 Lure 进程环境。
+    pub spawn_env: SpawnEnv,
 }
 
 impl PiProcessConfig {
@@ -41,6 +44,7 @@ impl PiProcessConfig {
             handshake_timeout: Duration::from_secs(5),
             command_timeout: Duration::from_secs(10),
             frame_limit: DEFAULT_FRAME_LIMIT,
+            spawn_env: SpawnEnv::Inherit,
         }
     }
 
@@ -66,32 +70,6 @@ fn find_executable_in_path(executable: &str, search_path: &OsStr) -> Option<Path
     std::env::split_paths(search_path)
         .map(|directory| directory.join(executable))
         .find(|candidate| is_executable_file(candidate))
-}
-
-fn pi_runtime_path(home: Option<&OsStr>, inherited_path: Option<&OsStr>) -> OsString {
-    let mut directories: Vec<PathBuf> = inherited_path
-        .map(std::env::split_paths)
-        .into_iter()
-        .flatten()
-        .collect();
-
-    if let Some(home) = home {
-        let home = Path::new(home);
-        directories.extend([
-            home.join(".local/bin"),
-            home.join(".hermes/node/bin"),
-            home.join(".volta/bin"),
-            home.join(".bun/bin"),
-        ]);
-    }
-    directories.extend([
-        PathBuf::from("/opt/homebrew/bin"),
-        PathBuf::from("/usr/local/bin"),
-    ]);
-    directories.dedup();
-
-    std::env::join_paths(directories)
-        .unwrap_or_else(|_| inherited_path.map_or_else(OsString::new, OsString::from))
 }
 
 fn is_executable_file(path: &Path) -> bool {
@@ -161,15 +139,24 @@ impl PiRpcClient {
     pub async fn connect(mut config: PiProcessConfig) -> Result<(Self, RpcSessionState), RpcError> {
         config.working_directory = canonical_working_directory(&config.working_directory)?;
 
-        let runtime_path = pi_runtime_path(
-            std::env::var_os("HOME").as_deref(),
-            std::env::var_os("PATH").as_deref(),
-        );
         let mut command = tokio::process::Command::new(&config.executable);
+        match &config.spawn_env {
+            SpawnEnv::Inherit => {
+                let runtime_path = pi_runtime_path(
+                    std::env::var_os("HOME").as_deref(),
+                    std::env::var_os("PATH").as_deref(),
+                );
+                command.env("PATH", runtime_path);
+            }
+            SpawnEnv::Provided(vars) => {
+                command
+                    .env_clear()
+                    .envs(vars.iter().map(|(key, value)| (key, value)));
+            }
+        }
         command
             .args(["--mode", "rpc"])
             .current_dir(&config.working_directory)
-            .env("PATH", runtime_path)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())

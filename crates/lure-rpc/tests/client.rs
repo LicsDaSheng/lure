@@ -2,7 +2,7 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use lure_core::LureEvent;
-use lure_rpc::{PiProcessConfig, PiRpcClient, RpcError, RpcImage, SessionSwitch};
+use lure_rpc::{PiProcessConfig, PiRpcClient, RpcError, RpcImage, SessionSwitch, SpawnEnv};
 
 fn fake_pi() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/fake-pi.py")
@@ -35,6 +35,43 @@ async fn connects_with_handshake_in_the_selected_working_directory() {
     );
 
     client.stop().await.unwrap();
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn provided_spawn_env_replaces_child_environment() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let temp = std::env::temp_dir().join(format!("lure-spawn-env-test-{}", std::process::id()));
+    std::fs::create_dir_all(&temp).unwrap();
+    let dump_path = temp.join("child.env");
+    let wrapper = temp.join("fake-pi-wrapper.sh");
+    std::fs::write(
+        &wrapper,
+        "#!/bin/sh\nenv > \"$LURE_ENV_DUMP\"\nexec \"$LURE_FAKE_PI\" \"$@\"\n",
+    )
+    .unwrap();
+    std::fs::set_permissions(&wrapper, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+    let inherited_path = std::env::var_os("PATH").unwrap_or_default();
+    let mut config = PiProcessConfig::new(&wrapper, env!("CARGO_MANIFEST_DIR"));
+    config.spawn_env = SpawnEnv::Provided(vec![
+        ("PATH".into(), inherited_path),
+        ("LURE_SPAWN_MARKER".into(), "synthesized".into()),
+        ("LURE_ENV_DUMP".into(), dump_path.as_os_str().to_os_string()),
+        ("LURE_FAKE_PI".into(), fake_pi().as_os_str().to_os_string()),
+    ]);
+
+    let (client, state) = PiRpcClient::connect(config).await.unwrap();
+    assert_eq!(state.session_id, "fake-session");
+    client.stop().await.unwrap();
+
+    let dump = std::fs::read_to_string(&dump_path).unwrap();
+    let _ = std::fs::remove_dir_all(&temp);
+    // 合成变量到达子进程。
+    assert!(dump.contains("LURE_SPAWN_MARKER=synthesized"));
+    // env_clear 生效：cargo 测试进程特有的变量不泄入子进程。
+    assert!(!dump.contains("CARGO_MANIFEST_DIR="));
 }
 
 #[tokio::test]
