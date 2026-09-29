@@ -13,11 +13,11 @@ import {
   XIcon,
   ZapIcon,
 } from "lucide-react";
-import { useRef, useState, type KeyboardEvent, type Ref } from "react";
+import { useMemo, useRef, useState, type KeyboardEvent, type Ref } from "react";
 
 import { Button } from "@/components/ui/button";
 import { ModelControls } from "@/features/models";
-import type { SelectedImage } from "@/lib/pi-rpc/client";
+import type { PiCommand, SelectedImage } from "@/lib/pi-rpc/client";
 import type {
   ConnectionPhase,
   MessageQueue,
@@ -28,6 +28,7 @@ import { RiskConfirmDialog } from "@/app/risk-confirm-dialog";
 
 export function PromptCard({
   phase,
+  commands,
   directoryName,
   branch,
   model,
@@ -47,6 +48,8 @@ export function PromptCard({
   textareaRef,
 }: {
   phase: ConnectionPhase;
+  /** Pi 返回的扩展命令、提示词和 skills；仅用于发现和填入 `/命令`。 */
+  commands: PiCommand[];
   directoryName: string | null;
   branch: string | null;
   model: ModelSnapshot | null;
@@ -76,6 +79,24 @@ export function PromptCard({
   const composingRef = useRef(false);
   const [isComposing, setIsComposing] = useState(false);
   const [confirmImages, setConfirmImages] = useState(false);
+  const [activeCommandIndex, setActiveCommandIndex] = useState(0);
+
+  const commandInput = composerText.startsWith("/")
+    ? composerText.slice(1)
+    : null;
+  const commandQuery = commandInput?.toLocaleLowerCase() ?? null;
+  const matchingCommands = useMemo(() => {
+    if (commandQuery === null || /\s/.test(commandQuery)) return [];
+    return commands.filter((command) => {
+      const candidate =
+        `${command.name} ${command.description}`.toLocaleLowerCase();
+      return candidate.includes(commandQuery);
+    });
+  }, [commandQuery, commands]);
+  const commandMenuOpen = commandQuery !== null && matchingCommands.length > 0;
+  const activeCommand = matchingCommands.at(
+    Math.min(activeCommandIndex, Math.max(matchingCommands.length - 1, 0)),
+  );
 
   const queuedCount = queue.steering.length + queue.followUp.length;
   const canQueue = isRunning && composerText.trim().length > 0;
@@ -112,7 +133,38 @@ export function PromptCard({
   };
 
   /** 运行中 Enter 视为排队发送；IME 确认键已在捕获阶段隔离。 */
-  const handleRunningEnter = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+  const selectCommand = (command: PiCommand) => {
+    const nextText = `/${command.name} `;
+    aui.composer.setText(nextText);
+    onDraftChange(nextText);
+    setActiveCommandIndex(0);
+  };
+
+  /** 命令菜单优先处理方向键与 Enter，不干扰正常的发送或运行中排队语义。 */
+  const handleCommandNavigation = (
+    event: KeyboardEvent<HTMLTextAreaElement>,
+  ) => {
+    if (!commandMenuOpen) return false;
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      event.preventDefault();
+      const offset = event.key === "ArrowDown" ? 1 : -1;
+      setActiveCommandIndex(
+        (current) =>
+          (current + offset + matchingCommands.length) %
+          matchingCommands.length,
+      );
+      return true;
+    }
+    if (event.key === "Enter" && !event.shiftKey && activeCommand) {
+      event.preventDefault();
+      selectCommand(activeCommand);
+      return true;
+    }
+    return false;
+  };
+
+  const handleKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (handleCommandNavigation(event)) return;
     if (!isRunning || event.key !== "Enter" || event.shiftKey) return;
     event.preventDefault();
     queueMessage(false);
@@ -233,6 +285,39 @@ export function PromptCard({
           )}
 
           <ComposerPrimitive.Root>
+            {commandMenuOpen && (
+              <div
+                aria-activedescendant={
+                  activeCommand ? `pi-command-${activeCommand.name}` : undefined
+                }
+                aria-label="Pi 命令"
+                className="mx-3.5 mt-2 max-h-48 overflow-y-auto rounded-xl border border-border bg-popover p-1 shadow-sm"
+                role="listbox"
+              >
+                {matchingCommands.map((command, index) => (
+                  <button
+                    aria-selected={command.name === activeCommand?.name}
+                    className="flex w-full items-start gap-2 rounded-lg px-2.5 py-2 text-left text-sm outline-none hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring/50 aria-selected:bg-muted"
+                    id={`pi-command-${command.name}`}
+                    key={`${command.source}:${command.name}`}
+                    onClick={() => selectCommand(command)}
+                    onMouseMove={() => setActiveCommandIndex(index)}
+                    role="option"
+                    type="button"
+                  >
+                    <span className="shrink-0 font-mono text-foreground">
+                      /{command.name}
+                    </span>
+                    <span className="min-w-0 flex-1 text-muted-foreground">
+                      {command.description}
+                    </span>
+                    <span className="shrink-0 text-xs text-muted-foreground/70">
+                      {command.source}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            )}
             {/*
               焦点由本地交互决定：运行开始或滚动到底部都不应该抢走用户当前的焦点，
               否则正在编辑下一条指令或阅读执行过程的用户会被强制带走光标。
@@ -249,6 +334,7 @@ export function PromptCard({
                   (event.nativeEvent as { isComposing?: boolean })
                     .isComposing === true;
                 if (composingRef.current || nativeIsComposing) return;
+                setActiveCommandIndex(0);
                 onDraftChange(event.target.value);
               }}
               onCompositionEnd={(event) => {
@@ -260,7 +346,7 @@ export function PromptCard({
                 composingRef.current = true;
                 setIsComposing(true);
               }}
-              onKeyDown={handleRunningEnter}
+              onKeyDown={handleKeyDown}
               onKeyDownCapture={handleImeConfirmEnter}
               placeholder={
                 isRunning

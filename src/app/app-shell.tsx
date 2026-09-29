@@ -30,7 +30,7 @@ import {
   useSessions,
 } from "@/features/sessions";
 import { WindowTitleBar } from "@/app/window-title-bar";
-import { ArrowDownIcon } from "lucide-react";
+import { ArrowDownIcon, LoaderCircleIcon } from "lucide-react";
 import {
   useCallback,
   useEffect,
@@ -114,6 +114,7 @@ export function AppShell() {
   const {
     messages,
     activeAssistantId,
+    commands,
     promptSubmissionCount,
     queue,
     prompt,
@@ -136,6 +137,16 @@ export function AppShell() {
   const [createProjectOpen, setCreateProjectOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [navigationView, setNavigationView] = useState<
+    "conversations" | "projects"
+  >("conversations");
+  const lastProjectDirectoryRef = useRef<string | null>(null);
+  const lastProjectSessionRef = useRef<typeof activeSessionSummary>(null);
+  const tabTransitionObservedRef = useRef(false);
+  const [tabTransitionStart, setTabTransitionStart] = useState<{
+    directory: string | null;
+    sessionId: string | null;
+  } | null>(null);
   const [dismissedConnectionError, setDismissedConnectionError] = useState<
     string | null
   >(null);
@@ -148,6 +159,16 @@ export function AppShell() {
   // “当前会话”锚定在事务事实（activeSessionSummary）上，而不是连接快照：
   // 连接快照可能被迟到的事件短暂覆盖，用它判定选中态会让列表闪现兑底条目。
   const activeSessionId = activeSessionSummary?.id ?? connection.sessionId;
+
+  useEffect(() => {
+    if (
+      !directory ||
+      !projects.some((project) => project.directory === directory)
+    )
+      return;
+    lastProjectDirectoryRef.current = directory;
+    lastProjectSessionRef.current = activeSessionSummary;
+  }, [activeSessionSummary, directory, projects]);
 
   // 草稿按工作目录保存在本机，切换任务或意外关闭后可以恢复。
   const persistDraft = useCallback(
@@ -164,6 +185,7 @@ export function AppShell() {
   // 会话切换事务未结束时不能发送：目标会话的内容尚未确定。
   const canSend = connection.phase === "ready" && !sessionTransition;
   const switchingSession = Boolean(sessionTransition);
+  const tabTransitionPending = tabTransitionStart !== null;
   // 连接失败只在发生时不请自来地提醒一次，关闭后不反复打扰。
   const connectionErrorKey = connectionError
     ? `${connectionError.code}:${connectionError.message}`
@@ -204,11 +226,64 @@ export function AppShell() {
 
   const handleNewProjectTask = useCallback(
     (targetDirectory: string) => {
+      lastProjectDirectoryRef.current = targetDirectory;
+      lastProjectSessionRef.current = null;
       newProjectConversation(targetDirectory);
       writeDraft(targetDirectory, "");
       setComposerGeneration((value) => value + 1);
     },
     [newProjectConversation],
+  );
+
+  const handleOpenConversation = useCallback(
+    (session: Parameters<typeof openConversation>[0]) => {
+      const sessionDirectory = session.cwd;
+      if (
+        sessionDirectory &&
+        projects.some((project) => project.directory === sessionDirectory)
+      ) {
+        lastProjectDirectoryRef.current = sessionDirectory;
+        lastProjectSessionRef.current = session;
+      }
+      openConversation(session);
+    },
+    [openConversation, projects],
+  );
+
+  const handleNavigationViewChange = useCallback(
+    (view: "conversations" | "projects") => {
+      if (view === navigationView) return;
+      tabTransitionObservedRef.current = false;
+      setTabTransitionStart({
+        directory,
+        sessionId: connection.sessionId,
+      });
+      setNavigationView(view);
+      if (view === "conversations") {
+        void handleNewTask();
+        return;
+      }
+
+      const lastProjectSession = lastProjectSessionRef.current;
+      if (lastProjectSession) {
+        handleOpenConversation(lastProjectSession);
+        return;
+      }
+      const lastProjectDirectory = lastProjectDirectoryRef.current;
+      if (lastProjectDirectory) {
+        handleNewProjectTask(lastProjectDirectory);
+        return;
+      }
+      void handleNewTask();
+    },
+    [
+      handleNewProjectTask,
+      handleNewTask,
+      handleOpenConversation,
+      connection.sessionId,
+      directory,
+      navigationView,
+    ],
   );
 
   const handleCreateProject = useCallback(
@@ -228,6 +303,31 @@ export function AppShell() {
     submittedPrompts.current = promptSubmissionCount;
     persistDraft("");
   }, [persistDraft, promptSubmissionCount]);
+
+  useEffect(() => {
+    if (!tabTransitionStart) return;
+    if (connection.phase === "connecting" || sessionTransition) {
+      tabTransitionObservedRef.current = true;
+      return;
+    }
+    const identityChanged =
+      directory !== tabTransitionStart.directory ||
+      connection.sessionId !== tabTransitionStart.sessionId;
+    const settled = connection.phase === "ready" && !sessionTransition;
+    if ((identityChanged || tabTransitionObservedRef.current) && settled) {
+      setTabTransitionStart(null);
+      return;
+    }
+    if (connectionError || error) setTabTransitionStart(null);
+  }, [
+    connection.phase,
+    connection.sessionId,
+    connectionError,
+    directory,
+    error,
+    sessionTransition,
+    tabTransitionStart,
+  ]);
 
   return (
     <PiAssistantRuntimeProvider
@@ -261,6 +361,7 @@ export function AppShell() {
             <>
               {!sidebarCollapsed && (
                 <TaskNavigation
+                  activeView={navigationView}
                   activeDirectory={directory}
                   activeSessionId={activeSessionId}
                   canOpenConversation={canSend}
@@ -276,7 +377,8 @@ export function AppShell() {
                   onNewTask={() => void handleNewTask()}
                   onNewProject={() => setCreateProjectOpen(true)}
                   onNewProjectTask={handleNewProjectTask}
-                  onOpenConversation={openConversation}
+                  onActiveViewChange={handleNavigationViewChange}
+                  onOpenConversation={handleOpenConversation}
                   onOpenSettings={() => {
                     setSidebarCollapsed(false);
                     setSettingsOpen(true);
@@ -296,8 +398,25 @@ export function AppShell() {
 
               <main
                 aria-label="任务工作区"
-                className="flex min-w-0 flex-1 flex-col"
+                aria-busy={tabTransitionPending}
+                className="relative flex min-w-0 flex-1 flex-col"
               >
+                {tabTransitionPending && (
+                  <div
+                    aria-label="正在切换页面"
+                    className="absolute inset-0 z-40 flex items-center justify-center bg-background/80 backdrop-blur-[1px]"
+                    role="status"
+                  >
+                    <div className="flex items-center gap-2.5 rounded-xl border border-border bg-card px-4 py-3 text-sm text-muted-foreground shadow-sm">
+                      <LoaderCircleIcon
+                        aria-hidden="true"
+                        className="size-5 animate-spin motion-reduce:animate-none"
+                        strokeWidth={1.75}
+                      />
+                      正在加载页面…
+                    </div>
+                  </div>
+                )}
                 {error && (
                   <div className="px-4 pt-3 md:px-6">
                     <ErrorPanel error={error} onDismiss={clearCommandError} />
@@ -340,6 +459,7 @@ export function AppShell() {
 
                     <PromptCard
                       branch={branch}
+                      commands={commands}
                       directoryName={directoryName}
                       isRunning={isRunning}
                       isSwitchingSession={switchingSession}

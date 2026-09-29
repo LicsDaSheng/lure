@@ -4,11 +4,19 @@ import { describe, expect, it, vi } from "vitest";
 
 import { PiAssistantRuntimeProvider } from "./assistant-runtime";
 import { PromptCard } from "./prompt-card";
+import type { PiCommand } from "@/lib/pi-rpc/client";
 import type { MessageQueue } from "@/lib/pi-rpc/types";
 
 const emptyQueue: MessageQueue = { steering: [], followUp: [] };
 
+const commands: PiCommand[] = [
+  { name: "review", description: "审查当前改动", source: "extension" },
+  { name: "release", description: "准备发布说明", source: "prompt" },
+  { name: "test", description: "运行测试", source: "skill" },
+];
+
 function renderCard({
+  commands: availableCommands = commands,
   isRunning = true,
   queue = emptyQueue,
   onSteer = vi.fn(),
@@ -18,6 +26,7 @@ function renderCard({
 } = {}) {
   const props = {
     branch: null,
+    commands: availableCommands,
     directoryName: "项目",
     isRunning,
     model: null,
@@ -59,6 +68,68 @@ function typeInstruction(text: string) {
   fireEvent.change(input, { target: { value: text } });
   return input;
 }
+
+describe("Pi 命令选择", () => {
+  it("输入 / 时展示可选命令，并按名称和描述筛选", () => {
+    renderCard({ isRunning: false });
+
+    typeInstruction("/re");
+
+    expect(
+      screen.getByRole("listbox", { name: "Pi 命令" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("option", { name: /\/review/ }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("option", { name: /\/release/ }),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("option", { name: /\/test/ }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("输入不以 / 开头时不展示命令列表", () => {
+    renderCard({ isRunning: false });
+
+    typeInstruction("审查改动");
+    expect(
+      screen.queryByRole("listbox", { name: "Pi 命令" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("Pi 未提供命令时不展示命令列表", () => {
+    renderCard({ commands: [], isRunning: false });
+
+    typeInstruction("/");
+    expect(
+      screen.queryByRole("listbox", { name: "Pi 命令" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("可用上下方向键选择命令，再用 Enter 填入输入框", async () => {
+    renderCard({ isRunning: false });
+    const input = typeInstruction("/");
+
+    fireEvent.keyDown(input, { key: "ArrowDown" });
+    expect(screen.getByRole("option", { name: /\/release/ })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+
+    fireEvent.keyDown(input, { key: "ArrowUp" });
+    expect(screen.getByRole("option", { name: /\/review/ })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+
+    fireEvent.keyDown(input, { key: "Enter" });
+    await vi.waitFor(() => expect(input).toHaveValue("/review "));
+    expect(
+      screen.queryByRole("listbox", { name: "Pi 命令" }),
+    ).not.toBeInTheDocument();
+  });
+});
 
 describe("运行中的排队操作", () => {
   it("运行中提供插队引导、排队发送和停止入口", () => {
