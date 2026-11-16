@@ -21,11 +21,15 @@
     overscroll-behavior: none;
   }
 
+  html {
+    color-scheme: light;
+  }
+
   body {
     margin: 0;
     min-width: 320px;
     background: transparent;
-    color: #ececec;
+    color: #3c3836;
     font-family: var(--font-sans);
     -webkit-font-smoothing: antialiased;
   }

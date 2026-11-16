@@ -37,6 +37,7 @@ const mocks = vi.hoisted(() => {
     listeners,
     open: vi.fn(),
     terminal,
+    terminalOptions: null as Record<string, unknown> | null,
     window: {
       close: vi.fn(async () => undefined),
       minimize: vi.fn(async () => undefined),
@@ -53,7 +54,8 @@ vi.mock("@tauri-apps/api/window", () => ({
 }));
 vi.mock("@xterm/xterm", () => ({
   Terminal: class TerminalMock {
-    constructor() {
+    constructor(options: Record<string, unknown>) {
+      mocks.terminalOptions = options;
       return mocks.terminal;
     }
   },
@@ -79,6 +81,7 @@ describe("Pi 桌面终端", () => {
     vi.clearAllMocks();
     mocks.listeners.clear();
     mocks.disposables.length = 0;
+    mocks.terminalOptions = null;
     mocks.fitAddon.proposeDimensions.mockReturnValue({ cols: 100, rows: 30 });
     mocks.invoke.mockImplementation(async (command: string) => {
       if (command === "get_default_workspace") return "/workspace";
@@ -86,6 +89,38 @@ describe("Pi 桌面终端", () => {
         return { sessionId: 7, workingDirectory: "/workspace" };
       }
       return undefined;
+    });
+  });
+
+  it("使用浅色 Gruvbox 配置桌面和终端主题", () => {
+    const { container } = render(<App />);
+
+    expect(container.firstElementChild).toHaveClass(
+      "bg-[#fbf1c7]",
+      "text-[#3c3836]",
+    );
+    expect(mocks.terminalOptions?.theme).toEqual({
+      background: "#fbf1c7",
+      foreground: "#3c3836",
+      cursor: "#3c3836",
+      cursorAccent: "#fbf1c7",
+      selectionBackground: "#45858855",
+      black: "#fbf1c7",
+      red: "#cc241d",
+      green: "#98971a",
+      yellow: "#d79921",
+      blue: "#458588",
+      magenta: "#b16286",
+      cyan: "#689d6a",
+      white: "#7c6f64",
+      brightBlack: "#928374",
+      brightRed: "#9d0006",
+      brightGreen: "#79740e",
+      brightYellow: "#b57614",
+      brightBlue: "#076678",
+      brightMagenta: "#8f3f71",
+      brightCyan: "#427b58",
+      brightWhite: "#3c3836",
     });
   });
 

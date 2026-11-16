@@ -29,7 +29,7 @@ export function TerminalTitleBar({
   return (
     <header
       aria-label="应用标题栏"
-      className="window-drag-region flex h-12 shrink-0 select-none items-center border-b border-white/10 bg-[#242424] px-2 text-[#ececec]"
+      className="window-drag-region flex h-12 shrink-0 select-none items-center border-b border-black/10 bg-[#ebdbb2] px-2 text-[#3c3836]"
       data-tauri-drag-region=""
     >
       <WindowControls />
@@ -38,10 +38,10 @@ export function TerminalTitleBar({
         data-tauri-drag-region=""
       >
         <span className="text-xs font-semibold tracking-wide">Lure</span>
-        <span aria-hidden="true" className="text-white/25">
+        <span aria-hidden="true" className="text-[#3c3836]/25">
           /
         </span>
-        <span className="truncate text-xs text-white/60" title={directory}>
+        <span className="truncate text-xs text-[#7c6f64]" title={directory}>
           {directory || "正在读取工作目录…"}
         </span>
       </div>
@@ -103,11 +103,11 @@ function WindowButton({
   return (
     <button
       aria-label={ariaLabel}
-      className="flex h-9 w-6 items-center justify-center rounded-md outline-none focus-visible:ring-2 focus-visible:ring-white/60"
+      className="flex h-9 w-6 items-center justify-center rounded-md outline-none focus-visible:ring-2 focus-visible:ring-[#458588]"
       onClick={onClick}
       type="button"
     >
-      <span className={`size-3.5 rounded-full ${color} ring-1 ring-black/20`} />
+      <span className={`size-3.5 rounded-full ${color} ring-1 ring-black/25`} />
     </button>
   );
 }
@@ -126,7 +126,7 @@ function TitleButton({
   return (
     <button
       aria-label={ariaLabel}
-      className="flex size-9 items-center justify-center rounded-lg text-white/65 outline-none transition-colors hover:bg-white/10 hover:text-white focus-visible:ring-2 focus-visible:ring-white/60 disabled:cursor-not-allowed disabled:text-white/20 [&_svg]:size-4 [&_svg]:stroke-[1.75]"
+      className="flex size-9 items-center justify-center rounded-lg text-[#504945] outline-none transition-colors hover:bg-black/10 hover:text-[#3c3836] focus-visible:ring-2 focus-visible:ring-[#458588] disabled:cursor-not-allowed disabled:text-[#928374]/50 [&_svg]:size-4 [&_svg]:stroke-[1.75]"
       disabled={disabled}
       onClick={onClick}
       type="button"

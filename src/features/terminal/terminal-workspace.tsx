@@ -56,11 +56,27 @@ export function TerminalWorkspace() {
       lineHeight: 1.25,
       scrollback: 10_000,
       theme: {
-        background: "#191919",
-        foreground: "#ececec",
-        cursor: "#ececec",
-        cursorAccent: "#191919",
-        selectionBackground: "#4c668055",
+        background: "#fbf1c7",
+        foreground: "#3c3836",
+        cursor: "#3c3836",
+        cursorAccent: "#fbf1c7",
+        selectionBackground: "#45858855",
+        black: "#fbf1c7",
+        red: "#cc241d",
+        green: "#98971a",
+        yellow: "#d79921",
+        blue: "#458588",
+        magenta: "#b16286",
+        cyan: "#689d6a",
+        white: "#7c6f64",
+        brightBlack: "#928374",
+        brightRed: "#9d0006",
+        brightGreen: "#79740e",
+        brightYellow: "#b57614",
+        brightBlue: "#076678",
+        brightMagenta: "#8f3f71",
+        brightCyan: "#427b58",
+        brightWhite: "#3c3836",
       },
     });
     const fitAddon = new FitAddon();
@@ -193,7 +209,7 @@ export function TerminalWorkspace() {
   };
 
   return (
-    <div className="flex h-dvh min-h-0 flex-col overflow-hidden rounded-2xl border border-white/10 bg-[#191919] text-[#ececec]">
+    <div className="flex h-dvh min-h-0 flex-col overflow-hidden rounded-2xl border border-black/15 bg-[#fbf1c7] text-[#3c3836]">
       <TerminalTitleBar
         directory={directory}
         onChooseDirectory={() => void chooseDirectory()}
@@ -204,17 +220,17 @@ export function TerminalWorkspace() {
       />
       <main
         aria-label="Pi 终端工作区"
-        className="relative min-h-0 flex-1 bg-[#191919]"
+        className="relative min-h-0 flex-1 bg-[#fbf1c7]"
         onClick={() => terminalRef.current?.focus()}
       >
         <div className="terminal-host absolute inset-0 p-2" ref={hostRef} />
         {phase !== "running" && phase !== "booting" && (
-          <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/20 p-6">
-            <section className="pointer-events-auto w-full max-w-md rounded-xl border border-white/10 bg-[#242424]/95 p-5 shadow-2xl backdrop-blur">
+          <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-[#3c3836]/10 p-6">
+            <section className="pointer-events-auto w-full max-w-md rounded-xl border border-black/10 bg-[#f2e5bc]/95 p-5 shadow-2xl backdrop-blur">
               {phase === "starting" && (
                 <>
                   <h1 className="text-sm font-semibold">正在启动 Pi…</h1>
-                  <p className="mt-2 text-xs text-white/55">
+                  <p className="mt-2 text-xs text-[#7c6f64]">
                     正在创建 PTY 并加载当前工作目录。
                   </p>
                 </>
@@ -224,12 +240,12 @@ export function TerminalWorkspace() {
                   <h1 className="text-sm font-semibold">
                     Pi 已退出{exitCode === null ? "" : `（代码 ${exitCode}）`}
                   </h1>
-                  <p className="mt-2 text-xs text-white/55">
+                  <p className="mt-2 text-xs text-[#7c6f64]">
                     终端内容已保留，可以在相同目录重新启动。
                   </p>
                   <button
                     aria-label="重新启动 Pi"
-                    className="mt-4 rounded-lg bg-white px-3 py-2 text-xs font-medium text-black"
+                    className="mt-4 rounded-lg bg-[#3c3836] px-3 py-2 text-xs font-medium text-[#fbf1c7] outline-none hover:bg-[#504945] focus-visible:ring-2 focus-visible:ring-[#458588]"
                     onClick={() => void restart()}
                     type="button"
                   >
@@ -240,23 +256,23 @@ export function TerminalWorkspace() {
               {phase === "error" && (
                 <>
                   <h1 className="text-sm font-semibold">无法启动 Pi</h1>
-                  <p className="mt-2 break-words text-xs text-red-200">
+                  <p className="mt-2 break-words text-xs text-[#cc241d]">
                     {error}
                   </p>
-                  <p className="mt-2 text-xs text-white/55">
+                  <p className="mt-2 text-xs text-[#7c6f64]">
                     Pi TUI 当前不可用。请检查安装与工作目录后重试。
                   </p>
                   <div className="mt-4 flex gap-2">
                     <button
                       aria-label="重试启动"
-                      className="rounded-lg bg-white px-3 py-2 text-xs font-medium text-black"
+                      className="rounded-lg bg-[#3c3836] px-3 py-2 text-xs font-medium text-[#fbf1c7] outline-none hover:bg-[#504945] focus-visible:ring-2 focus-visible:ring-[#458588]"
                       onClick={() => void restart()}
                       type="button"
                     >
                       重试
                     </button>
                     <button
-                      className="rounded-lg border border-white/15 px-3 py-2 text-xs"
+                      className="rounded-lg border border-black/20 px-3 py-2 text-xs outline-none hover:bg-black/5 focus-visible:ring-2 focus-visible:ring-[#458588]"
                       onClick={() => void chooseDirectory()}
                       type="button"
                     >
