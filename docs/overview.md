@@ -53,10 +53,6 @@ Lure 是已安装 Pi 的原生桌面终端客户端。应用不复制 Pi 的 Age
 
 该 crate 不依赖 Tauri，也不理解 ANSI、Pi 消息或会话格式。
 
-### `lure-rpc` / `lure-core` / `lure-session`
-
-保留为历史兼容与独立能力代码，但不再位于桌面应用的默认运行链路。新终端工作流不得同时连接 RPC 与 PTY。
-
 ### `lure-desktop`
 
 作为组合根，将 `lure-pty` 暴露为窄 Tauri API：

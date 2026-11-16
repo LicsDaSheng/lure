@@ -3,8 +3,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::Ordering;
 use std::thread;
 
-use lure_pty::{PtyCommand, PtyEvent, PtyProcess, TerminalSize};
-use lure_rpc::PiProcessConfig;
+use lure_pty::{PtyCommand, PtyEvent, PtyProcess, TerminalSize, resolve_pi_executable};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, State};
 
@@ -66,8 +65,7 @@ pub(crate) async fn start_terminal(
     set_environment(&mut environment, "TERM", "xterm-256color");
     set_environment(&mut environment, "COLORTERM", "truecolor");
     set_environment(&mut environment, "TERM_PROGRAM", "Lure");
-    let process_config = PiProcessConfig::for_working_directory(&directory);
-    let mut command = PtyCommand::new(process_config.executable, &directory);
+    let mut command = PtyCommand::new(resolve_pi_executable(), &directory);
     command.environment = Some(environment);
     let size = TerminalSize::new(columns, rows);
 

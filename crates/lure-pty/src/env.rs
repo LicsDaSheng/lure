@@ -21,16 +21,6 @@ const CAPTURE_TIMEOUT: Duration = Duration::from_secs(5);
 /// 环境变量条目。
 pub type EnvVars = Vec<(OsString, OsString)>;
 
-/// Pi 子进程的环境来源。
-#[derive(Debug, Clone, Default)]
-pub enum SpawnEnv {
-    /// 继承 Lure 进程环境（仅覆盖 PATH），保持既有行为。
-    #[default]
-    Inherit,
-    /// 使用合成环境完整替换子进程环境。
-    Provided(EnvVars),
-}
-
 /// 环境合成器：登录 shell 环境捕获一次并缓存，系统代理每次解析时重读。
 #[derive(Debug, Default)]
 pub struct SpawnEnvResolver {

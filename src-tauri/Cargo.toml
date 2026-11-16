@@ -14,12 +14,8 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build.workspace = true
 
 [dependencies]
-lure-core = { path = "../crates/lure-core" }
 lure-pty = { path = "../crates/lure-pty" }
-lure-rpc = { path = "../crates/lure-rpc" }
-lure-session = { path = "../crates/lure-session" }
 serde.workspace = true
-serde_json.workspace = true
 tauri.workspace = true
 tauri-plugin-dialog.workspace = true
 tokio.workspace = true

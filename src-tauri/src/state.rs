@@ -1,8 +1,7 @@
 use std::sync::Arc;
 use std::sync::atomic::AtomicU64;
 
-use lure_pty::PtyProcess;
-use lure_rpc::SpawnEnvResolver;
+use lure_pty::{PtyProcess, SpawnEnvResolver};
 use tokio::sync::Mutex;
 
 pub(crate) struct TerminalSession {

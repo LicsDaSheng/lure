@@ -1,8 +1,10 @@
 #![doc = "跨平台 PTY 子进程边界。"]
 #![doc = ""]
-#![doc = "该 crate 只转发终端字节与尺寸，不解析 ANSI 或 Pi 语义。"]
+#![doc = "该 crate 负责 Pi 可执行文件定位、环境合成与终端字节转发，不解析 ANSI 或 Pi 语义。"]
 
-use std::ffi::OsString;
+mod env;
+
+use std::ffi::{OsStr, OsString};
 use std::fmt;
 use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
@@ -11,6 +13,50 @@ use std::thread;
 
 use portable_pty::{ChildKiller, CommandBuilder, MasterPty, PtySize, native_pty_system};
 use thiserror::Error;
+
+pub use env::{EnvVars, SpawnEnvResolver};
+
+/// 定位 Pi 可执行文件；`LURE_PI_PATH` 具有最高优先级。
+#[must_use]
+pub fn resolve_pi_executable() -> PathBuf {
+    std::env::var_os("LURE_PI_PATH").map_or_else(
+        || find_pi_executable().unwrap_or_else(|| PathBuf::from("pi")),
+        PathBuf::from,
+    )
+}
+
+fn find_pi_executable() -> Option<PathBuf> {
+    let search_path = env::pi_runtime_path(
+        std::env::var_os("HOME").as_deref(),
+        std::env::var_os("PATH").as_deref(),
+    );
+    find_executable_in_path("pi", &search_path)
+}
+
+fn find_executable_in_path(executable: &str, search_path: &OsStr) -> Option<PathBuf> {
+    std::env::split_paths(search_path)
+        .map(|directory| directory.join(executable))
+        .find(|candidate| is_executable_file(candidate))
+}
+
+fn is_executable_file(path: &Path) -> bool {
+    let Ok(metadata) = path.metadata() else {
+        return false;
+    };
+    if !metadata.is_file() {
+        return false;
+    }
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        metadata.permissions().mode() & 0o111 != 0
+    }
+    #[cfg(not(unix))]
+    {
+        true
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TerminalSize {
@@ -293,4 +339,33 @@ fn read_output(mut reader: Box<dyn Read + Send>, events: &mpsc::Sender<PtyEvent>
 
 fn expected_pty_close(error: &io::Error) -> bool {
     error.kind() == io::ErrorKind::UnexpectedEof || (cfg!(unix) && error.raw_os_error() == Some(5))
+}
+
+#[cfg(test)]
+mod tests {
+    use std::fs;
+
+    use super::find_executable_in_path;
+
+    #[cfg(unix)]
+    #[test]
+    fn finds_an_executable_in_the_supplied_path() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let directory =
+            std::env::temp_dir().join(format!("lure-pty-path-test-{}", std::process::id()));
+        fs::create_dir_all(&directory).expect("创建测试目录");
+        let executable = directory.join("pi");
+        fs::write(&executable, "#!/bin/sh\n").expect("创建测试可执行文件");
+        let mut permissions = fs::metadata(&executable)
+            .expect("读取测试文件权限")
+            .permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(&executable, permissions).expect("设置测试文件权限");
+
+        let found = find_executable_in_path("pi", directory.as_os_str());
+        fs::remove_dir_all(&directory).expect("删除测试目录");
+
+        assert_eq!(found, Some(executable));
+    }
 }
