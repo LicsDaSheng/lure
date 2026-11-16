@@ -1,20 +1,20 @@
 [workspace]
-members = ["crates/lure-pty", "src-tauri"]
+members = ["crates/lure-desktop", "crates/lure-pty"]
 resolver = "3"
 
 [workspace.package]
-version = "0.2.0"
+version = "0.3.0"
 edition = "2024"
-rust-version = "1.85"
+rust-version = "1.95"
 license = "MIT"
 
 [workspace.dependencies]
-serde = { version = "1", features = ["derive"] }
+async-channel = "2"
+gpui = { git = "https://github.com/gpui-ce/gpui-ce", rev = "f388375d03e63d75811fa1cca3a563203b920d98", package = "gpui-ce", default-features = false, features = ["font-kit"] }
+gpui_platform = { git = "https://github.com/gpui-ce/gpui-ce", rev = "f388375d03e63d75811fa1cca3a563203b920d98", package = "gpui_ce_platform", features = ["font-kit"] }
 thiserror = "2"
 tokio = { version = "1", features = ["fs", "macros", "process", "rt-multi-thread", "sync", "time"] }
-tauri = { version = "2", features = ["macos-private-api"] }
-tauri-build = { version = "2", features = [] }
-tauri-plugin-dialog = "2"
+vt100 = "0.16"
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

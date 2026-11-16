@@ -1,0 +1,18 @@
+[package]
+name = "lure-desktop"
+description = "使用 GPUI-CE 构建的 Lure 纯 Rust 桌面终端"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+async-channel.workspace = true
+gpui.workspace = true
+gpui_platform.workspace = true
+lure-pty = { path = "../lure-pty" }
+tokio.workspace = true
+vt100.workspace = true
+
+[lints]
+workspace = true

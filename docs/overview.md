@@ -2,39 +2,40 @@
 
 ## 1. 项目定位
 
-Lure 是已安装 Pi 的原生桌面终端客户端。应用不复制 Pi 的 Agent、会话或 TUI 能力，而是在用户选择的工作目录中通过 Rust 创建 PTY，启动普通交互模式的 `pi`，再由 xterm.js 原样呈现 Pi TUI。
+Lure 是已安装 Pi 的原生桌面终端客户端。应用不复制 Pi 的 Agent、会话或 TUI 能力，而是在用户选择的工作目录中通过 Rust 创建 PTY，启动普通交互模式的 `pi`，再由 GPUI-CE 直接绘制终端网格。
 
-首期技术栈：
+当前技术栈：
 
-- 桌面框架：Tauri 2
-- 终端前端：React 19 + xterm.js
+- 桌面与展示框架：GPUI-CE（纯 Rust）
+- ANSI/VT 状态机：`vt100`
 - PTY 与进程管理：Rust + `portable-pty`
-- 包管理器：pnpm
-- 初始平台：macOS，PTY crate 与前端协议保留跨平台边界
+- 异步消息通道：`async-channel`
+- 初始平台：macOS，PTY 与按键编码保留跨平台边界
+
+项目不包含 Tauri、WebView、React、TypeScript、Node.js 或前端包管理器。
 
 ## 2. 运行边界
 
 ```text
-键盘 / 粘贴 / 鼠标 / resize
-            │
-            ▼
-      React + xterm.js
-            │ Tauri command/event
-            ▼
-       lure-desktop
-            │
-            ▼
-         lure-pty
-            │ PTY 字节流
-            ▼
-      pi（交互模式）
-            │
-            ▼
-          Pi TUI
+键盘 / 粘贴 / resize
+          │
+          ▼
+     GPUI-CE 窗口
+          │
+          ▼
+   VT 网格与按键编码
+          │ 原始字节
+          ▼
+       lure-pty
+          │ PTY
+          ▼
+     pi（交互模式）
+          │
+          ▼
+        Pi TUI
 ```
 
-- Rust 只管理 PTY、Pi 子进程、输入输出和尺寸，不解析 ANSI 内容。
-- xterm.js 负责 VT/ANSI 呈现、scrollback、选择、复制粘贴和输入编码。
+- Rust 展示层只解释 ANSI/VT 控制序列以绘制字符网格，不理解 Pi 的 Agent、工具、消息或会话语义。
 - Pi 负责模型认证、Agent、工具、skills、extensions、slash commands、会话和完整 TUI。
 - 同一桌面终端会话只运行一个 Pi 进程，不同时启动 RPC 模式。
 
@@ -42,68 +43,41 @@ Lure 是已安装 Pi 的原生桌面终端客户端。应用不复制 Pi 的 Age
 
 ### `lure-pty`
 
-终端进程边界，负责：
-
-- 校验并规范化工作目录；
-- 定位 `pi` 可执行文件；
-- 使用 `portable-pty` 创建伪终端；
-- 在 PTY 中启动普通交互模式 Pi；
-- 暴露输入、resize、停止和输出事件；
-- 子进程退出时关闭 reader 并报告退出状态。
-
-该 crate 不依赖 Tauri，也不理解 ANSI、Pi 消息或会话格式。
+负责工作目录校验、Pi 可执行文件定位、登录 shell 环境合成、PTY 创建、输入输出、resize、停止与退出事件。该 crate 不依赖 GPUI，也不解析 ANSI 或 Pi 语义。
 
 ### `lure-desktop`
 
-作为组合根，将 `lure-pty` 暴露为窄 Tauri API：
+纯 Rust 组合根，负责：
 
-- `start_terminal`
-- `write_terminal`
-- `resize_terminal`
-- `stop_terminal`
-- `get_default_workspace`
+- 创建 GPUI 窗口与自定义标题栏；
+- 将 PTY 输出交给 `vt100` 状态机；
+- 按字符单元绘制颜色、粗体、斜体、下划线和光标；
+- 将键盘、粘贴和窗口尺寸转换为 PTY 输入与字符网格；
+- 选择工作目录、启动、重启、停止和错误恢复；
+- 窗口关闭时停止 Pi 子进程。
 
-并发送：
+GPUI-CE 依赖固定到上游 Git commit，避免未审阅的框架漂移。
 
-- `lure://terminal-output`
-- `lure://terminal-exit`
+## 4. 生命周期
 
-应用退出时必须停止 Pi 子进程并回收 PTY。
+1. 创建 `~/lure` 默认工作目录并打开 GPUI 窗口。
+2. 后台线程合成登录 shell 环境并创建 Pi PTY。
+3. PTY reader 事件经 `async-channel` 回到 GPUI 主线程。
+4. 输出更新 VT 网格并触发重绘；窗口尺寸变化同步到 VT 网格和 PTY。
+5. 选择新目录或重启时先停止旧进程，并用 generation 丢弃旧会话事件。
+6. 停止、退出或错误时保留已绘制终端内容并显示恢复面板。
+7. 关闭窗口或销毁根视图时停止子进程。
 
-## 4. 前端职责
-
-前端主工作区只呈现一个 Pi 终端：
-
-- 在容器挂载后创建 xterm.js；
-- 订阅 Rust 输出并写入终端；
-- 将 xterm 输入转发给 Rust；
-- 使用 FitAddon 计算列数和行数并同步 PTY；
-- 显示启动、失败和退出状态；
-- 提供工作目录选择、启动/重启和停止操作；
-- 保留自定义窗口标题栏，不在终端上叠加账户、协作或 Agent 状态 UI。
-
-终端输出是显示事实来源，Redux 不再参与默认终端会话状态。
-
-## 5. 环境与进程
-
-GUI 从 Finder、Dock 或 Spotlight 启动时不会加载 shell rc。启动 Pi 前继续使用既有登录 shell 环境合成规则，并强制补全运行时 `PATH`。PTY 设置至少包含：
-
-- `TERM=xterm-256color`
-- `COLORTERM=truecolor`
-- 当前工作目录
-- xterm.js 实际列数和行数
-
-`LURE_PI_PATH` 仍可覆盖 Pi 可执行文件位置。
-
-## 6. 验证命令
+## 5. 验证命令
 
 ```bash
-pnpm test
-pnpm check
-pnpm build
 cargo fmt --all --check
 cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo test --workspace
 ```
 
-关键行为还需在 Tauri 应用中验证：Pi 启动、输入、ANSI 呈现、resize、重启、停止和窗口退出清理。
+真实 Pi 冒烟测试：
+
+```bash
+LURE_RUN_REAL_PI_PTY=1 cargo test -p lure-pty --test real_pi
+```

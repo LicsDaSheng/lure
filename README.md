@@ -1,6 +1,6 @@
 # Lure
 
-Lure 是基于 Tauri 2、React、Rust PTY 和 xterm.js 构建的 Pi 桌面终端。
+Lure 是使用 [GPUI-CE](https://github.com/gpui-ce/gpui-ce) 与 Rust PTY 构建的 Pi 原生桌面终端。项目不再包含 Tauri、React、TypeScript 或 WebView。
 
 ## 前置条件
 
@@ -10,13 +10,22 @@ Lure 是基于 Tauri 2、React、Rust PTY 和 xterm.js 构建的 Pi 桌面终端
 pi --version
 ```
 
+项目由 `rust-toolchain.toml` 固定 Rust 1.97。
+
 ## 开始开发
 
 ```bash
-pnpm install
-pnpm tauri dev
+cargo run -p lure-desktop
 ```
 
-应用在所选工作目录中通过 PTY 启动普通交互模式的 Pi，并由 xterm.js 原样呈现 Pi TUI。模型、会话、工具、skills、extensions 和 slash commands 均由 Pi 提供。
+应用会创建 `~/lure` 作为默认工作目录，通过 PTY 启动普通交互模式的 Pi，并在 GPUI 窗口中直接绘制 ANSI/VT 终端网格。也可通过 `LURE_PI_PATH` 指定 Pi 可执行文件。
 
-工程边界、目录职责与验证命令见 [`docs/overview.md`](docs/overview.md)。
+## 验证
+
+```bash
+cargo fmt --all --check
+cargo clippy --workspace --all-targets --all-features -- -D warnings
+cargo test --workspace
+```
+
+工程边界与模块职责见 [`docs/overview.md`](docs/overview.md)，界面规范见 [`docs/ui-design.md`](docs/ui-design.md)。
