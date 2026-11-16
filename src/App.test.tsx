@@ -2060,10 +2060,12 @@ describe("风险与错误处理", () => {
       within(dialog).getByRole("button", { name: "取消" }),
     ).toBeInTheDocument();
 
-    fireEvent.change(screen.getByRole("combobox", { name: "选择一项" }), {
-      target: { value: "整个项目" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "提交输入" }));
+    const radios = within(dialog).getAllByRole("radio");
+    expect(radios).toHaveLength(2);
+    expect(radios[0]).toBeChecked();
+
+    fireEvent.click(within(dialog).getByRole("radio", { name: "整个项目" }));
+    fireEvent.click(screen.getByRole("button", { name: "确认选择" }));
     await waitFor(() =>
       expect(mocks.invoke).toHaveBeenCalledWith("respond_extension_ui", {
         cancelled: false,
