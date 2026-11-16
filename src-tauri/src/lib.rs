@@ -1,9 +1,7 @@
 //! Lure 桌面应用的 Tauri 组合根。
 
-mod base64;
-mod commands;
-mod events;
 mod state;
+mod terminal_commands;
 
 use std::sync::Arc;
 
@@ -21,33 +19,18 @@ pub fn run() -> tauri::Result<()> {
         .plugin(tauri_plugin_dialog::init())
         .manage(Arc::new(AppState::default()))
         .invoke_handler(tauri::generate_handler![
-            commands::get_default_workspace,
-            commands::get_pi_state,
-            commands::connect_pi,
-            commands::new_pi_session,
-            commands::disconnect_pi,
-            commands::send_prompt,
-            commands::abort_pi,
-            commands::steer_pi,
-            commands::follow_up_pi,
-            commands::clear_pi_queue,
-            commands::get_available_models,
-            commands::set_model,
-            commands::set_thinking_level,
-            commands::get_commands,
-            commands::respond_extension_ui,
-            commands::get_workspace_context,
-            commands::read_image_attachments,
-            commands::list_project_sessions,
-            commands::switch_pi_session,
-            commands::get_session_entries,
+            terminal_commands::get_default_workspace,
+            terminal_commands::start_terminal,
+            terminal_commands::write_terminal,
+            terminal_commands::resize_terminal,
+            terminal_commands::stop_terminal,
         ])
         .build(tauri::generate_context!())?;
 
     app.run(|app_handle, event| {
         if matches!(event, RunEvent::ExitRequested { .. }) {
             let state = app_handle.state::<Arc<AppState>>().inner().clone();
-            let _ = tauri::async_runtime::block_on(commands::disconnect_inner(state));
+            let _ = tauri::async_runtime::block_on(terminal_commands::stop_all(state));
         }
     });
     Ok(())

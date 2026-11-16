@@ -6,7 +6,10 @@ describe("disableNativeContextMenu", () => {
   it("阻止 document 上 contextmenu 事件的默认行为", () => {
     const restore = disableNativeContextMenu(document);
 
-    const event = new MouseEvent("contextmenu", { bubbles: true, cancelable: true });
+    const event = new MouseEvent("contextmenu", {
+      bubbles: true,
+      cancelable: true,
+    });
     document.dispatchEvent(event);
 
     expect(event.defaultPrevented).toBe(true);
@@ -17,7 +20,10 @@ describe("disableNativeContextMenu", () => {
     const restore = disableNativeContextMenu(document);
     restore();
 
-    const event = new MouseEvent("contextmenu", { bubbles: true, cancelable: true });
+    const event = new MouseEvent("contextmenu", {
+      bubbles: true,
+      cancelable: true,
+    });
     document.dispatchEvent(event);
 
     expect(event.defaultPrevented).toBe(false);

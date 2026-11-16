@@ -15,6 +15,7 @@ tauri-build.workspace = true
 
 [dependencies]
 lure-core = { path = "../crates/lure-core" }
+lure-pty = { path = "../crates/lure-pty" }
 lure-rpc = { path = "../crates/lure-rpc" }
 lure-session = { path = "../crates/lure-session" }
 serde.workspace = true

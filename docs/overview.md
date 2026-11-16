@@ -2,225 +2,112 @@
 
 ## 1. 项目定位
 
-Lure 是已安装 Pi 的原生桌面 GUI 外壳。桌面端负责进程与会话生命周期、RPC 转发、执行过程展示、文件选择、扩展 UI 请求和本地界面偏好；模型、认证、Agent 推理、工具、命令、会话持久化与上下文管理均由 Pi 提供。
-
-Lure 与 Pi 的唯一集成边界是：在用户选择的工作目录中启动 `pi --mode rpc`，并通过子进程的 stdin/stdout 交换 JSONL 消息。
+Lure 是已安装 Pi 的原生桌面终端客户端。应用不复制 Pi 的 Agent、会话或 TUI 能力，而是在用户选择的工作目录中通过 Rust 创建 PTY，启动普通交互模式的 `pi`，再由 xterm.js 原样呈现 Pi TUI。
 
 首期技术栈：
 
 - 桌面框架：Tauri 2
-- 前端：React 19 + TypeScript + Vite
-- UI：assistant-ui + shadcn/ui + Tailwind CSS 4
-- Rust：Cargo workspace（edition 2024）
+- 终端前端：React 19 + xterm.js
+- PTY 与进程管理：Rust + `portable-pty`
 - 包管理器：pnpm
-- 初始平台：macOS，工程结构预留其他桌面平台适配空间
+- 初始平台：macOS，PTY crate 与前端协议保留跨平台边界
 
-## 2. 目录结构
+## 2. 运行边界
 
 ```text
-lure/
-├── Cargo.toml                 # Rust workspace、公共依赖、lint 与构建配置
-├── package.json               # 前端依赖及开发、测试、构建脚本
-├── pnpm-lock.yaml             # 前端依赖锁文件
-├── components.json            # shadcn/ui 组件生成配置
-├── index.html                 # Vite HTML 入口
-├── vite.config.ts             # Vite、Vitest 与 Tauri 开发服务器配置
-├── tsconfig.json              # 前端 TypeScript 配置
-├── tsconfig.node.json         # 构建工具 TypeScript 配置
-├── crates/
-│   ├── lure-core/             # 与 GUI/进程实现无关的领域模型和规范化事件
-│   │   ├── src/               # 连接状态、会话事件和稳定错误类型
-│   │   └── tests/             # 领域序列化契约测试
-│   └── lure-rpc/              # Pi RPC 子进程、JSONL 编解码与协议适配
-│       ├── src/               # actor、进程、协议和事件规范化
-│       └── tests/             # JSONL、模拟 Pi 与真实 Pi 冒烟测试
-├── src/                       # React 前端
-│   ├── App.tsx                # React 根组件
-│   ├── App.test.tsx           # 前端可观察行为测试
-│   ├── app/                   # Store、Provider 与窗口级应用壳
-│   ├── components/
-│   │   └── ui/                # 纳入源码管理的 shadcn/ui 基础组件
-│   ├── features/
-│   │   ├── sessions/          # Pi 连接、会话/项目导航与生命周期
-│   │   ├── conversation/      # 消息事实、流式更新、输入与 assistant-ui
-│   │   ├── execution/         # 运行状态、思考与工具调用展示
-│   │   ├── models/            # 模型及 thinking level 选择
-│   │   └── extension-ui/      # extension_ui_request 原生交互映射
-│   ├── lib/pi-rpc/            # Redux 无关的 Tauri IPC 客户端与稳定协议类型
-│   ├── lib/utils.ts           # className 合并工具
-│   ├── index.css              # Tailwind CSS 与设计令牌
-│   ├── main.tsx               # React 挂载入口
-│   └── test/setup.ts          # Vitest 测试环境初始化
-├── src-tauri/                 # Tauri 桌面应用 crate
-│   ├── build.rs               # Tauri 构建脚本
-│   ├── Cargo.toml             # 桌面入口依赖
-│   ├── capabilities/          # Tauri 窗口权限声明
-│   ├── icons/                 # 应用打包图标
-│   ├── src/
-│   │   ├── commands.rs        # 连接、会话、提示词、运行控制与队列命令
-│   │   ├── events.rs          # lure://pi-event 转发
-│   │   ├── state.rs           # 单 Pi 会话状态与操作约束
-│   │   ├── lib.rs             # Tauri Builder 组合根
-│   │   └── main.rs            # 桌面进程入口
-│   └── tauri.conf.json        # 窗口、开发服务与打包配置
-├── public/                    # 直接复制到前端产物的静态资源
-└── docs/
-    └── overview.md            # 本文档
+键盘 / 粘贴 / 鼠标 / resize
+            │
+            ▼
+      React + xterm.js
+            │ Tauri command/event
+            ▼
+       lure-desktop
+            │
+            ▼
+         lure-pty
+            │ PTY 字节流
+            ▼
+      pi（交互模式）
+            │
+            ▼
+          Pi TUI
 ```
+
+- Rust 只管理 PTY、Pi 子进程、输入输出和尺寸，不解析 ANSI 内容。
+- xterm.js 负责 VT/ANSI 呈现、scrollback、选择、复制粘贴和输入编码。
+- Pi 负责模型认证、Agent、工具、skills、extensions、slash commands、会话和完整 TUI。
+- 同一桌面终端会话只运行一个 Pi 进程，不同时启动 RPC 模式。
 
 ## 3. Rust crate 职责
 
-### `lure-core`
+### `lure-pty`
 
-承载稳定的业务概念和应用用例，例如会话生命周期、运行状态、工作目录与用户意图。该 crate 不依赖 Tauri、React 或具体子进程实现，便于独立测试。
+终端进程边界，负责：
 
-### `lure-rpc`
+- 校验并规范化工作目录；
+- 定位 `pi` 可执行文件；
+- 使用 `portable-pty` 创建伪终端；
+- 在 PTY 中启动普通交互模式 Pi；
+- 暴露输入、resize、停止和输出事件；
+- 子进程退出时关闭 reader 并报告退出状态。
 
-封装 Pi RPC 集成：
+该 crate 不依赖 Tauri，也不理解 ANSI、Pi 消息或会话格式。
 
-- 检测并启动 `pi --mode rpc`
-- 管理 stdin/stdout JSONL 通道和子进程退出
-- 定义请求、响应、事件及协议错误类型
-- 将协议消息转换为 `lure-core` 可消费的边界类型
+### `lure-rpc` / `lure-core` / `lure-session`
 
-该 crate 不通过 PTY 解析 Pi TUI，也不实现 Pi Agent 的任何能力。
+保留为历史兼容与独立能力代码，但不再位于桌面应用的默认运行链路。新终端工作流不得同时连接 RPC 与 PTY。
 
-### `lure-desktop`（`src-tauri`）
+### `lure-desktop`
 
-作为系统组合根，负责装配 Tauri 插件、应用用例与平台能力，并向 React 前端暴露窄而稳定的命令/事件接口。业务规则应下沉到 `lure-core`，Pi 协议细节应留在 `lure-rpc`。
+作为组合根，将 `lure-pty` 暴露为窄 Tauri API：
 
-依赖方向保持为：
+- `start_terminal`
+- `write_terminal`
+- `resize_terminal`
+- `stop_terminal`
+- `get_default_workspace`
 
-```text
-React UI ⇄ Tauri command/event ⇄ lure-desktop
-                                  ├── lure-core
-                                  └── lure-rpc ── JSONL ── pi --mode rpc
-```
+并发送：
 
-`lure-core` 位于依赖关系中心，不反向依赖 `lure-rpc` 或 `lure-desktop`。
+- `lure://terminal-output`
+- `lure://terminal-exit`
 
-### Pi RPC MVP 流程
+应用退出时必须停止 Pi 子进程并回收 PTY。
 
-1. React 通过原生目录选择器取得工作目录，并调用 `connect_pi`。
-2. Rust 优先使用 `LURE_PI_PATH`，否则从当前 `PATH` 及常见的用户级安装目录（如 `~/.local/bin`）定位 Pi，并以补全后的运行时 `PATH` 启动 `pi --mode rpc`；这保证从 macOS Finder 启动应用时也能找到 Pi 及其 Node.js 解释器。
-3. `lure-rpc` 只按 LF 切分 stdout JSONL，以请求 ID 关联 `get_state`、`prompt` 和 `abort` 响应。
-4. Tauri 通过统一的 `lure://pi-event` 推送带序号的规范化事件。
-5. 前端 reducer 保留 Pi 消息事实，并把助手内容存为单一有序 `parts` 序列（`text`、`thinking`、`tool`）；`convertPiMessage()` 按该顺序映射为 assistant-ui 线程内容，工具卡因此出现在它真实发生的位置。
-6. 断开连接或应用退出时，中止活动任务并回收 Pi 子进程。
+## 4. 前端职责
 
-桌面边界在基础连接与运行控制之外，已经支持图片附件、模型与 thinking level、历史会话切换、命令发现和 extension UI 响应；这些能力仍以 Pi RPC 返回的数据为事实来源。
+前端主工作区只呈现一个 Pi 终端：
 
-### Pi 子进程环境合成（`lure_rpc::env`）
+- 在容器挂载后创建 xterm.js；
+- 订阅 Rust 输出并写入终端；
+- 将 xterm 输入转发给 Rust；
+- 使用 FitAddon 计算列数和行数并同步 PTY；
+- 显示启动、失败和退出状态；
+- 提供工作目录选择、启动/重启和停止操作；
+- 保留自定义窗口标题栏，不在终端上叠加账户、协作或 Agent 状态 UI。
 
-GUI 方式（Finder / Dock / Spotlight）启动的 Lure 不加载用户 shell 启动文件，`~/.zshrc.local` 中导出的自定义 provider API key（如 `example_AIGW_API_KEY`）与代理变量对 Pi 子进程不可见，Pi 会把凭证不可解析的 provider 从 `get_available_models` 中整体过滤。为此 `connect_pi` 在 spawn 前合成完整子进程环境（`SpawnEnvResolver`）：
+终端输出是显示事实来源，Redux 不再参与默认终端会话状态。
 
-1. **登录 shell 环境捕获**：以 `$SHELL -lic '哨兵行; env -0'` 捕获完整环境，哨兵行隔离 rc 噪音、NUL 分隔保留含换行的值；应用存活期内缓存一次，超时或失败时回退为继承 Lure 进程环境。
-2. **macOS 系统代理补缺**：每次连接读取 `scutil --proxy`，映射为 `HTTP(S)_PROXY` / `ALL_PROXY` / `NO_PROXY`（大小写双写，`*.x` → `.x`，`<local>` 丢弃，需认证的代理跳过）；仅补充 shell 环境中不存在的同族键，rc 显式导出优先。tun 类 VPN 工作在网络层，不依赖环境变量，天然生效。
-3. **运行时 PATH**：仍按 `pi_runtime_path` 规则强制覆盖。
+## 5. 环境与进程
 
-合成结果以 `SpawnEnv::Provided` 传入 `PiProcessConfig`，spawn 时 `env_clear` 后整体应用；`SpawnEnv::Inherit`（默认）保持仅覆盖 PATH 的既有行为，供测试与嵌入式使用。
+GUI 从 Finder、Dock 或 Spotlight 启动时不会加载 shell rc。启动 Pi 前继续使用既有登录 shell 环境合成规则，并强制补全运行时 `PATH`。PTY 设置至少包含：
 
-### 运行中队列（steer / follow_up / clear_queue）
+- `TERM=xterm-256color`
+- `COLORTERM=truecolor`
+- 当前工作目录
+- xterm.js 实际列数和行数
 
-运行中的任务接受两类排队消息：`steer`（插队引导，当前工具调用结束后、下一次模型调用前交付）和 `follow_up`（排队后续，运行完全结束后继续执行），并可通过 `clear_queue` 清空待处理队列（响应返回被清空的内容）。排队消息被接受时不产生 `user_message_accepted`；Pi 实际消费时以 `user_message_observed` 进入对话流，队列归属由 `queue_update`（规范化为 `queue_changed`）事件驱动。前端在输入卡中提供插队引导、排队发送（运行中 Enter）与停止入口，并在队列非空时展示待处理队列与清空操作。
+`LURE_PI_PATH` 仍可覆盖 Pi 可执行文件位置。
 
-## 4. 前端组织约定
-
-前端实现同时遵循 [UI 设计规约](./ui-design/index.md) 与 [Redux Toolkit Agent 开发规约](./frontend-rtk-agent-development.md)。后者规定 Redux Toolkit 2.x 的版本基线、feature 文件结构、Pi 事实边界和 API 使用范围。
-
-随着功能增加，`src/` 按产品能力拆分，而不是按通用技术层堆叠：
-
-```text
-src/
-├── app/                       # 路由、全局 Provider、窗口级状态
-├── features/
-│   ├── sessions/              # 会话选择与生命周期界面
-│   ├── conversation/          # 消息与流式更新展示
-│   ├── execution/             # 工具调用和运行状态展示
-│   ├── models/                # 模型与 thinking level 选择
-│   └── extension-ui/          # extension_ui_request 原生交互映射
-├── components/                # 跨 feature 复用的无业务组件
-└── lib/                       # Tauri IPC 客户端、通用类型与小型工具
-```
-
-Feature 内聚自己的组件、状态与测试；只有形成稳定复用需求后才上移到 `components/` 或 `lib/`。通用界面原语优先通过 shadcn/ui CLI 写入 `components/ui/`，样式使用 Tailwind CSS 和 `src/index.css` 中的语义设计令牌。
-
-Pi 事件只在 `sessions` 的生命周期 listener 中订阅一次。该入口完成序号去重和流式增量合并后，通过公开的 `piRuntimeProjected` action 将同一批事实投影给各 feature reducer；模型、对话和 extension UI 的命令副作用分别由各自 listener 承担。
-
-对话线程统一采用 assistant-ui。`PiAssistantRuntimeProvider` 用 `ExternalThread` 与 `convertPiMessage()` 把 Pi reducer 中的消息转换为 assistant-ui 标准内容部件，并通过 `AuiProvider` 提供给 `ThreadPrimitive`、`MessagePrimitive` 与 `ComposerPrimitive`；三者分别负责滚动线程、消息上下文与输入行为。输入文本与附件由 composer 自身持有，App 只按工作目录持久化草稿。Pi reducer 仍是唯一消息事实来源，assistant-ui 不接管 Pi 的会话、模型、工具或运行生命周期。
-
-助手消息的内容模型是**单一有序 parts 序列**：
-
-```ts
-type MessagePart =
-  | { id: string; type: "text"; contentIndex: number; text: string }
-  | { id: string; type: "thinking"; contentIndex: number; text: string }
-  | {
-      id: string;
-      type: "tool";
-      contentIndex: number;
-      toolCallId: string;
-      name: string;
-      status: "running" | "completed" | "error";
-      input: string;
-      output: string;
-      truncatedLines: number | null;
-    };
-```
-
-- 文本与思考带 Pi 的 `contentIndex`，工具调用在 Pi 内容序列中占一个位置，但其 `tool_execution_*` 事件不携带索引，因此由“当前已见最大索引的下一位”推断，并在 `message_end` 用权威内容校正。
-- 消息文本与思考通过 `messageText()` / `messageThinking()` 从 parts 派生，不再维护重复的聚合字段。
-- 渲染层不再需要把工具堆到消息末尾；导出仅包含真实文本。
-
-界面只有一套渲染体系：对话内容由 assistant-ui 的消息部件渲染，部件注册集中在 `conversation-stream.tsx`。
-
-- 文本部件交给 `MarkdownResponse`，Markdown 通过 Streamdown 渲染。
-- 思考部件由 `reasoning-part.tsx` 呈现，工具部件由 `tool-part.tsx` 呈现。
-- 工具执行状态随工具调用部件的 `artifact` 一起传递（`toolPartToView()`），渲染只依赖部件自身携带的信息，不回查 reducer 中的消息来源。
-- 目录、模型、思考强度、附件和停止操作仍由工作区输入卡按照 Pi RPC 能力提供。
+## 6. 验证命令
 
 ```bash
-# 按需引入 shadcn/ui 组件
-pnpm dlx shadcn@latest add button
-```
-
-## 5. 开发命令
-
-```bash
-# 安装前端依赖
-pnpm install
-
-# 浏览器中开发前端
-pnpm dev
-
-# 启动 Tauri 桌面开发应用
-pnpm tauri dev
-
-# 前端测试与类型检查
 pnpm test
 pnpm check
-
-# 前端生产构建
 pnpm build
-
-# Rust 格式、静态检查与测试
 cargo fmt --all --check
 cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo test --workspace
 ```
 
-## 6. 配置与生成文件
-
-- 前端依赖版本由 `pnpm-lock.yaml` 固定。
-- Rust 依赖版本由根目录 `Cargo.lock` 固定。
-- Cargo 构建产物写入根目录 `target/`。
-- Tauri 自动生成的 capability schema 位于 `src-tauri/gen/schemas/`，不提交版本库。
-- `src-tauri/tauri.conf.json` 中的 CSP 在接入真实 IPC 和资源协议时应按实际资源来源收紧。
-
-## 7. 后续扩展原则
-
-1. 先在 `lure-core` 定义可测试的领域行为，再由 `lure-rpc` 和 `lure-desktop` 提供外部实现。
-2. Tauri 命令只承担输入校验、用例调用和错误映射，避免直接堆叠业务逻辑。
-3. 前端以 Pi 返回的 RPC 数据为事实来源，不在桌面端复制模型、命令或会话规则。
-4. 新增 Tauri 权限按最小权限原则加入 `capabilities/`。
-5. 每个新增行为先添加对应层级的测试，再完成实现。
+关键行为还需在 Tauri 应用中验证：Pi 启动、输入、ANSI 呈现、resize、重启、停止和窗口退出清理。

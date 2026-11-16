@@ -1,16 +1,8 @@
-import { TooltipProvider } from "@/components/ui/tooltip";
-import { AppProviders } from "@/app/providers";
-import { AppShell } from "@/app/app-shell";
+import { TerminalWorkspace } from "@/features/terminal/terminal-workspace";
 
-/** 应用装配层只提供全局 Provider；窗口级编排位于 AppShell。 */
+/** Lure 直接通过 Rust PTY 与 xterm.js 呈现 Pi 原生 TUI。 */
 function App() {
-  return (
-    <AppProviders>
-      <TooltipProvider>
-        <AppShell />
-      </TooltipProvider>
-    </AppProviders>
-  );
+  return <TerminalWorkspace />;
 }
 
 export default App;

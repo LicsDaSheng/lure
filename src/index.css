@@ -2,6 +2,7 @@
 @import "tw-animate-css";
 @import "@casoon/tailwindcss-micro-interactions";
 @import "streamdown/styles.css";
+@import "@xterm/xterm/css/xterm.css";
 
 @source "../node_modules/streamdown/dist/*.js";
 @source "../node_modules/@streamdown/code/dist/*.js";
@@ -195,6 +196,16 @@
   .window-no-drag {
     app-region: no-drag;
     -webkit-app-region: no-drag;
+  }
+
+  .terminal-host,
+  .terminal-host .xterm {
+    width: 100%;
+    height: 100%;
+  }
+
+  .terminal-host .xterm-viewport {
+    overscroll-behavior: contain;
   }
 
   button,

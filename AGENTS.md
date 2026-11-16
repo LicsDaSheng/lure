@@ -9,15 +9,14 @@
 
 - 当任务涉及读取或分析 pi 本地源码（`/Users/scottlee/workspace/github/pi`）时，仅讨论架构设计，不进行具体实现或代码改动。
 
-## 产品边界：Pi 桌面客户端
+## 产品边界：Pi 桌面终端客户端
 
-- 桌面客户端是已安装 Pi 的原生 GUI 外壳，不实现或复制 Pi 的核心能力；默认用户已按 Pi 官方方式完成安装。
-- 桌面客户端与 Pi 仅通过 `pi --mode rpc` 的 stdin/stdout JSONL 协议通信；不得通过 PTY 解析 TUI 的 ANSI 输出，也不得嵌入或重实现 Pi 的 Agent。
-- 桌面客户端负责：Pi 可执行文件检测、工作目录选择、Pi 子进程及会话生命周期、RPC 请求/事件转发与故障呈现、会话和执行过程可视化、文件/图片选择、扩展 UI 请求的原生对话框，以及本地 UI 偏好。
-- Pi 负责：模型与认证、Agent 推理、工具、skills、extensions、slash commands、会话持久化与分支、上下文压缩、重试、队列和 `.pi` 配置加载。
-- 一个桌面会话默认对应一个在所选工作目录运行的 Pi RPC 子进程；对话、模型、会话及命令状态以 Pi 返回的 RPC 数据为准。
-- 桌面端通过 `prompt`、`steer`、`follow_up`、`abort`、`clear_queue` 调用对话与运行控制；通过 `get_available_models`、`set_model`、`set_thinking_level` 管理模型；通过 `get_commands` 发现可用扩展命令、提示词和 skills，并以 `prompt` 发送 `/命令`。
-- Pi 内置 TUI 专属命令不应通过 RPC 调用；对应功能由桌面端提供图形界面。桌面端应依据 `message_update`、`tool_execution_*`、`agent_settled`、`compaction_*`、`auto_retry_*` 等 RPC 事件展示执行过程，并处理 `extension_ui_request`/`extension_ui_response` 交互。
+- 桌面客户端是已安装 Pi 的原生桌面外壳，不实现或复制 Pi 的核心能力；默认用户已按 Pi 官方方式完成安装。
+- 桌面客户端通过 Rust 创建 PTY，在用户选择的工作目录中启动普通交互模式的 `pi`，并将 Pi TUI 的终端字节流交给 xterm.js 呈现；不得解析或重建 Agent、会话、工具或 TUI 组件语义。
+- 桌面客户端负责：Pi 可执行文件检测、登录 shell 环境合成、工作目录选择、PTY 与子进程生命周期、终端输入输出转发、尺寸同步、退出与故障呈现，以及本地终端外观偏好。
+- Pi 负责：TUI、模型与认证、Agent 推理、工具、skills、extensions、slash commands、会话持久化与分支、上下文压缩、重试、队列和 `.pi` 配置加载。
+- 一个桌面终端会话对应一个在所选工作目录运行的 Pi 交互子进程。桌面端不与同一会话并发启动 RPC 子进程，不读取或修改 Pi 会话内部状态。
+- 前端只通过稳定的 Tauri PTY 命令与事件进行连接、输入、resize、重启和停止；ANSI/VT、键盘、鼠标、粘贴与滚动语义由 xterm.js 和 Pi TUI 共同负责。
 
 ## Rust crate 项目开发规约
 
