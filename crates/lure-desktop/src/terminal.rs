@@ -11,8 +11,16 @@ pub const TERMINAL_FONT_FALLBACKS: [&str; 4] = [
 ];
 pub const CELL_WIDTH: f32 = 8.0;
 pub const CELL_HEIGHT: f32 = 16.0;
+const CELL_WIDTH_PX: u32 = 8;
+const CELL_HEIGHT_PX: u32 = 16;
 pub const TITLEBAR_HEIGHT: f32 = 48.0;
 pub const TERMINAL_PADDING: f32 = 16.0;
+/// 单张终端图片解码后的像素字节上限（RGBA，约 4096 × 1024）。
+pub const MAX_GRAPHIC_BYTES: usize = 16 * 1024 * 1024;
+/// 每个终端 Tab 的图片纹理内存上限。
+pub const GRAPHICS_MEMORY_LIMIT: usize = 64 * 1024 * 1024;
+/// 全应用所有 Tab 合计的图片纹理内存上限。
+pub const GLOBAL_GRAPHICS_MEMORY_LIMIT: usize = 256 * 1024 * 1024;
 
 #[must_use]
 pub fn terminal_font() -> gpui::Font {
@@ -157,117 +165,395 @@ impl TerminalLine {
     }
 }
 
-/// ANSI/VT 网格由 Alacritty 终端内核维护，展示层只读取可见单元格。
+/// 一张已解析的 Kitty Graphics 图片 placement，坐标相对终端内容原点（像素）。
+#[derive(Clone)]
+pub struct TerminalGraphic {
+    pub image_id: u32,
+    pub placement_id: u32,
+    /// placement 目标矩形（相对终端内容原点）。
+    pub x: f32,
+    pub y: f32,
+    pub width: f32,
+    pub height: f32,
+    /// 归一化源裁剪矩形 `[u0, v0, u1, v1]`。
+    pub source_rect: [f32; 4],
+    pub z_index: i32,
+    pub pixel_width: usize,
+    pub pixel_height: usize,
+    pub image: std::sync::Arc<gpui::RenderImage>,
+}
+
+impl std::fmt::Debug for TerminalGraphic {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("TerminalGraphic")
+            .field("image_id", &self.image_id)
+            .field("placement_id", &self.placement_id)
+            .field("x", &self.x)
+            .field("y", &self.y)
+            .field("width", &self.width)
+            .field("height", &self.height)
+            .field("source_rect", &self.source_rect)
+            .field("z_index", &self.z_index)
+            .field("pixel_width", &self.pixel_width)
+            .field("pixel_height", &self.pixel_height)
+            .finish_non_exhaustive()
+    }
+}
+
+/// ANSI/VT 网格由 rio-vt 终端内核维护，展示层只读取可见单元格与图片 placement。
 pub struct TerminalGrid {
-    term: alacritty_terminal::term::Term<TerminalEvents>,
-    processor: alacritty_terminal::vte::ansi::Processor,
+    term: rio_vt::crosswords::Crosswords<TerminalEvents>,
+    processor: rio_vt::performer::handler::Processor,
     events: TerminalEvents,
+    graphics_memory: usize,
+    graphics_limit: usize,
 }
 
 #[derive(Clone, Default)]
-struct TerminalEvents(std::rc::Rc<std::cell::RefCell<Vec<String>>>);
+struct TerminalEvents(std::rc::Rc<std::cell::RefCell<TerminalQueues>>);
 
-impl alacritty_terminal::event::EventListener for TerminalEvents {
-    fn send_event(&self, event: alacritty_terminal::event::Event) {
-        if let alacritty_terminal::event::Event::PtyWrite(text) = event {
-            self.0.borrow_mut().push(text);
+#[derive(Default)]
+struct TerminalQueues {
+    responses: Vec<String>,
+    textures: TextureStore,
+}
+
+struct TextureEntry {
+    image: std::sync::Arc<gpui::RenderImage>,
+    bytes: usize,
+    sequence: u64,
+}
+
+#[derive(Default)]
+struct TextureStore {
+    map: std::collections::HashMap<u32, TextureEntry>,
+    bytes: usize,
+}
+
+static TEXTURE_SEQUENCE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+static GLOBAL_TEXTURE_BYTES: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+
+impl TextureStore {
+    fn insert(&mut self, image_id: u32, graphic: &rio_graphics::GraphicData) {
+        use std::sync::atomic::Ordering;
+        let Some(image) = render_image(graphic) else {
+            return;
+        };
+        let bytes = graphic
+            .width
+            .saturating_mul(graphic.height)
+            .saturating_mul(4);
+        if bytes == 0 || bytes > MAX_GRAPHIC_BYTES {
+            return;
+        }
+        if let Some(old) = self.map.remove(&image_id) {
+            self.bytes = self.bytes.saturating_sub(old.bytes);
+            GLOBAL_TEXTURE_BYTES.fetch_sub(old.bytes, Ordering::AcqRel);
+        }
+        let sequence = TEXTURE_SEQUENCE.fetch_add(1, Ordering::AcqRel);
+        self.map.insert(
+            image_id,
+            TextureEntry {
+                image,
+                bytes,
+                sequence,
+            },
+        );
+        self.bytes = self.bytes.saturating_add(bytes);
+        GLOBAL_TEXTURE_BYTES.fetch_add(bytes, Ordering::AcqRel);
+    }
+
+    fn remove(&mut self, image_id: u32) {
+        use std::sync::atomic::Ordering;
+        if let Some(old) = self.map.remove(&image_id) {
+            self.bytes = self.bytes.saturating_sub(old.bytes);
+            GLOBAL_TEXTURE_BYTES.fetch_sub(old.bytes, Ordering::AcqRel);
         }
     }
+
+    fn evict_oldest(&mut self) -> bool {
+        use std::sync::atomic::Ordering;
+        let Some((&id, _)) = self.map.iter().min_by_key(|(_, entry)| entry.sequence) else {
+            return false;
+        };
+        if let Some(old) = self.map.remove(&id) {
+            self.bytes = self.bytes.saturating_sub(old.bytes);
+            GLOBAL_TEXTURE_BYTES.fetch_sub(old.bytes, Ordering::AcqRel);
+        }
+        true
+    }
+
+    fn get(&self, image_id: u32) -> Option<&TextureEntry> {
+        self.map.get(&image_id)
+    }
 }
 
-#[derive(Clone, Copy)]
-struct GridSize {
-    rows: usize,
-    columns: usize,
+impl Drop for TextureStore {
+    fn drop(&mut self) {
+        use std::sync::atomic::Ordering;
+        GLOBAL_TEXTURE_BYTES.fetch_sub(self.bytes, Ordering::AcqRel);
+    }
 }
 
-impl alacritty_terminal::grid::Dimensions for GridSize {
-    fn total_lines(&self) -> usize {
-        self.rows
-    }
-    fn screen_lines(&self) -> usize {
-        self.rows
-    }
-    fn columns(&self) -> usize {
-        self.columns
+/// 将 Rio 解码后的 RGB/RGBA 像素转换为 GPUI 需要的 BGRA 纹理。
+fn render_image(graphic: &rio_graphics::GraphicData) -> Option<std::sync::Arc<gpui::RenderImage>> {
+    let width = u32::try_from(graphic.width).ok()?;
+    let height = u32::try_from(graphic.height).ok()?;
+    let pixels = match graphic.color_type {
+        rio_graphics::ColorType::Rgba => {
+            if graphic.pixels.len() != graphic.width * graphic.height * 4 {
+                return None;
+            }
+            let mut pixels = graphic.pixels.clone();
+            for pixel in pixels.chunks_exact_mut(4) {
+                pixel.swap(0, 2);
+            }
+            pixels
+        }
+        rio_graphics::ColorType::Rgb => {
+            if graphic.pixels.len() != graphic.width * graphic.height * 3 {
+                return None;
+            }
+            let mut converted = Vec::with_capacity(graphic.width * graphic.height * 4);
+            for pixel in graphic.pixels.chunks_exact(3) {
+                converted.extend_from_slice(&[pixel[2], pixel[1], pixel[0], 255]);
+            }
+            converted
+        }
+    };
+    let buffer = image::ImageBuffer::<image::Rgba<u8>, Vec<u8>>::from_raw(width, height, pixels)?;
+    Some(std::sync::Arc::new(gpui::RenderImage::new(
+        smallvec::smallvec![image::Frame::new(buffer)],
+    )))
+}
+
+impl rio_vt::event::EventListener for TerminalEvents {
+    fn send_event(&self, event: rio_vt::event::RioEvent, _window: rio_vt::event::WindowId) {
+        match event {
+            rio_vt::event::RioEvent::PtyWrite(_, text) => {
+                self.0.borrow_mut().responses.push(text);
+            }
+            rio_vt::event::RioEvent::UpdateGraphics { mut queues, .. } => {
+                let mut queues_ref = self.0.borrow_mut();
+                for (image_id, graphic) in queues.pending_images.drain(..) {
+                    queues_ref.textures.insert(image_id, &graphic);
+                }
+                for key in queues.remove_queue.drain(..) {
+                    // Kitty 图片纹理以协议 image_id（u32）为键；atlas 图形使用更高命名空间。
+                    if key < (1_u64 << 32) {
+                        queues_ref
+                            .textures
+                            .remove(u32::try_from(key).unwrap_or(u32::MAX));
+                    }
+                }
+            }
+            _ => {}
+        }
     }
 }
 
 impl TerminalGrid {
     #[must_use]
     pub fn new(rows: u16, columns: u16) -> Self {
-        use alacritty_terminal::term::{Config, Term};
+        use rio_vt::ansi::CursorShape;
+        use rio_vt::crosswords::{Crosswords, CrosswordsSize};
         let events = TerminalEvents::default();
-        let config = Config {
-            kitty_keyboard: true,
-            ..Config::default()
-        };
-        let size = GridSize {
-            rows: usize::from(rows.max(1)),
-            columns: usize::from(columns.max(2)),
-        };
+        let rows = usize::from(rows.max(1));
+        let columns = usize::from(columns.max(2));
+        let size = CrosswordsSize::new_with_dimensions(
+            columns,
+            rows,
+            u32::try_from(columns)
+                .unwrap_or(u32::MAX)
+                .saturating_mul(CELL_WIDTH_PX),
+            u32::try_from(rows)
+                .unwrap_or(u32::MAX)
+                .saturating_mul(CELL_HEIGHT_PX),
+            CELL_WIDTH_PX,
+            CELL_HEIGHT_PX,
+        );
+        let mut term = Crosswords::new(
+            size,
+            CursorShape::Block,
+            events.clone(),
+            rio_vt::event::WindowId::from(0),
+            0,
+            10_000,
+        );
+        term.graphics.total_limit = GRAPHICS_MEMORY_LIMIT;
         Self {
-            term: Term::new(config, &size, events.clone()),
-            processor: alacritty_terminal::vte::ansi::Processor::default(),
+            term,
+            processor: rio_vt::performer::handler::Processor::default(),
             events,
+            graphics_memory: 0,
+            graphics_limit: GRAPHICS_MEMORY_LIMIT,
         }
     }
 
     pub fn process(&mut self, bytes: &[u8]) {
         self.processor.advance(&mut self.term, bytes);
+        self.enforce_graphics_limits();
+    }
+
+    fn enforce_graphics_limits(&mut self) {
+        use std::sync::atomic::Ordering;
+        loop {
+            let (local, global) = {
+                let queues = self.events.0.borrow();
+                (
+                    queues.textures.bytes,
+                    GLOBAL_TEXTURE_BYTES.load(Ordering::Acquire),
+                )
+            };
+            let over_local = local > self.graphics_limit;
+            let over_global = global > GLOBAL_GRAPHICS_MEMORY_LIMIT;
+            if !over_local && !over_global {
+                break;
+            }
+            if !self.events.0.borrow_mut().textures.evict_oldest() {
+                break;
+            }
+        }
+        self.graphics_memory = self.events.0.borrow().textures.bytes;
+    }
+
+    /// 当前终端可见范围内的 Kitty Graphics placement，按 z-index 升序。
+    #[must_use]
+    pub fn graphics(&self) -> Vec<TerminalGraphic> {
+        use rio_vt::ansi::graphics::{OverlayViewport, kitty_overlay_geometry};
+        let queues = self.events.0.borrow();
+        let viewport = OverlayViewport {
+            cell_width: CELL_WIDTH,
+            cell_height: CELL_HEIGHT,
+            origin_x: 0.0,
+            origin_y: 0.0,
+            history_size: i64::try_from(self.term.history_size()).unwrap_or(i64::MAX),
+            display_offset: i64::try_from(self.term.display_offset()).unwrap_or(i64::MAX),
+            screen_lines: i64::try_from(self.term.screen_lines()).unwrap_or(i64::MAX),
+        };
+        let mut graphics = Vec::new();
+        for (&(image_id, placement_id), placement) in &self.term.graphics.kitty_placements {
+            let Some(texture) = queues.textures.get(image_id) else {
+                continue;
+            };
+            let size = texture.image.size(0);
+            let (width, height) = (usize::try_from(size.width.0).unwrap_or(0), {
+                let h: i32 = size.height.0;
+                usize::try_from(h).unwrap_or(0)
+            });
+            if width == 0 || height == 0 {
+                continue;
+            }
+            let Some(geometry) = kitty_overlay_geometry(placement, width, height, &viewport) else {
+                continue;
+            };
+            graphics.push(TerminalGraphic {
+                image_id,
+                placement_id,
+                x: geometry.x,
+                y: geometry.y,
+                width: geometry.width,
+                height: geometry.height,
+                source_rect: geometry.source_rect,
+                z_index: placement.z_index,
+                pixel_width: width,
+                pixel_height: height,
+                image: texture.image.clone(),
+            });
+        }
+        graphics.sort_by_key(|graphic| graphic.z_index);
+        graphics
+    }
+
+    /// 当前 Tab 持有的图片纹理字节数。
+    #[must_use]
+    pub fn graphics_memory_bytes(&self) -> usize {
+        self.events.0.borrow().textures.bytes
+    }
+
+    /// 调整当前 Tab 的图片纹理内存上限；立即回收最久未使用的纹理直到满足上限。
+    pub fn set_graphics_memory_limit(&mut self, limit: usize) {
+        self.graphics_limit = limit;
+        self.term.graphics.total_limit = limit;
+        while self.events.0.borrow().textures.bytes > self.graphics_limit {
+            if !self.events.0.borrow_mut().textures.evict_oldest() {
+                break;
+            }
+        }
+        self.graphics_memory = self.events.0.borrow().textures.bytes;
     }
 
     /// 回复终端控制序列查询的字节必须由 PTY 发送，不能渲染成文本。
     #[must_use]
     pub fn take_responses(&self) -> Vec<String> {
-        std::mem::take(&mut *self.events.0.borrow_mut())
+        std::mem::take(&mut self.events.0.borrow_mut().responses)
     }
 
     pub fn resize(&mut self, rows: u16, columns: u16) {
-        self.term.resize(GridSize {
-            rows: usize::from(rows.max(1)),
-            columns: usize::from(columns.max(2)),
-        });
+        use rio_vt::crosswords::CrosswordsSize;
+        let rows = usize::from(rows.max(1));
+        let columns = usize::from(columns.max(2));
+        self.term.resize(CrosswordsSize::new_with_dimensions(
+            columns,
+            rows,
+            u32::try_from(columns)
+                .unwrap_or(u32::MAX)
+                .saturating_mul(CELL_WIDTH_PX),
+            u32::try_from(rows)
+                .unwrap_or(u32::MAX)
+                .saturating_mul(CELL_HEIGHT_PX),
+            CELL_WIDTH_PX,
+            CELL_HEIGHT_PX,
+        ));
     }
 
     pub fn scroll_by(&mut self, rows: i32) {
         self.term
-            .scroll_display(alacritty_terminal::grid::Scroll::Delta(rows));
+            .scroll_display(rio_vt::crosswords::grid::Scroll::Delta(rows));
     }
 
     pub fn scroll_to_bottom(&mut self) {
         self.term
-            .scroll_display(alacritty_terminal::grid::Scroll::Bottom);
+            .scroll_display(rio_vt::crosswords::grid::Scroll::Bottom);
     }
 
     #[must_use]
     pub fn scrollback(&self) -> usize {
-        self.term.grid().display_offset()
+        self.term.display_offset()
     }
 
     #[must_use]
     pub fn alternate_screen(&self) -> bool {
         self.term
             .mode()
-            .contains(alacritty_terminal::term::TermMode::ALT_SCREEN)
+            .contains(rio_vt::crosswords::Mode::ALT_SCREEN)
     }
 
     #[must_use]
     pub fn cursor_visible(&self) -> bool {
-        use alacritty_terminal::term::TermMode;
-        self.scrollback() == 0 && self.term.mode().contains(TermMode::SHOW_CURSOR)
+        self.scrollback() == 0
+            && self
+                .term
+                .mode()
+                .contains(rio_vt::crosswords::Mode::SHOW_CURSOR)
     }
 
     #[must_use]
     pub fn keyboard_input(&self, input: &crate::input::KeyInput) -> Option<Vec<u8>> {
-        let mode = *self.term.mode();
+        use rio_vt::ansi::KeyboardModes;
+        use rio_vt::crosswords::Mode;
+        let mode = self.term.mode();
         if input.key.eq_ignore_ascii_case("enter")
             && input.modifiers.shift
-            && mode.contains(alacritty_terminal::term::TermMode::DISAMBIGUATE_ESC_CODES)
+            && self
+                .term
+                .keyboard_mode()
+                .contains(KeyboardModes::DISAMBIGUATE_ESC_CODES)
         {
             return Some(b"\x1b[13;2u".to_vec());
         }
-        if mode.contains(alacritty_terminal::term::TermMode::APP_CURSOR)
+        if mode.contains(Mode::APP_CURSOR)
             && !input.modifiers.control
             && !input.modifiers.alt
             && !input.modifiers.platform
@@ -287,14 +573,14 @@ impl TerminalGrid {
     }
 
     fn mouse_sequence(&self, row: u16, column: u16, code: u16, release: bool) -> Option<Vec<u8>> {
-        use alacritty_terminal::term::TermMode;
-        let mode = *self.term.mode();
-        if !mode.intersects(TermMode::MOUSE_MODE) {
+        use rio_vt::crosswords::Mode;
+        let mode = self.term.mode();
+        if !mode.intersects(Mode::MOUSE_MODE) {
             return None;
         }
         let col = column.saturating_add(1);
         let row = row.saturating_add(1);
-        if mode.contains(TermMode::SGR_MOUSE) {
+        if mode.contains(Mode::SGR_MOUSE) {
             return Some(
                 format!(
                     "\x1b[<{code};{col};{row}{}",
@@ -306,7 +592,7 @@ impl TerminalGrid {
         let code = if release { 3 } else { code };
         let mut bytes = b"\x1b[M".to_vec();
         for value in [code, col, row] {
-            if !mode.contains(TermMode::UTF8_MOUSE) && value > 223 {
+            if !mode.contains(Mode::UTF8_MOUSE) && value > 223 {
                 return None;
             }
             let character = char::from_u32(u32::from(value.saturating_add(32)))?;
@@ -341,7 +627,6 @@ impl TerminalGrid {
 
     #[must_use]
     pub fn size(&self) -> (u16, u16) {
-        use alacritty_terminal::grid::Dimensions;
         (
             self.term.screen_lines().try_into().unwrap_or(u16::MAX),
             self.term.columns().try_into().unwrap_or(u16::MAX),
@@ -350,10 +635,10 @@ impl TerminalGrid {
 
     #[must_use]
     pub fn cursor(&self) -> (u16, u16) {
-        let point = self.term.renderable_content().cursor.point;
+        let cursor = self.term.cursor();
         (
-            point.line.0.try_into().unwrap_or(0),
-            point.column.0.try_into().unwrap_or(0),
+            cursor.pos.row.0.try_into().unwrap_or(0),
+            cursor.pos.col.0.try_into().unwrap_or(0),
         )
     }
 
@@ -404,7 +689,9 @@ impl TerminalGrid {
 
     #[must_use]
     pub fn lines(&self) -> Vec<TerminalLine> {
-        use alacritty_terminal::term::cell::Flags;
+        use rio_vt::crosswords::pos::Column;
+        use rio_vt::crosswords::square::Wide;
+        use rio_vt::crosswords::style::StyleFlags;
         let (rows, columns) = self.size();
         let mut lines = vec![
             TerminalLine {
@@ -422,59 +709,62 @@ impl TerminalGrid {
             };
             usize::from(rows)
         ];
-        let visible = self.term.renderable_content();
-        for item in visible.display_iter {
-            let Some(row) = i64::from(item.point.line.0)
-                .checked_add(i64::try_from(visible.display_offset).unwrap_or(i64::MAX))
-                .and_then(|row| usize::try_from(row).ok())
-            else {
-                continue;
-            };
-            if row >= usize::from(rows) || item.point.column.0 >= usize::from(columns) {
-                continue;
+        let visible = self.term.visible_rows();
+        for (row_index, row) in visible.iter().take(usize::from(rows)).enumerate() {
+            for column in 0..usize::from(columns) {
+                if column >= row.len() {
+                    break;
+                }
+                let square = row[Column(column)];
+                let style = self.term.grid.style_of(&square);
+                let mut foreground = color(style.fg, FOREGROUND);
+                let mut background = color(style.bg, BACKGROUND);
+                if style.flags.contains(StyleFlags::INVERSE) {
+                    std::mem::swap(&mut foreground, &mut background);
+                }
+                let mut text = if matches!(square.wide(), Wide::Spacer | Wide::LeadingSpacer) {
+                    String::new()
+                } else {
+                    match square.c() {
+                        '\0' => " ".to_string(),
+                        c => c.to_string(),
+                    }
+                };
+                if !text.is_empty()
+                    && let Some(extras_id) = square.extras_id_checked()
+                    && let Some(extras) = self.term.grid.extras_table.get(extras_id)
+                {
+                    text.extend(extras.zerowidth.iter());
+                }
+                lines[row_index].cells[column] = TerminalCell {
+                    text,
+                    foreground,
+                    background,
+                    bold: style.flags.contains(StyleFlags::BOLD),
+                    italic: style.flags.contains(StyleFlags::ITALIC),
+                    underline: style.flags.intersects(StyleFlags::ALL_UNDERLINES),
+                };
             }
-            let cell = item.cell;
-            let mut foreground = color(cell.fg, FOREGROUND);
-            let mut background = color(cell.bg, BACKGROUND);
-            if cell.flags.contains(Flags::INVERSE) {
-                std::mem::swap(&mut foreground, &mut background);
-            }
-            let mut text = if cell.flags.contains(Flags::WIDE_CHAR_SPACER) {
-                String::new()
-            } else {
-                cell.c.to_string()
-            };
-            if !text.is_empty()
-                && let Some(extra) = cell.zerowidth()
-            {
-                text.extend(extra.iter());
-            }
-            lines[row].cells[item.point.column.0] = TerminalCell {
-                text,
-                foreground,
-                background,
-                bold: cell.flags.contains(Flags::BOLD),
-                italic: cell.flags.contains(Flags::ITALIC),
-                underline: cell.flags.intersects(Flags::ALL_UNDERLINES),
-            };
         }
         lines
     }
 }
 
-fn color(color: alacritty_terminal::vte::ansi::Color, default: u32) -> u32 {
-    use alacritty_terminal::vte::ansi::{Color, NamedColor};
+fn color(color: rio_vt::config::colors::AnsiColor, default: u32) -> u32 {
+    use rio_vt::config::colors::{AnsiColor, NamedColor};
     match color {
-        Color::Spec(rgb) => (u32::from(rgb.r) << 16) | (u32::from(rgb.g) << 8) | u32::from(rgb.b),
-        Color::Indexed(index) => indexed_color(index),
-        Color::Named(
-            NamedColor::Foreground | NamedColor::BrightForeground | NamedColor::DimForeground,
+        AnsiColor::Spec(rgb) => {
+            (u32::from(rgb.r) << 16) | (u32::from(rgb.g) << 8) | u32::from(rgb.b)
+        }
+        AnsiColor::Indexed(index) => indexed_color(index),
+        AnsiColor::Named(
+            NamedColor::Foreground | NamedColor::LightForeground | NamedColor::DimForeground,
         ) => FOREGROUND,
-        Color::Named(NamedColor::Background) => BACKGROUND,
-        Color::Named(name) if (name as usize) < 16 => {
+        AnsiColor::Named(NamedColor::Background) => BACKGROUND,
+        AnsiColor::Named(name) if (name as usize) < 16 => {
             indexed_color(u8::try_from(name as usize).unwrap_or_default())
         }
-        Color::Named(_) => default,
+        AnsiColor::Named(_) => default,
     }
 }
 

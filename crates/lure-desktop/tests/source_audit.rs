@@ -6,7 +6,11 @@ fn workspace_is_pure_rust_and_contains_no_tauri_or_web_frontend_entrypoints() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     let manifest = fs::read_to_string(root.join("Cargo.toml")).unwrap();
     assert!(!manifest.to_ascii_lowercase().contains("tauri"));
-    assert!(manifest.contains("alacritty_terminal"));
+    assert!(manifest.contains("rio-vt"));
+    assert!(
+        !manifest.contains("alacritty_terminal"),
+        "终端内核必须完成到 rio-vt 的迁移"
+    );
     assert!(!manifest.contains("vt100"));
     assert!(!root.join("src-tauri").exists());
     assert!(!root.join("package.json").exists());

@@ -438,3 +438,164 @@ fn maps_ansi_palette_cube_grayscale_and_truecolor() {
     assert_eq!(cell.foreground, 0x0001_0203);
     assert_eq!(cell.background, 0x0004_0506);
 }
+
+fn kitty_rgba(image_id: u32, placement_id: u32, pixel: [u8; 4]) -> Vec<u8> {
+    let encoded = match pixel {
+        [255, 0, 0, 255] => "/wAA/w==",
+        [0, 255, 0, 255] => "AP8A/w==",
+        _ => panic!("测试只使用预编码像素"),
+    };
+    format!("\x1b_Ga=T,f=32,s=1,v=1,i={image_id},p={placement_id},c=1,r=1;{encoded}\x1b\\")
+        .into_bytes()
+}
+
+#[test]
+fn kitty_graphics_survive_arbitrary_pty_chunks_and_delete_cleanly() {
+    let bytes = kitty_rgba(41, 7, [255, 0, 0, 255]);
+    let mut grid = TerminalGrid::new(3, 12);
+    for chunk in bytes.chunks(3) {
+        grid.process(chunk);
+    }
+
+    let graphics = grid.graphics();
+    assert_eq!(graphics.len(), 1);
+    assert_eq!(graphics[0].image_id, 41);
+    assert_eq!(graphics[0].placement_id, 7);
+    assert_eq!((graphics[0].pixel_width, graphics[0].pixel_height), (1, 1));
+    assert_eq!(graphics[0].image.as_bytes(0), Some(&[0, 0, 255, 255][..]));
+
+    grid.process(b"\x1b_Ga=d,d=I,i=41\x1b\\");
+    assert!(grid.graphics().is_empty());
+    assert_eq!(grid.graphics_memory_bytes(), 0);
+}
+
+#[test]
+fn kitty_graphics_keep_main_and_alternate_screen_state_separate() {
+    let mut grid = TerminalGrid::new(3, 12);
+    grid.process(&kitty_rgba(1, 1, [255, 0, 0, 255]));
+    assert_eq!(grid.graphics()[0].image_id, 1);
+
+    grid.process(b"\x1b[?1049h");
+    assert!(grid.graphics().is_empty());
+    grid.process(&kitty_rgba(2, 2, [0, 255, 0, 255]));
+    assert_eq!(grid.graphics()[0].image_id, 2);
+
+    grid.process(b"\x1b[?1049l");
+    assert_eq!(grid.graphics()[0].image_id, 1);
+}
+
+#[test]
+fn kitty_placement_tracks_scrollback_and_resize() {
+    let mut grid = TerminalGrid::new(3, 12);
+    grid.process(&kitty_rgba(3, 9, [255, 0, 0, 255]));
+    let initial = grid.graphics()[0].clone();
+    assert_eq!((initial.x, initial.y), (0.0, 0.0));
+
+    for _ in 0..4 {
+        grid.process(b"\r\n");
+    }
+    assert!(grid.graphics().is_empty());
+    grid.scroll_by(4);
+    assert!(!grid.graphics().is_empty());
+
+    grid.resize(4, 20);
+    let resized = grid.graphics()[0].clone();
+    assert_eq!((resized.width, resized.height), (8.0, 16.0));
+}
+
+#[test]
+fn graphics_budget_can_be_reduced_and_evicts_existing_images() {
+    let mut grid = TerminalGrid::new(3, 12);
+    grid.process(&kitty_rgba(4, 1, [255, 0, 0, 255]));
+    assert!(!grid.graphics().is_empty());
+    grid.set_graphics_memory_limit(1);
+    assert!(grid.graphics().is_empty());
+    assert_eq!(grid.graphics_memory_bytes(), 0);
+}
+
+#[test]
+fn independent_terminal_grids_do_not_share_kitty_image_ids() {
+    let mut first = TerminalGrid::new(2, 8);
+    let mut second = TerminalGrid::new(2, 8);
+    first.process(&kitty_rgba(77, 1, [255, 0, 0, 255]));
+    second.process(&kitty_rgba(77, 1, [0, 255, 0, 255]));
+
+    assert_eq!(
+        first.graphics()[0].image.as_bytes(0),
+        Some(&[0, 0, 255, 255][..])
+    );
+    assert_eq!(
+        second.graphics()[0].image.as_bytes(0),
+        Some(&[0, 255, 0, 255][..])
+    );
+}
+
+/// 真实 Pi 录制样本体积较大，只保留在本地，不进入版本追踪；缺失时跳过。
+fn real_pi_recording() -> Option<Vec<u8>> {
+    std::fs::read(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/fixtures/pi-terminal.raw"
+    ))
+    .ok()
+}
+
+#[test]
+fn real_pi_recording_decodes_kitty_image_and_final_placement() {
+    let Some(bytes) = real_pi_recording() else {
+        eprintln!("跳过：本地不存在 tests/fixtures/pi-terminal.raw 录制样本");
+        return;
+    };
+
+    let mut grid = TerminalGrid::new(60, 160);
+    grid.process(&bytes);
+
+    let graphics = grid.graphics();
+    assert!(
+        !graphics.is_empty(),
+        "录制样本回放后必须存在可见图片 placement"
+    );
+    let graphic = graphics
+        .iter()
+        .find(|graphic| graphic.image_id == 570_670_258)
+        .expect("必须包含录制中的图片 570670258");
+    assert_eq!((graphic.pixel_width, graphic.pixel_height), (1828, 1382));
+    assert!(graphic.placement_id >= 0x8000_0000, "内部 placement id");
+    assert_eq!(graphic.z_index, 0);
+}
+
+#[test]
+fn real_pi_recording_survives_arbitrary_pty_chunk_boundaries() {
+    let Some(bytes) = real_pi_recording() else {
+        eprintln!("跳过：本地不存在 tests/fixtures/pi-terminal.raw 录制样本");
+        return;
+    };
+
+    let mut whole = TerminalGrid::new(60, 160);
+    whole.process(&bytes);
+
+    let mut chunked = TerminalGrid::new(60, 160);
+    for chunk in bytes.chunks(137) {
+        chunked.process(chunk);
+    }
+
+    let whole_graphics = whole.graphics();
+    let chunked_graphics = chunked.graphics();
+    assert_eq!(whole_graphics.len(), chunked_graphics.len());
+    for (left, right) in whole_graphics.iter().zip(chunked_graphics.iter()) {
+        assert_eq!(left.image_id, right.image_id);
+        assert_eq!(left.placement_id, right.placement_id);
+        assert_eq!(left.pixel_width, right.pixel_width);
+        assert_eq!(left.pixel_height, right.pixel_height);
+        assert!(left.x.to_bits() == right.x.to_bits());
+        assert!(left.y.to_bits() == right.y.to_bits());
+        assert!(left.width.to_bits() == right.width.to_bits());
+        assert!(left.height.to_bits() == right.height.to_bits());
+        assert!(
+            left.source_rect
+                .iter()
+                .zip(right.source_rect.iter())
+                .all(|(l, r)| l.to_bits() == r.to_bits())
+        );
+        assert_eq!(left.image.as_bytes(0), right.image.as_bytes(0));
+    }
+}

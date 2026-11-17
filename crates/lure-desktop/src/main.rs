@@ -9,11 +9,11 @@ use std::thread;
 
 use async_channel::{Receiver, Sender};
 use gpui::{
-    App, AppContext, Bounds, ClipboardItem, Context, ElementInputHandler, EntityInputHandler,
-    FocusHandle, FontStyle, FontWeight, IntoElement, KeyDownEvent, MouseButton, MouseDownEvent,
-    MouseMoveEvent, MouseUpEvent, PaintQuad, PathPromptOptions, Render, Role, SharedString,
-    TextAlign, TextRun, TitlebarOptions, UTF16Selection, UnderlineStyle, Window, WindowBounds,
-    WindowOptions, canvas, div, point, prelude::*, px, rgb, rgb_to_hsla, rgba, size,
+    App, AppContext, Bounds, ClipboardItem, Context, Corners, ElementInputHandler,
+    EntityInputHandler, FocusHandle, FontStyle, FontWeight, IntoElement, KeyDownEvent, MouseButton,
+    MouseDownEvent, MouseMoveEvent, MouseUpEvent, PaintQuad, PathPromptOptions, Render, Role,
+    SharedString, TextAlign, TextRun, TitlebarOptions, UTF16Selection, UnderlineStyle, Window,
+    WindowBounds, WindowOptions, canvas, div, point, prelude::*, px, rgb, rgb_to_hsla, rgba, size,
 };
 use lure_desktop::input::{KeyInput, Modifiers};
 use lure_desktop::projects::{
@@ -21,8 +21,8 @@ use lure_desktop::projects::{
     save_projects,
 };
 use lure_desktop::terminal::{
-    CELL_HEIGHT, CELL_WIDTH, TERMINAL_PADDING, TITLEBAR_HEIGHT, TerminalGrid, TerminalSelection,
-    terminal_font, terminal_size_for_viewport,
+    CELL_HEIGHT, CELL_WIDTH, TERMINAL_PADDING, TITLEBAR_HEIGHT, TerminalGraphic, TerminalGrid,
+    TerminalSelection, terminal_font, terminal_size_for_viewport,
 };
 use lure_desktop::theme::{ACCENT, BACKGROUND, BORDER, ERROR, FOREGROUND, MUTED, TITLEBAR};
 use lure_pty::{
@@ -1419,6 +1419,7 @@ impl Render for LureApp {
             .map(|line| line.runs())
             .collect::<Vec<_>>();
         let marked_text = self.marked_text.clone();
+        let graphics = self.terminal.graphics();
         let selection = self.selection;
         let dimensions = self.dimensions;
         let terminal_entity = cx.entity();
@@ -1727,6 +1728,76 @@ impl Render for LureApp {
                                         );
                                     }
 
+                                    let paint_graphic =
+                                        |window: &mut Window, graphic: &TerminalGraphic| {
+                                            let dest = Bounds::new(
+                                                point(
+                                                    bounds.left() + px(graphic.x),
+                                                    bounds.top() + px(graphic.y),
+                                                ),
+                                                size(px(graphic.width), px(graphic.height)),
+                                            );
+                                            let clip = dest.intersect(&bounds);
+                                            if clip.size.width <= px(0.0)
+                                                || clip.size.height <= px(0.0)
+                                            {
+                                                return;
+                                            }
+                                            let [u0, v0, u1, v1] = graphic.source_rect;
+                                            let crop_width = (u1 - u0).max(f32::EPSILON);
+                                            let crop_height = (v1 - v0).max(f32::EPSILON);
+                                            let full_width = graphic.width / crop_width;
+                                            let full_height = graphic.height / crop_height;
+                                            let image_bounds = Bounds::new(
+                                                point(
+                                                    dest.origin.x - px(u0 * full_width),
+                                                    dest.origin.y - px(v0 * full_height),
+                                                ),
+                                                size(px(full_width), px(full_height)),
+                                            );
+                                            let _ = window.paint_image(
+                                                clip,
+                                                image_bounds,
+                                                Corners::all(px(0.0)),
+                                                0.0,
+                                                graphic.image.clone(),
+                                                0,
+                                                false,
+                                            );
+                                        };
+
+                                    // 负 z-index 图片绘制在单元格背景之上、文字之下。
+                                    for graphic in &graphics {
+                                        if graphic.z_index < 0 {
+                                            paint_graphic(window, graphic);
+                                        }
+                                    }
+
+                                    for (row, column, _, _, shaped) in &painted_runs {
+                                        if let Some(shaped) = shaped {
+                                            let _ = shaped.paint(
+                                                point(
+                                                    bounds.left()
+                                                        + px(CELL_WIDTH * f32::from(*column)),
+                                                    bounds.top()
+                                                        + px(CELL_HEIGHT * f32::from(*row)),
+                                                ),
+                                                px(CELL_HEIGHT),
+                                                TextAlign::Left,
+                                                None,
+                                                window,
+                                                cx,
+                                            );
+                                        }
+                                    }
+
+                                    // 正 z-index 图片覆盖在文字之上。
+                                    for graphic in &graphics {
+                                        if graphic.z_index >= 0 {
+                                            paint_graphic(window, graphic);
+                                        }
+                                    }
+
                                     if let Some(selection) = selection {
                                         for row in 0..dimensions.1 {
                                             if let Some(columns) =
@@ -1752,24 +1823,6 @@ impl Render for LureApp {
                                                     .background(rgba(0x83a5_9880)),
                                                 );
                                             }
-                                        }
-                                    }
-
-                                    for (row, column, _, _, shaped) in &painted_runs {
-                                        if let Some(shaped) = shaped {
-                                            let _ = shaped.paint(
-                                                point(
-                                                    bounds.left()
-                                                        + px(CELL_WIDTH * f32::from(*column)),
-                                                    bounds.top()
-                                                        + px(CELL_HEIGHT * f32::from(*row)),
-                                                ),
-                                                px(CELL_HEIGHT),
-                                                TextAlign::Left,
-                                                None,
-                                                window,
-                                                cx,
-                                            );
                                         }
                                     }
 

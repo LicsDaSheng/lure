@@ -8,9 +8,12 @@ license.workspace = true
 
 [dependencies]
 async-channel.workspace = true
-alacritty_terminal.workspace = true
 gpui.workspace = true
 gpui_platform.workspace = true
+image.workspace = true
+rio-graphics.workspace = true
+rio-vt.workspace = true
+smallvec.workspace = true
 lure-pty = { path = "../lure-pty" }
 serde.workspace = true
 serde_yaml.workspace = true
