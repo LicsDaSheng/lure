@@ -82,6 +82,25 @@ fn macos_bundle_uses_the_lure_logo_and_native_application_identity() {
 }
 
 #[test]
+fn project_home_and_multi_tab_lifecycle_are_wired() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let main = fs::read_to_string(root.join("crates/lure-desktop/src/main.rs")).unwrap();
+    let projects = fs::read_to_string(root.join("crates/lure-desktop/src/projects.rs")).unwrap();
+    assert!(main.contains("route: Route::Home"));
+    assert!(!main.contains("fn default_workspace"));
+    assert!(!main.contains("app.start(cx)"));
+    assert!(main.contains("project-card"));
+    assert!(main.contains("new-project-home"));
+    assert!(main.contains("project-tab"));
+    assert!(main.contains("new-tab"));
+    assert!(main.contains("session: SessionId"));
+    assert!(main.contains("parked_sessions"));
+    assert!(main.contains("重复") || main.contains("directory == project.path"));
+    assert!(projects.contains(".join(\".pi\").join(\"projects.yaml\")"));
+    assert!(projects.contains("fs::rename(&temporary, path)"));
+}
+
+#[test]
 fn gpui_ce_is_pinned_to_the_requested_upstream_repository() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     let manifest = fs::read_to_string(root.join("Cargo.toml")).unwrap();
