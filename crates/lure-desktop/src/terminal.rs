@@ -15,6 +15,8 @@ const CELL_WIDTH_PX: u32 = 8;
 const CELL_HEIGHT_PX: u32 = 16;
 pub const TITLEBAR_HEIGHT: f32 = 48.0;
 pub const TERMINAL_PADDING: f32 = 16.0;
+/// 窗口外框描边宽度，两侧合计占用可视宽度/高度。
+pub const WINDOW_BORDER: f32 = 1.0;
 /// 单张终端图片解码后的像素字节上限（RGBA，约 4096 × 1024）。
 pub const MAX_GRAPHIC_BYTES: usize = 16 * 1024 * 1024;
 /// 每个终端 Tab 的图片纹理内存上限。
@@ -134,8 +136,11 @@ impl TerminalLine {
         for (column, cell) in self.cells.iter().enumerate() {
             let wide = cell.text.is_empty()
                 || (column + 1 < self.cells.len() && self.cells[column + 1].text.is_empty());
+            // 回退字体与 Nerd 字形的自然字进宽不一定等于 8px；
+            // 非 ASCII 字符单独锚定到网格列，避免长 run 累积误差。
             let same_style = runs.last().is_some_and(|run| {
                 run.wide == wide
+                    && (cell.text.is_empty() || (cell.text.is_ascii() && run.text.is_ascii()))
                     && (!wide || cell.text.is_empty())
                     && run.foreground == cell.foreground
                     && run.background == cell.background
@@ -228,6 +233,8 @@ struct TextureEntry {
 struct TextureStore {
     map: std::collections::HashMap<u32, TextureEntry>,
     bytes: usize,
+    /// 已被替换、删除或回收的纹理，等待展示层从 GPU atlas 中移除。
+    released: Vec<std::sync::Arc<gpui::RenderImage>>,
 }
 
 static TEXTURE_SEQUENCE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
@@ -250,6 +257,7 @@ impl TextureStore {
         if let Some(old) = self.map.remove(&image_id) {
             self.bytes = self.bytes.saturating_sub(old.bytes);
             GLOBAL_TEXTURE_BYTES.fetch_sub(old.bytes, Ordering::AcqRel);
+            self.released.push(old.image);
         }
         let sequence = TEXTURE_SEQUENCE.fetch_add(1, Ordering::AcqRel);
         self.map.insert(
@@ -269,6 +277,7 @@ impl TextureStore {
         if let Some(old) = self.map.remove(&image_id) {
             self.bytes = self.bytes.saturating_sub(old.bytes);
             GLOBAL_TEXTURE_BYTES.fetch_sub(old.bytes, Ordering::AcqRel);
+            self.released.push(old.image);
         }
     }
 
@@ -280,12 +289,28 @@ impl TextureStore {
         if let Some(old) = self.map.remove(&id) {
             self.bytes = self.bytes.saturating_sub(old.bytes);
             GLOBAL_TEXTURE_BYTES.fetch_sub(old.bytes, Ordering::AcqRel);
+            self.released.push(old.image);
         }
         true
     }
 
     fn get(&self, image_id: u32) -> Option<&TextureEntry> {
         self.map.get(&image_id)
+    }
+
+    /// 取走所有待释放纹理，交给展示层从 GPU atlas 移除。
+    fn take_released(&mut self) -> Vec<std::sync::Arc<gpui::RenderImage>> {
+        std::mem::take(&mut self.released)
+    }
+
+    /// 清空当前 Tab 的全部纹理（关闭 tab 或进程结束时调用）。
+    fn clear(&mut self) -> Vec<std::sync::Arc<gpui::RenderImage>> {
+        use std::sync::atomic::Ordering;
+        GLOBAL_TEXTURE_BYTES.fetch_sub(self.bytes, Ordering::AcqRel);
+        self.bytes = 0;
+        let mut released = std::mem::take(&mut self.released);
+        released.extend(self.map.drain().map(|(_, entry)| entry.image));
+        released
     }
 }
 
@@ -428,7 +453,11 @@ impl TerminalGrid {
             cell_height: CELL_HEIGHT,
             origin_x: 0.0,
             origin_y: 0.0,
-            history_size: i64::try_from(self.term.history_size()).unwrap_or(i64::MAX),
+            // Rio 的 Kitty dest_row 是绝对行号（含已逐出的历史行），
+            // 可见文字从当前历史顶部绘制；两者必须使用同一个原点。
+            history_size: i64::try_from(self.term.lines_evicted())
+                .unwrap_or(i64::MAX)
+                .saturating_add(i64::try_from(self.term.history_size()).unwrap_or(i64::MAX)),
             display_offset: i64::try_from(self.term.display_offset()).unwrap_or(i64::MAX),
             screen_lines: i64::try_from(self.term.screen_lines()).unwrap_or(i64::MAX),
         };
@@ -464,6 +493,19 @@ impl TerminalGrid {
         }
         graphics.sort_by_key(|graphic| graphic.z_index);
         graphics
+    }
+
+    /// 取走待释放的纹理，展示层应调用 `Window::drop_image` 释放 GPU 资源。
+    #[must_use]
+    pub fn take_released_images(&mut self) -> Vec<std::sync::Arc<gpui::RenderImage>> {
+        self.events.0.borrow_mut().textures.take_released()
+    }
+
+    /// 释放当前 Tab 的全部图片纹理。
+    #[must_use]
+    pub fn release_all_images(&mut self) -> Vec<std::sync::Arc<gpui::RenderImage>> {
+        self.graphics_memory = 0;
+        self.events.0.borrow_mut().textures.clear()
     }
 
     /// 当前 Tab 持有的图片纹理字节数。
@@ -768,11 +810,36 @@ fn color(color: rio_vt::config::colors::AnsiColor, default: u32) -> u32 {
     }
 }
 
+/// 字符网格对应的像素尺寸，用于同步 PTY 的 `ws_xpixel` / `ws_ypixel`。
+#[must_use]
+pub fn terminal_pixel_size(columns: u16, rows: u16) -> (u16, u16) {
+    (
+        columns.saturating_mul(u16::try_from(CELL_WIDTH_PX).unwrap_or(u16::MAX)),
+        rows.saturating_mul(u16::try_from(CELL_HEIGHT_PX).unwrap_or(u16::MAX)),
+    )
+}
+
+/// 对普通 ASCII run 按实际塑形宽度调整字距，令每个字符落在固定 8px 网格。
+/// 单字符和异常宽度不做调整；非 ASCII 字形由独立网格锚点定位。
+#[must_use]
+pub fn terminal_run_tracking(shaped_width: f32, glyphs: usize, columns: u16) -> Option<f32> {
+    if glyphs < 2
+        || usize::from(columns) != glyphs
+        || !shaped_width.is_finite()
+        || shaped_width <= 0.0
+    {
+        return None;
+    }
+    let target = f32::from(columns) * CELL_WIDTH;
+    Some((target - shaped_width) / f32::from(columns - 1))
+}
+
 #[must_use]
 #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
 pub fn terminal_size_for_viewport(width: f32, height: f32) -> (u16, u16) {
-    let columns = ((width - TERMINAL_PADDING).max(0.0) / CELL_WIDTH).floor() as u16;
-    let rows =
-        ((height - TITLEBAR_HEIGHT - TERMINAL_PADDING).max(0.0) / CELL_HEIGHT).floor() as u16;
+    let border = WINDOW_BORDER * 2.0;
+    let columns = ((width - TERMINAL_PADDING - border).max(0.0) / CELL_WIDTH).floor() as u16;
+    let rows = ((height - TITLEBAR_HEIGHT - TERMINAL_PADDING - border).max(0.0) / CELL_HEIGHT)
+        .floor() as u16;
     (columns.max(2), rows.max(1))
 }

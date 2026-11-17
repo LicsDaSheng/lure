@@ -103,7 +103,8 @@ fn shift_enter_uses_extended_keyboard_mode_only_when_requested() {
 
 #[test]
 fn resizes_terminal_from_available_pixels_with_lower_bounds() {
-    assert_eq!(terminal_size_for_viewport(800.0, 600.0), (98, 33));
+    // 800 × 600：可用 782 × 534，向下取整为 97 × 33。
+    assert_eq!(terminal_size_for_viewport(800.0, 600.0), (97, 33));
     assert_eq!(terminal_size_for_viewport(1.0, 1.0), (2, 1));
 }
 
@@ -485,6 +486,26 @@ fn kitty_graphics_keep_main_and_alternate_screen_state_separate() {
 }
 
 #[test]
+fn kitty_placement_uses_same_absolute_row_origin_as_visible_text_after_history_eviction() {
+    for (rows, columns) in [(3, 12), (35, 117), (80, 220)] {
+        let mut grid = TerminalGrid::new(rows, columns);
+        for _ in 0..usize::from(rows) + 5 {
+            grid.process(b"old row\r\n");
+        }
+        // Pi 重绘时会清理保存的历史；Rio 的 Kitty dest_row 仍使用包含
+        // lines_evicted 的绝对行号，可见字符却从当前历史顶部计数。
+        grid.process(b"\x1b[3J\x1b[1;1H");
+        grid.process(&kitty_rgba(98, 1, [255, 0, 0, 255]));
+        assert!(
+            grid.graphics()[0].y.abs() < f32::EPSILON,
+            "{columns} × {rows} 网格的图片必须与光标所在首行对齐"
+        );
+        grid.process(b"\x1b[2;1Hmarker");
+        assert!(grid.lines()[1].text().starts_with("marker"));
+    }
+}
+
+#[test]
 fn kitty_placement_tracks_scrollback_and_resize() {
     let mut grid = TerminalGrid::new(3, 12);
     grid.process(&kitty_rgba(3, 9, [255, 0, 0, 255]));
@@ -598,4 +619,72 @@ fn real_pi_recording_survives_arbitrary_pty_chunk_boundaries() {
         );
         assert_eq!(left.image.as_bytes(0), right.image.as_bytes(0));
     }
+}
+
+#[test]
+fn long_ascii_runs_compensate_font_advance_instead_of_accumulating_drift() {
+    use lure_desktop::terminal::terminal_run_tracking;
+    // 系统中 JetBrainsMono NFM 13px 的自然单字进宽是 7.8px，
+    // 100 个字符直接批量塑形会比 8px 网格提前 20px。
+    let tracking = terminal_run_tracking(780.0, 100, 100).expect("长 run 需要字距补偿");
+    assert!(((780.0 + 99.0 * tracking) - 800.0).abs() < 0.01);
+    assert!(terminal_run_tracking(7.8, 1, 1).is_none());
+    assert!(terminal_run_tracking(0.0, 100, 100).is_none());
+}
+
+#[test]
+fn non_ascii_cells_do_not_accumulate_fallback_font_advances() {
+    let mut grid = TerminalGrid::new(1, 12);
+    grid.process("aé你好b".as_bytes());
+    let runs = grid.lines()[0].runs();
+    assert!(runs.iter().any(|run| run.text == "é" && run.columns == 1));
+    assert!(runs.iter().any(|run| run.text == "你" && run.columns == 2));
+    assert!(runs.iter().any(|run| run.text == "好" && run.columns == 2));
+    assert!(
+        runs.iter()
+            .all(|run| run.text.is_ascii() || run.text.chars().count() <= 1)
+    );
+}
+
+#[test]
+fn viewport_grid_never_exceeds_the_visible_content_area() {
+    // 960 × 640 窗口：左右 8px 内边距 + 1px 边框，标题栏 48px。
+    // 网格必须完全落在 942 × 574 的可视区域内，否则最右/最下会被裁掉。
+    let (columns, rows) = terminal_size_for_viewport(960.0, 640.0);
+    let (pixel_width, pixel_height) = lure_desktop::terminal::terminal_pixel_size(columns, rows);
+    assert!(f32::from(pixel_width) <= 960.0 - 16.0 - 2.0);
+    assert!(f32::from(pixel_height) <= 640.0 - 48.0 - 16.0 - 2.0);
+    assert_eq!((columns, rows), (117, 35));
+}
+
+#[test]
+fn pty_size_uses_the_same_cell_grid_as_rendering() {
+    let (pixel_width, pixel_height) = lure_desktop::terminal::terminal_pixel_size(117, 35);
+    assert_eq!((pixel_width, pixel_height), (936, 560));
+}
+
+#[test]
+fn replaced_kitty_image_textures_are_released_for_gpu_cleanup() {
+    let mut grid = TerminalGrid::new(3, 12);
+    grid.process(&kitty_rgba(91, 1, [255, 0, 0, 255]));
+    assert!(grid.take_released_images().is_empty());
+
+    // 同一 image id 重传会替换纹理，旧纹理必须交回展示层释放。
+    grid.process(&kitty_rgba(91, 2, [0, 255, 0, 255]));
+    assert_eq!(grid.take_released_images().len(), 1);
+    assert_eq!(grid.graphics_memory_bytes(), 4);
+
+    // 删除图片同样回收纹理。
+    grid.process(b"\x1b_Ga=d,d=I,i=91\x1b\\");
+    assert_eq!(grid.take_released_images().len(), 1);
+    assert_eq!(grid.graphics_memory_bytes(), 0);
+}
+
+#[test]
+fn release_all_images_frees_a_closed_tab() {
+    let mut grid = TerminalGrid::new(3, 12);
+    grid.process(&kitty_rgba(92, 1, [255, 0, 0, 255]));
+    assert_eq!(grid.release_all_images().len(), 1);
+    assert_eq!(grid.graphics_memory_bytes(), 0);
+    assert!(grid.graphics().is_empty());
 }

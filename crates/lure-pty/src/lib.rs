@@ -62,20 +62,39 @@ fn is_executable_file(path: &Path) -> bool {
 pub struct TerminalSize {
     pub columns: u16,
     pub rows: u16,
+    /// 字符网格总宽度（像素）。终端应用据此推导字符单元尺寸，用于内联图片与布局。
+    pub pixel_width: u16,
+    /// 字符网格总高度（像素）。
+    pub pixel_height: u16,
 }
 
 impl TerminalSize {
     #[must_use]
     pub const fn new(columns: u16, rows: u16) -> Self {
-        Self { columns, rows }
+        Self {
+            columns,
+            rows,
+            pixel_width: 0,
+            pixel_height: 0,
+        }
+    }
+
+    #[must_use]
+    pub const fn with_pixels(columns: u16, rows: u16, pixel_width: u16, pixel_height: u16) -> Self {
+        Self {
+            columns,
+            rows,
+            pixel_width,
+            pixel_height,
+        }
     }
 
     fn to_pty(self) -> PtySize {
         PtySize {
             rows: self.rows,
             cols: self.columns,
-            pixel_width: 0,
-            pixel_height: 0,
+            pixel_width: self.pixel_width,
+            pixel_height: self.pixel_height,
         }
     }
 }
@@ -270,7 +289,12 @@ impl PtyProcess {
             .map_err(|_| PtyError::LockPoisoned)?
             .get_size()
             .map_err(|error| PtyError::Resize(error.to_string()))?;
-        Ok(TerminalSize::new(size.cols, size.rows))
+        Ok(TerminalSize::with_pixels(
+            size.cols,
+            size.rows,
+            size.pixel_width,
+            size.pixel_height,
+        ))
     }
 
     /// 终止 PTY 子进程。

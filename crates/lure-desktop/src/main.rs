@@ -22,7 +22,7 @@ use lure_desktop::projects::{
 };
 use lure_desktop::terminal::{
     CELL_HEIGHT, CELL_WIDTH, TERMINAL_PADDING, TITLEBAR_HEIGHT, TerminalGraphic, TerminalGrid,
-    TerminalSelection, terminal_font, terminal_size_for_viewport,
+    TerminalSelection, terminal_font, terminal_pixel_size, terminal_size_for_viewport,
 };
 use lure_desktop::theme::{ACCENT, BACKGROUND, BORDER, ERROR, FOREGROUND, MUTED, TITLEBAR};
 use lure_pty::{
@@ -38,6 +38,12 @@ enum Phase {
 }
 
 type SessionId = u64;
+
+/// 终端网格与 PTY 共用同一套 8 × 16 字符单元尺寸，使 Pi 的内联图片换算与文字一致。
+fn pty_size((columns, rows): (u16, u16)) -> TerminalSize {
+    let (pixel_width, pixel_height) = terminal_pixel_size(columns, rows);
+    TerminalSize::with_pixels(columns, rows, pixel_width, pixel_height)
+}
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Route {
@@ -307,6 +313,11 @@ impl LureApp {
 
     fn close_current(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.stop_process();
+        let mut closing = std::mem::replace(
+            &mut self.terminal,
+            TerminalGrid::new(self.dimensions.1, self.dimensions.0),
+        );
+        Self::release_images(&mut closing, window);
         self.generation.fetch_add(1, Ordering::AcqRel);
         let closed_order = self.current_order;
         self.current_id = None;
@@ -353,7 +364,15 @@ impl LureApp {
                 let _ = process.stop();
             }
             session.generation.fetch_add(1, Ordering::AcqRel);
+            Self::release_images(&mut session.terminal, window);
             cx.notify();
+        }
+    }
+
+    /// 关闭会话时把该 Tab 的图片纹理从 GPU atlas 中移除，避免跨会话泄漏。
+    fn release_images(terminal: &mut TerminalGrid, window: &mut Window) {
+        for image in terminal.release_all_images() {
+            let _ = window.drop_image(image);
         }
     }
 
@@ -449,9 +468,7 @@ impl LureApp {
                 directory,
                 ..
             } if state.generation.load(Ordering::Acquire) == generation => {
-                if let Err(error) =
-                    process.resize(TerminalSize::new(state.dimensions.0, state.dimensions.1))
-                {
+                if let Err(error) = process.resize(pty_size(state.dimensions)) {
                     state.phase = Phase::Error;
                     state.error = error.to_string();
                 } else {
@@ -524,9 +541,7 @@ impl LureApp {
                 directory,
                 ..
             } if self.is_current(generation) => {
-                if let Err(error) =
-                    process.resize(TerminalSize::new(self.dimensions.0, self.dimensions.1))
-                {
+                if let Err(error) = process.resize(pty_size(self.dimensions)) {
                     self.phase = Phase::Error;
                     self.error = error.to_string();
                     return;
@@ -618,7 +633,7 @@ impl LureApp {
                         set_environment(&mut environment, "TERM_PROGRAM", "Lure");
                         let mut command = PtyCommand::new(resolve_pi_executable(), &directory);
                         command.environment = Some(environment);
-                        PtyProcess::spawn(command, TerminalSize::new(dimensions.0, dimensions.1))
+                        PtyProcess::spawn(command, pty_size(dimensions))
                             .map_err(|error| error.to_string())
                     })();
                 match result {
@@ -872,7 +887,7 @@ impl LureApp {
             self.dimensions = next;
             self.terminal.resize(next.1, next.0);
             if let Some(process) = self.process.as_mut() {
-                let _ = process.resize(TerminalSize::new(next.0, next.1));
+                let _ = process.resize(pty_size(next));
             }
         }
         for session in &mut self.parked_sessions {
@@ -882,7 +897,7 @@ impl LureApp {
             session.dimensions = next;
             session.terminal.resize(next.1, next.0);
             if let Some(process) = session.process.as_mut() {
-                let _ = process.resize(TerminalSize::new(next.0, next.1));
+                let _ = process.resize(pty_size(next));
             }
         }
     }
@@ -1420,6 +1435,11 @@ impl Render for LureApp {
             .collect::<Vec<_>>();
         let marked_text = self.marked_text.clone();
         let graphics = self.terminal.graphics();
+        let mut released_images = self.terminal.take_released_images();
+        // 后台 Tab 仍会收到图片替换/删除事件，不能等到切回前台才回收 atlas。
+        for session in &mut self.parked_sessions {
+            released_images.extend(session.terminal.take_released_images());
+        }
         let selection = self.selection;
         let dimensions = self.dimensions;
         let terminal_entity = cx.entity();
@@ -1662,6 +1682,23 @@ impl Render for LureApp {
                                                     strikethrough: None,
                                                     letter_spacing: None,
                                                 };
+                                                // 13px JetBrainsMono 的自然字进宽约 7.8px，
+                                                // 长行若直接整段塑形，边框和竖线会逐列偏离 8px 网格。
+                                                let mut text_run = text_run;
+                                                if run.text.is_ascii() && run.columns > 1 {
+                                                    let measured = window.text_system().shape_line(
+                                                        run.text.clone().into(),
+                                                        px(13.0),
+                                                        &[text_run.clone()],
+                                                    );
+                                                    text_run.letter_spacing =
+                                                        lure_desktop::terminal::terminal_run_tracking(
+                                                            f32::from(measured.width()),
+                                                            run.text.len(),
+                                                            run.columns,
+                                                        )
+                                                        .map(px);
+                                                }
                                                 Some(window.text_system().shape_line(
                                                     run.text.into(),
                                                     px(13.0),
@@ -1755,6 +1792,7 @@ impl Render for LureApp {
                                                 ),
                                                 size(px(full_width), px(full_height)),
                                             );
+                                            // 纹理分配失败时仅缺失该图片，不影响终端文字与交互。
                                             let _ = window.paint_image(
                                                 clip,
                                                 image_bounds,
@@ -1765,6 +1803,10 @@ impl Render for LureApp {
                                                 false,
                                             );
                                         };
+
+                                    for image in released_images.drain(..) {
+                                        let _ = window.drop_image(image);
+                                    }
 
                                     // 负 z-index 图片绘制在单元格背景之上、文字之下。
                                     for graphic in &graphics {
