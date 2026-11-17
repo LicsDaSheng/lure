@@ -10,11 +10,11 @@ license = "MIT"
 
 [workspace.dependencies]
 async-channel = "2"
+alacritty_terminal = { version = "0.26", default-features = false }
 gpui = { git = "https://github.com/gpui-ce/gpui-ce", rev = "f388375d03e63d75811fa1cca3a563203b920d98", package = "gpui-ce", default-features = false, features = ["font-kit"] }
 gpui_platform = { git = "https://github.com/gpui-ce/gpui-ce", rev = "f388375d03e63d75811fa1cca3a563203b920d98", package = "gpui_ce_platform", features = ["font-kit"] }
 thiserror = "2"
 tokio = { version = "1", features = ["fs", "macros", "process", "rt-multi-thread", "sync", "time"] }
-vt100 = "0.16"
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

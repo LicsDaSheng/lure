@@ -1,6 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use std::ffi::{OsStr, OsString};
+use std::ops::Range;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -8,13 +9,18 @@ use std::thread;
 
 use async_channel::{Receiver, Sender};
 use gpui::{
-    App, AppContext, Bounds, Context, FocusHandle, FontWeight, IntoElement, KeyDownEvent,
-    MouseButton, MouseDownEvent, PathPromptOptions, Render, Role, SharedString, Window,
-    WindowBounds, WindowOptions, div, prelude::*, px, rgb, size,
+    App, AppContext, Bounds, ClipboardItem, Context, ElementInputHandler, EntityInputHandler,
+    FocusHandle, FontStyle, FontWeight, IntoElement, KeyDownEvent, MouseButton, MouseDownEvent,
+    MouseMoveEvent, MouseUpEvent, PaintQuad, PathPromptOptions, Render, Role, SharedString,
+    TextAlign, TextRun, UTF16Selection, UnderlineStyle, Window, WindowBounds, WindowOptions,
+    canvas, div, point, prelude::*, px, rgb, rgb_to_hsla, rgba, size,
 };
-use lure_desktop::input::{KeyInput, Modifiers, terminal_input};
-use lure_desktop::terminal::{CELL_HEIGHT, CELL_WIDTH, TerminalGrid, terminal_size_for_viewport};
-use lure_desktop::theme::{BACKGROUND, BORDER, ERROR, FOREGROUND, MUTED, TITLEBAR};
+use lure_desktop::input::{KeyInput, Modifiers};
+use lure_desktop::terminal::{
+    CELL_HEIGHT, CELL_WIDTH, TERMINAL_PADDING, TITLEBAR_HEIGHT, TerminalGrid, TerminalSelection,
+    terminal_font, terminal_size_for_viewport,
+};
+use lure_desktop::theme::{ACCENT, BACKGROUND, BORDER, ERROR, FOREGROUND, MUTED, TITLEBAR};
 use lure_pty::{
     PtyCommand, PtyEvent, PtyProcess, SpawnEnvResolver, TerminalSize, resolve_pi_executable,
 };
@@ -63,6 +69,10 @@ struct LureApp {
     generation: Arc<AtomicU64>,
     messages: Sender<AppMessage>,
     env_resolver: Arc<SpawnEnvResolver>,
+    marked_text: String,
+    scroll_rows_accumulator: f32,
+    selection: Option<TerminalSelection>,
+    selection_dragged: bool,
 }
 
 impl LureApp {
@@ -84,6 +94,10 @@ impl LureApp {
             generation: Arc::new(AtomicU64::new(0)),
             messages,
             env_resolver: Arc::new(SpawnEnvResolver::new()),
+            marked_text: String::new(),
+            scroll_rows_accumulator: 0.0,
+            selection: None,
+            selection_dragged: false,
         };
         Self::receive_messages(receiver, cx);
         app
@@ -134,7 +148,17 @@ impl LureApp {
                 cx.notify();
             }
             AppMessage::Output { generation, data } if self.is_current(generation) => {
+                self.selection = None;
                 self.terminal.process(&data);
+                for response in self.terminal.take_responses() {
+                    if let Some(process) = self.process.as_mut()
+                        && let Err(error) = process.write_all(response.as_bytes())
+                    {
+                        self.phase = Phase::Error;
+                        self.error = error.to_string();
+                        break;
+                    }
+                }
                 cx.notify();
             }
             AppMessage::Exited { generation, code } if self.is_current(generation) => {
@@ -270,12 +294,16 @@ impl LureApp {
             key_char: event.keystroke.key_char.clone(),
             modifiers,
         };
-        if let Some(bytes) = terminal_input(&input) {
+        if let Some(bytes) = self.terminal.keyboard_input(&input) {
             self.write(&bytes, cx);
         }
     }
 
     fn write(&mut self, bytes: &[u8], cx: &mut Context<Self>) {
+        self.terminal.scroll_to_bottom();
+        self.scroll_rows_accumulator = 0.0;
+        self.selection = None;
+        cx.notify();
         let Some(process) = self.process.as_mut() else {
             return;
         };
@@ -283,6 +311,125 @@ impl LureApp {
             self.phase = Phase::Error;
             self.error = error.to_string();
             cx.notify();
+        }
+    }
+
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    fn terminal_cell_at(&self, position: gpui::Point<gpui::Pixels>) -> (u16, u16) {
+        let x: f32 = position.x.into();
+        let y: f32 = position.y.into();
+        let inset = TERMINAL_PADDING / 2.0;
+        let column = ((x - inset).max(0.0) / CELL_WIDTH).floor() as u16;
+        let row = ((y - TITLEBAR_HEIGHT - inset).max(0.0) / CELL_HEIGHT).floor() as u16;
+        (
+            row.min(self.dimensions.1.saturating_sub(1)),
+            column.min(self.dimensions.0.saturating_sub(1)),
+        )
+    }
+
+    fn start_selection(
+        &mut self,
+        position: gpui::Point<gpui::Pixels>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.focus.focus(window, cx);
+        let point = self.terminal_cell_at(position);
+        if let Some(sequence) = self.terminal.mouse_button_sequence(point.0, point.1, false) {
+            self.selection = None;
+            self.write_repeated(&sequence, 1, cx);
+            return;
+        }
+        self.selection = Some(TerminalSelection::new(point, point));
+        self.selection_dragged = false;
+        cx.notify();
+    }
+
+    fn update_selection(&mut self, position: gpui::Point<gpui::Pixels>, cx: &mut Context<Self>) {
+        let Some(selection) = self.selection else {
+            return;
+        };
+        let point = self.terminal_cell_at(position);
+        self.selection_dragged |= point != selection.anchor();
+        self.selection = Some(selection.with_head(point));
+        cx.notify();
+    }
+
+    fn finish_selection(&mut self, position: gpui::Point<gpui::Pixels>, cx: &mut Context<Self>) {
+        let point = self.terminal_cell_at(position);
+        if let Some(sequence) = self.terminal.mouse_button_sequence(point.0, point.1, true) {
+            self.write_repeated(&sequence, 1, cx);
+            return;
+        }
+        self.update_selection(position, cx);
+        if !self.selection_dragged {
+            self.selection = None;
+            cx.notify();
+            return;
+        }
+        if let Some(selection) = self.selection {
+            let text = self.terminal.selection_text(selection);
+            if !text.is_empty() {
+                cx.write_to_clipboard(ClipboardItem::new_string(text));
+            }
+        }
+    }
+
+    #[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)]
+    fn handle_scroll(&mut self, event: &gpui::ScrollWheelEvent, cx: &mut Context<Self>) {
+        let rows = match event.delta {
+            gpui::ScrollDelta::Lines(delta) => delta.y,
+            gpui::ScrollDelta::Pixels(delta) => {
+                let pixels: f32 = delta.y.into();
+                pixels / CELL_HEIGHT
+            }
+        };
+        if rows == 0.0 {
+            return;
+        }
+        if self.scroll_rows_accumulator.signum() != rows.signum() {
+            self.scroll_rows_accumulator = 0.0;
+        }
+        self.scroll_rows_accumulator = (self.scroll_rows_accumulator + rows).clamp(-100.0, 100.0);
+        let whole_rows = self.scroll_rows_accumulator.trunc() as i32;
+        if whole_rows == 0 {
+            return;
+        }
+        self.scroll_rows_accumulator -= whole_rows as f32;
+        self.selection = None;
+
+        let up = whole_rows > 0;
+        let count = whole_rows.unsigned_abs().min(100);
+        let (row, column) = self.terminal_cell_at(event.position);
+        let sequence = self.terminal.mouse_wheel_sequence(
+            row,
+            column,
+            up,
+            event.modifiers.shift,
+            event.modifiers.alt,
+            event.modifiers.control,
+        );
+        if let Some(sequence) = sequence {
+            self.write_repeated(&sequence, count, cx);
+        } else if self.terminal.alternate_screen() {
+            self.write_repeated(if up { b"\x1b[A" } else { b"\x1b[B" }, count, cx);
+        } else {
+            self.terminal.scroll_by(whole_rows);
+            cx.notify();
+        }
+    }
+
+    fn write_repeated(&mut self, bytes: &[u8], count: u32, cx: &mut Context<Self>) {
+        let Some(process) = self.process.as_mut() else {
+            return;
+        };
+        for _ in 0..count {
+            if let Err(error) = process.write_all(bytes) {
+                self.phase = Phase::Error;
+                self.error = error.to_string();
+                cx.notify();
+                break;
+            }
         }
     }
 
@@ -400,6 +547,100 @@ impl LureApp {
     }
 }
 
+impl EntityInputHandler for LureApp {
+    fn text_for_range(
+        &mut self,
+        _range: Range<usize>,
+        _adjusted_range: &mut Option<Range<usize>>,
+        _window: &mut Window,
+        _cx: &mut Context<Self>,
+    ) -> Option<String> {
+        None
+    }
+
+    fn selected_text_range(
+        &mut self,
+        _ignore_disabled_input: bool,
+        _window: &mut Window,
+        _cx: &mut Context<Self>,
+    ) -> Option<UTF16Selection> {
+        Some(UTF16Selection {
+            range: 0..0,
+            reversed: false,
+        })
+    }
+
+    fn marked_text_range(
+        &self,
+        _window: &mut Window,
+        _cx: &mut Context<Self>,
+    ) -> Option<Range<usize>> {
+        (!self.marked_text.is_empty()).then(|| 0..self.marked_text.encode_utf16().count())
+    }
+
+    fn unmark_text(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
+        if !self.marked_text.is_empty() {
+            self.marked_text.clear();
+            cx.notify();
+        }
+    }
+
+    fn replace_text_in_range(
+        &mut self,
+        _range: Option<Range<usize>>,
+        text: &str,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.marked_text.clear();
+        if !text.is_empty() {
+            self.write(text.as_bytes(), cx);
+        }
+        cx.notify();
+    }
+
+    fn replace_and_mark_text_in_range(
+        &mut self,
+        _range: Option<Range<usize>>,
+        new_text: &str,
+        _new_selected_range: Option<Range<usize>>,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.marked_text.clear();
+        self.marked_text.push_str(new_text);
+        cx.notify();
+    }
+
+    fn bounds_for_range(
+        &mut self,
+        range_utf16: Range<usize>,
+        element_bounds: Bounds<gpui::Pixels>,
+        _window: &mut Window,
+        _cx: &mut Context<Self>,
+    ) -> Option<Bounds<gpui::Pixels>> {
+        let cursor = self.terminal.cursor();
+        let composition_offset = u16::try_from(range_utf16.start).unwrap_or(u16::MAX);
+        Some(Bounds::new(
+            point(
+                element_bounds.left()
+                    + px(CELL_WIDTH * (f32::from(cursor.1) + f32::from(composition_offset))),
+                element_bounds.top() + px(CELL_HEIGHT * f32::from(cursor.0)),
+            ),
+            size(px(CELL_WIDTH), px(CELL_HEIGHT)),
+        ))
+    }
+
+    fn character_index_for_point(
+        &mut self,
+        _point: gpui::Point<gpui::Pixels>,
+        _window: &mut Window,
+        _cx: &mut Context<Self>,
+    ) -> Option<usize> {
+        None
+    }
+}
+
 impl Drop for LureApp {
     fn drop(&mut self) {
         self.stop_process();
@@ -412,9 +653,21 @@ impl Render for LureApp {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.sync_size(window);
         let cursor = self.terminal.cursor();
-        let lines = self.terminal.lines();
-        let directory = self.directory.display().to_string();
         let running = self.phase == Phase::Running;
+        let cursor_visible = running && self.terminal.cursor_visible();
+        let scrollback = self.terminal.scrollback();
+        let terminal_rows = self
+            .terminal
+            .lines()
+            .into_iter()
+            .map(|line| line.runs())
+            .collect::<Vec<_>>();
+        let marked_text = self.marked_text.clone();
+        let selection = self.selection;
+        let dimensions = self.dimensions;
+        let app = cx.entity();
+        let input_focus = self.focus.clone();
+        let directory = self.directory.display().to_string();
         let starting = self.phase == Phase::Starting;
 
         div()
@@ -504,49 +757,226 @@ impl Render for LureApp {
                     .overflow_hidden()
                     .p(px(8.0))
                     .bg(rgb(BACKGROUND))
-                    .on_mouse_down(MouseButton::Left, {
-                        let focus = self.focus.clone();
-                        move |_, window, cx| focus.focus(window, cx)
-                    })
-                    .child(
-                        div()
-                            .flex()
-                            .flex_col()
-                            .font_family("SFMono-Regular")
-                            .text_size(px(13.0))
-                            .children(lines.into_iter().enumerate().map(|(row, line)| {
-                                div().h(px(CELL_HEIGHT)).flex_none().flex().children(
-                                    line.cells().iter().enumerate().map(|(column, cell)| {
-                                        let at_cursor = usize::from(cursor.0) == row
-                                            && usize::from(cursor.1) == column
-                                            && running;
-                                        let foreground = if at_cursor {
-                                            cell.background
-                                        } else {
-                                            cell.foreground
-                                        };
-                                        let background = if at_cursor {
-                                            cell.foreground
-                                        } else {
-                                            cell.background
-                                        };
-                                        div()
-                                            .w(px(CELL_WIDTH))
-                                            .h(px(CELL_HEIGHT))
-                                            .flex_none()
-                                            .overflow_hidden()
-                                            .bg(rgb(background))
-                                            .text_color(rgb(foreground))
-                                            .when(cell.bold, |element| {
-                                                element.font_weight(FontWeight::BOLD)
-                                            })
-                                            .when(cell.italic, gpui::Styled::italic)
-                                            .when(cell.underline, gpui::Styled::underline)
-                                            .child(cell.text.clone())
-                                    }),
-                                )
-                            })),
+                    .on_mouse_down(
+                        MouseButton::Left,
+                        cx.listener(|this, event: &MouseDownEvent, window, cx| {
+                            this.start_selection(event.position, window, cx);
+                        }),
                     )
+                    .on_mouse_move(cx.listener(|this, event: &MouseMoveEvent, _window, cx| {
+                        if event.dragging() {
+                            this.update_selection(event.position, cx);
+                        }
+                    }))
+                    .on_mouse_up(
+                        MouseButton::Left,
+                        cx.listener(|this, event: &MouseUpEvent, _window, cx| {
+                            this.finish_selection(event.position, cx);
+                        }),
+                    )
+                    .on_scroll_wheel(cx.listener(|this, event: &gpui::ScrollWheelEvent, _, cx| {
+                        this.handle_scroll(event, cx);
+                        cx.stop_propagation();
+                    }))
+                    .child(
+                        canvas(
+                            move |_bounds, window, _cx| {
+                                let mut painted_runs = Vec::new();
+                                for (row, runs) in terminal_rows.into_iter().enumerate() {
+                                    let mut column = 0_u16;
+                                    for run in runs {
+                                        let shaped = if run.text.is_empty() {
+                                            None
+                                        } else {
+                                            let mut font = terminal_font();
+                                            if run.bold {
+                                                font.weight = FontWeight::BOLD;
+                                            }
+                                            if run.italic {
+                                                font.style = FontStyle::Italic;
+                                            }
+                                            let color = rgb_to_hsla(rgb(run.foreground));
+                                            let text_run = TextRun {
+                                                len: run.text.len(),
+                                                font,
+                                                color,
+                                                background_color: None,
+                                                underline: run.underline.then_some(
+                                                    UnderlineStyle {
+                                                        thickness: px(1.0),
+                                                        color: Some(color),
+                                                        wavy: false,
+                                                    },
+                                                ),
+                                                strikethrough: None,
+                                                letter_spacing: None,
+                                            };
+                                            Some(window.text_system().shape_line(
+                                                run.text.into(),
+                                                px(13.0),
+                                                &[text_run],
+                                            ))
+                                        };
+                                        painted_runs.push((
+                                            u16::try_from(row).unwrap_or(u16::MAX),
+                                            column,
+                                            run.columns,
+                                            run.background,
+                                            shaped,
+                                        ));
+                                        column += run.columns;
+                                    }
+                                }
+                                let marked = if marked_text.is_empty() {
+                                    None
+                                } else {
+                                    let color = rgb_to_hsla(rgb(FOREGROUND));
+                                    let text_run = TextRun {
+                                        len: marked_text.len(),
+                                        font: terminal_font(),
+                                        color,
+                                        background_color: None,
+                                        underline: Some(UnderlineStyle {
+                                            thickness: px(1.0),
+                                            color: Some(color),
+                                            wavy: false,
+                                        }),
+                                        strikethrough: None,
+                                        letter_spacing: None,
+                                    };
+                                    Some(window.text_system().shape_line(
+                                        marked_text.into(),
+                                        px(13.0),
+                                        &[text_run],
+                                    ))
+                                };
+                                (painted_runs, marked)
+                            },
+                            move |bounds, (painted_runs, marked), window, cx| {
+                                window.handle_input(
+                                    &input_focus,
+                                    ElementInputHandler::new(bounds, app),
+                                    cx,
+                                );
+
+                                for (row, column, columns, background, _) in &painted_runs {
+                                    window.paint_quad(
+                                        PaintQuad::new(Bounds::new(
+                                            point(
+                                                bounds.left() + px(CELL_WIDTH * f32::from(*column)),
+                                                bounds.top() + px(CELL_HEIGHT * f32::from(*row)),
+                                            ),
+                                            size(
+                                                px(CELL_WIDTH * f32::from(*columns)),
+                                                px(CELL_HEIGHT),
+                                            ),
+                                        ))
+                                        .background(rgb(*background)),
+                                    );
+                                }
+
+                                if let Some(selection) = selection {
+                                    for row in 0..dimensions.1 {
+                                        if let Some(columns) =
+                                            selection.columns_for_row(row, dimensions.0)
+                                        {
+                                            window.paint_quad(
+                                                PaintQuad::new(Bounds::new(
+                                                    point(
+                                                        bounds.left()
+                                                            + px(CELL_WIDTH
+                                                                * f32::from(columns.start)),
+                                                        bounds.top()
+                                                            + px(CELL_HEIGHT * f32::from(row)),
+                                                    ),
+                                                    size(
+                                                        px(CELL_WIDTH
+                                                            * f32::from(
+                                                                columns.end - columns.start,
+                                                            )),
+                                                        px(CELL_HEIGHT),
+                                                    ),
+                                                ))
+                                                .background(rgba(0x83a5_9880)),
+                                            );
+                                        }
+                                    }
+                                }
+
+                                for (row, column, _, _, shaped) in &painted_runs {
+                                    if let Some(shaped) = shaped {
+                                        let _ = shaped.paint(
+                                            point(
+                                                bounds.left() + px(CELL_WIDTH * f32::from(*column)),
+                                                bounds.top() + px(CELL_HEIGHT * f32::from(*row)),
+                                            ),
+                                            px(CELL_HEIGHT),
+                                            TextAlign::Left,
+                                            None,
+                                            window,
+                                            cx,
+                                        );
+                                    }
+                                }
+
+                                if cursor_visible {
+                                    window.paint_quad(
+                                        PaintQuad::new(Bounds::new(
+                                            point(
+                                                bounds.left()
+                                                    + px(CELL_WIDTH * f32::from(cursor.1)),
+                                                bounds.top()
+                                                    + px(CELL_HEIGHT * f32::from(cursor.0)),
+                                            ),
+                                            size(px(CELL_WIDTH), px(CELL_HEIGHT)),
+                                        ))
+                                        .background(rgba(0x4585_8840))
+                                        .border_widths(px(1.0))
+                                        .border_color(rgb(ACCENT)),
+                                    );
+                                }
+
+                                if let Some(marked) = marked {
+                                    let _ = marked.paint(
+                                        point(
+                                            bounds.left() + px(CELL_WIDTH * f32::from(cursor.1)),
+                                            bounds.top() + px(CELL_HEIGHT * f32::from(cursor.0)),
+                                        ),
+                                        px(CELL_HEIGHT),
+                                        TextAlign::Left,
+                                        None,
+                                        window,
+                                        cx,
+                                    );
+                                }
+                            },
+                        )
+                        .size_full(),
+                    )
+                    .when(scrollback > 0, |workspace| {
+                        workspace.child(
+                            div()
+                                .id("back-to-bottom")
+                                .role(Role::Button)
+                                .aria_label("Back to bottom")
+                                .absolute()
+                                .top(px(12.0))
+                                .right(px(16.0))
+                                .px(px(12.0))
+                                .py(px(8.0))
+                                .rounded(px(8.0))
+                                .bg(rgb(TITLEBAR))
+                                .text_color(rgb(FOREGROUND))
+                                .cursor_pointer()
+                                .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                                .on_mouse_up(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                                .on_click(cx.listener(|this, _, _, cx| {
+                                    this.terminal.scroll_to_bottom();
+                                    cx.notify();
+                                }))
+                                .child("↓ Back to bottom"),
+                        )
+                    })
                     .when(self.phase != Phase::Running, |workspace| {
                         workspace.child(self.status_panel(cx))
                     }),

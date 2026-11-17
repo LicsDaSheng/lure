@@ -1,6 +1,6 @@
 # Lure
 
-Lure 是使用 [GPUI-CE](https://github.com/gpui-ce/gpui-ce) 与 Rust PTY 构建的 Pi 原生桌面终端。项目不再包含 Tauri、React、TypeScript 或 WebView。
+Lure 是使用 [GPUI-CE](https://github.com/gpui-ce/gpui-ce)、[Alacritty 终端内核](https://github.com/alacritty/alacritty)与 Rust PTY 构建的 Pi 原生桌面终端。项目不包含 Tauri、React、TypeScript 或 WebView。
 
 ## 前置条件
 
@@ -18,7 +18,7 @@ pi --version
 cargo run -p lure-desktop
 ```
 
-应用会创建 `~/lure` 作为默认工作目录，通过 PTY 启动普通交互模式的 Pi，并在 GPUI 窗口中直接绘制 ANSI/VT 终端网格。也可通过 `LURE_PI_PATH` 指定 Pi 可执行文件。
+应用会创建 `~/lure` 作为默认工作目录，通过 PTY 启动普通交互模式的 Pi，由 Alacritty 终端内核维护 ANSI/VT 状态并在 GPUI 窗口中绘制可见网格。也可通过 `LURE_PI_PATH` 指定 Pi 可执行文件。
 
 ## 验证
 

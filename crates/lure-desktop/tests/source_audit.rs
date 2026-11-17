@@ -6,9 +6,52 @@ fn workspace_is_pure_rust_and_contains_no_tauri_or_web_frontend_entrypoints() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     let manifest = fs::read_to_string(root.join("Cargo.toml")).unwrap();
     assert!(!manifest.to_ascii_lowercase().contains("tauri"));
+    assert!(manifest.contains("alacritty_terminal"));
+    assert!(!manifest.contains("vt100"));
     assert!(!root.join("src-tauri").exists());
     assert!(!root.join("package.json").exists());
     assert!(!root.join("src/main.tsx").exists());
+}
+
+#[test]
+fn terminal_text_uses_an_explicit_canvas_line_height_without_clipping() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let main = fs::read_to_string(root.join("crates/lure-desktop/src/main.rs")).unwrap();
+    assert!(
+        main.contains(
+            "px(CELL_HEIGHT),\n                                            TextAlign::Left"
+        )
+    );
+    assert!(
+        !main.contains(
+            ".overflow_hidden()\n                                            .child(run.text)"
+        ),
+        "终端文本 run 不得由固定行盒裁剪"
+    );
+}
+
+#[test]
+fn terminal_registers_gpui_text_input_and_uses_canvas_shaping() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let main = fs::read_to_string(root.join("crates/lure-desktop/src/main.rs")).unwrap();
+    assert!(main.contains("impl EntityInputHandler for LureApp"));
+    assert!(main.contains("ElementInputHandler::new"));
+    assert!(main.contains("window.handle_input("));
+    assert!(main.contains(".on_scroll_wheel("));
+    assert!(main.contains("self.terminal.scroll_by("));
+    assert!(main.contains(".on_mouse_move("));
+    assert!(main.contains(".on_mouse_up("));
+    assert!(main.contains("this.finish_selection(event.position, cx)"));
+    assert!(main.contains("write_to_clipboard(ClipboardItem::new_string"));
+    assert!(main.contains(".shape_line("));
+    assert!(main.contains(".id(\"back-to-bottom\")"));
+    assert!(main.contains("this.terminal.scroll_to_bottom()"));
+    assert!(main.contains("self.terminal.mouse_button_sequence("));
+    assert!(main.contains("self.terminal.cursor_visible()"));
+    assert!(
+        !main.contains(".child(run.text)"),
+        "终端文本应像 Zed 一样在 canvas 中塑形并绘制，避免固定宽度 div 遮挡中文"
+    );
 }
 
 #[test]
