@@ -55,6 +55,33 @@ fn terminal_registers_gpui_text_input_and_uses_canvas_shaping() {
 }
 
 #[test]
+fn native_window_remains_manageable_by_the_operating_system() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let main = fs::read_to_string(root.join("crates/lure-desktop/src/main.rs")).unwrap();
+    assert!(main.contains(".titlebar(Some(") && main.contains("TitlebarOptions::default()"));
+    assert!(main.contains(".app_id(\"com.lure.desktop\".to_string())"));
+    assert!(main.contains("window.titlebar_double_click()"));
+    assert!(main.contains("window.minimize_window()"));
+    assert!(main.contains("window.zoom_window()"));
+    assert!(main.contains("window.remove_window()"));
+    assert!(main.contains("#[cfg(not(target_os = \"macos\"))]"));
+}
+
+#[test]
+fn macos_bundle_uses_the_lure_logo_and_native_application_identity() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let script = fs::read_to_string(root.join("scripts/package-macos.sh")).unwrap();
+    let plist = fs::read_to_string(root.join("packaging/macos/Info.plist")).unwrap();
+    assert!(script.contains("assets/logo.svg"));
+    assert!(root.join("assets/logo.svg").exists());
+    assert!(script.contains("iconutil"));
+    assert!(script.contains("lure-desktop"));
+    assert!(plist.contains("com.lure.desktop"));
+    assert!(plist.contains("Lure.icns"));
+    assert!(plist.contains("NSHighResolutionCapable"));
+}
+
+#[test]
 fn gpui_ce_is_pinned_to_the_requested_upstream_repository() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     let manifest = fs::read_to_string(root.join("Cargo.toml")).unwrap();

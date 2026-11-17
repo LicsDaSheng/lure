@@ -12,8 +12,8 @@ use gpui::{
     App, AppContext, Bounds, ClipboardItem, Context, ElementInputHandler, EntityInputHandler,
     FocusHandle, FontStyle, FontWeight, IntoElement, KeyDownEvent, MouseButton, MouseDownEvent,
     MouseMoveEvent, MouseUpEvent, PaintQuad, PathPromptOptions, Render, Role, SharedString,
-    TextAlign, TextRun, UTF16Selection, UnderlineStyle, Window, WindowBounds, WindowOptions,
-    canvas, div, point, prelude::*, px, rgb, rgb_to_hsla, rgba, size,
+    TextAlign, TextRun, TitlebarOptions, UTF16Selection, UnderlineStyle, Window, WindowBounds,
+    WindowOptions, canvas, div, point, prelude::*, px, rgb, rgb_to_hsla, rgba, size,
 };
 use lure_desktop::input::{KeyInput, Modifiers};
 use lure_desktop::terminal::{
@@ -705,9 +705,16 @@ impl Render for LureApp {
                             .items_center()
                             .gap(px(8.0))
                             .text_size(px(12.0))
-                            .on_mouse_down(MouseButton::Left, |_: &MouseDownEvent, window, _| {
-                                window.start_window_move();
-                            })
+                            .on_mouse_down(
+                                MouseButton::Left,
+                                |event: &MouseDownEvent, window, _| {
+                                    if event.click_count == 2 {
+                                        window.titlebar_double_click();
+                                    } else if event.click_count == 1 {
+                                        window.start_window_move();
+                                    }
+                                },
+                            )
                             .child(div().font_weight(FontWeight::SEMIBOLD).child("Lure"))
                             .child(div().text_color(rgb(BORDER)).child("/"))
                             .child(
@@ -984,6 +991,13 @@ impl Render for LureApp {
     }
 }
 
+// macOS 的交通灯由 AppKit 管理，系统窗口菜单与平铺工具才能识别它们。
+#[cfg(target_os = "macos")]
+fn window_controls() -> impl IntoElement {
+    div().w(px(72.0)).flex_none()
+}
+
+#[cfg(not(target_os = "macos"))]
 fn window_controls() -> impl IntoElement {
     div()
         .flex()
@@ -1013,6 +1027,7 @@ fn window_controls() -> impl IntoElement {
         ))
 }
 
+#[cfg(not(target_os = "macos"))]
 fn window_dot(
     id: &'static str,
     label: &'static str,
@@ -1095,13 +1110,20 @@ fn canonical_directory(path: &Path) -> Result<PathBuf, String> {
 
 fn main() {
     gpui_platform::application().run(|cx: &mut App| {
+        cx.set_app_identity("com.lure.desktop", "Lure");
         let bounds = Bounds::centered(None, size(px(960.0), px(640.0)), cx);
         let window = cx
             .open_window(
                 WindowOptions::new()
                     .window_bounds(Some(WindowBounds::Windowed(bounds)))
                     .window_min_size(Some(size(px(720.0), px(480.0))))
-                    .titlebar(None)
+                    .titlebar(Some(
+                        TitlebarOptions::default()
+                            .title(SharedString::from("Lure"))
+                            .appears_transparent(true)
+                            .traffic_light_position(point(px(12.0), px(14.0))),
+                    ))
+                    .app_id("com.lure.desktop".to_string())
                     .app_owns_titlebar_drag(true),
                 |window, cx| cx.new(|cx| LureApp::new(window, cx)),
             )

@@ -20,6 +20,17 @@ cargo run -p lure-desktop
 
 应用会创建 `~/lure` 作为默认工作目录，通过 PTY 启动普通交互模式的 Pi，由 Alacritty 终端内核维护 ANSI/VT 状态并在 GPUI 窗口中绘制可见网格。也可通过 `LURE_PI_PATH` 指定 Pi 可执行文件。
 
+macOS 使用原生交通灯进行关闭、缩放与最小化到 Dock；拖动窗口、系统平铺及第三方窗口管理工具使用原生窗口机制。最小化不会停止 Pi，关闭窗口会停止 Pi。本应用不另设后台托盘。
+
+要在 Finder / Dock 中显示 Lure 图标，需生成应用包（依赖 Homebrew 的 `librsvg`，提供 `rsvg-convert`，以及 Xcode 命令行工具的 `iconutil`）：
+
+```bash
+scripts/package-macos.sh
+open target/release/Lure.app
+```
+
+直接执行 `cargo run` 不会加载 `.app` 的 Dock 图标。
+
 ## 验证
 
 ```bash
