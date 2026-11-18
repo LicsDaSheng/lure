@@ -15,8 +15,12 @@ pi --version
 ## 开始开发
 
 ```bash
-cargo run -p lure-desktop
+make dev                    # 首次自动安装项目专用的 cargo-watch；之后监听源码变化并重启
+make run                    # 编译并启动一次
+make build                  # 构建 release 可执行文件
 ```
+
+`make dev` 首次运行时将固定版本的 `cargo-watch` 安装在被 Git 忽略的 `target/dev-tools` 中，不会安装到全局 Cargo bin 目录，也不参与应用构建或打包。它会在保存 Rust 源码后重新编译并重启窗口，不是无需重启的热更新；重启会结束当前 Pi PTY 会话。`make run` 等价于 `cargo run -p lure-desktop`。
 
 应用会创建 `~/lure` 作为默认工作目录，通过 PTY 启动普通交互模式的 Pi，由 Alacritty 终端内核维护 ANSI/VT 状态并在 GPUI 窗口中绘制可见网格。也可通过 `LURE_PI_PATH` 指定 Pi 可执行文件。
 
