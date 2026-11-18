@@ -1,3 +1,5 @@
+use lure_desktop::terminal::{TerminalLine, VisibleRowCache};
+
 use lure_desktop::input::{KeyInput, Modifiers, terminal_input};
 use lure_desktop::terminal::{
     TERMINAL_FONT_FALLBACKS, TERMINAL_FONT_FAMILY, TerminalGrid, TerminalSelection,
@@ -723,4 +725,79 @@ fn release_all_images_frees_a_closed_tab() {
     assert_eq!(grid.release_all_images().len(), 1);
     assert_eq!(grid.graphics_memory_bytes(), 0);
     assert!(grid.graphics().is_empty());
+}
+#[test]
+fn visible_row_cache_rebuilds_only_changed_text_or_style() {
+    use std::rc::Rc;
+
+    let mut grid = TerminalGrid::new(3, 12);
+    grid.process("alpha\r\n界e\u{301}\r\nomega".as_bytes());
+    let mut cache = VisibleRowCache::default();
+    let mut builds = 0;
+    let mut build = |line: &TerminalLine| {
+        builds += 1;
+        line.runs()
+    };
+    let first = grid.cached_visible_rows(&mut cache, &mut build);
+    grid.process(b"\x1b[1;1H");
+    let cursor_only = grid.cached_visible_rows(&mut cache, &mut build);
+    assert!(
+        first
+            .iter()
+            .zip(&cursor_only)
+            .all(|(a, b)| Rc::ptr_eq(a, b))
+    );
+    grid.process(b"\x1b[7ma\x1b[0m");
+    let edited = grid.cached_visible_rows(&mut cache, &mut build);
+    assert!(!Rc::ptr_eq(&first[0], &edited[0]));
+    assert!(Rc::ptr_eq(&first[1], &edited[1]));
+    assert!(Rc::ptr_eq(&first[2], &edited[2]));
+    grid.process("\x1b[2;3He\u{308}".as_bytes());
+    let combined = grid.cached_visible_rows(&mut cache, &mut build);
+    assert!(Rc::ptr_eq(&edited[0], &combined[0]));
+    assert!(!Rc::ptr_eq(&edited[1], &combined[1]));
+    assert_eq!(builds, 5);
+    assert_eq!(
+        combined
+            .iter()
+            .map(|row| row.as_ref().clone())
+            .collect::<Vec<_>>(),
+        grid.lines()
+            .iter()
+            .map(TerminalLine::runs)
+            .collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn visible_row_cache_reuses_scrolled_rows_but_not_stale_rows() {
+    use std::rc::Rc;
+
+    let mut grid = TerminalGrid::new(3, 12);
+    grid.process(b"one\r\ntwo\r\nthree\r\nfour");
+    let mut cache = VisibleRowCache::default();
+    let first = grid.cached_visible_rows(&mut cache, TerminalLine::text);
+    grid.scroll_by(1);
+    let scrolled = grid.cached_visible_rows(&mut cache, TerminalLine::text);
+    assert!(Rc::ptr_eq(&first[0], &scrolled[1]));
+    assert!(Rc::ptr_eq(&first[1], &scrolled[2]));
+    grid.scroll_to_bottom();
+    grid.process(b"\r\nfive");
+    let streamed = grid.cached_visible_rows(&mut cache, TerminalLine::text);
+    assert!(Rc::ptr_eq(&scrolled[2], &streamed[0]));
+    grid.process(b"\x1b[?1049h\x1b[Hnew tab");
+    assert_eq!(
+        grid.cached_visible_rows(&mut cache, TerminalLine::text)[0].trim(),
+        "new tab"
+    );
+    grid.process(b"\x1b[?1049l");
+    grid.resize(4, 16);
+    let resized = grid.cached_visible_rows(&mut cache, TerminalLine::text);
+    assert_eq!(
+        resized.iter().map(|row| row.as_str()).collect::<Vec<_>>(),
+        grid.lines()
+            .iter()
+            .map(TerminalLine::text)
+            .collect::<Vec<_>>()
+    );
 }

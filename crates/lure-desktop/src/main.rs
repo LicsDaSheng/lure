@@ -22,7 +22,8 @@ use lure_desktop::projects::{
 };
 use lure_desktop::terminal::{
     CELL_HEIGHT, CELL_WIDTH, TERMINAL_PADDING, TITLEBAR_HEIGHT, TerminalGraphic, TerminalGrid,
-    TerminalSelection, terminal_font, terminal_pixel_size, terminal_size_for_viewport,
+    TerminalLine, TerminalSelection, VisibleRowCache, terminal_font, terminal_pixel_size,
+    terminal_size_for_viewport,
 };
 use lure_desktop::theme::{ACCENT, BACKGROUND, BORDER, ERROR, FOREGROUND, MUTED, TITLEBAR};
 use lure_pty::{
@@ -116,6 +117,7 @@ struct LureApp {
     error: String,
     exit_code: Option<u32>,
     terminal: TerminalGrid,
+    visible_rows: VisibleRowCache<Vec<PaintedRun>>,
     process: Option<PtyProcess>,
     dimensions: (u16, u16),
     generation: Arc<AtomicU64>,
@@ -164,6 +166,7 @@ impl LureApp {
             error: String::new(),
             exit_code: None,
             terminal: TerminalGrid::new(dimensions.1, dimensions.0),
+            visible_rows: VisibleRowCache::default(),
             process: None,
             dimensions,
             generation: Arc::new(AtomicU64::new(0)),
@@ -1429,6 +1432,76 @@ impl Drop for LureApp {
     }
 }
 
+struct PaintedRun {
+    column: u16,
+    columns: u16,
+    background: u32,
+    shaped: Option<gpui::ShapedLine>,
+}
+
+fn shape_terminal_row(line: &TerminalLine, window: &Window) -> Vec<PaintedRun> {
+    let mut column = 0;
+    line.runs()
+        .into_iter()
+        .map(|run| {
+            let shaped = if run.text.is_empty() {
+                None
+            } else {
+                let mut font = terminal_font();
+                if run.bold {
+                    font.weight = FontWeight::BOLD;
+                }
+                if run.italic {
+                    font.style = FontStyle::Italic;
+                }
+                let color = rgb_to_hsla(rgb(run.foreground));
+                let text_run = TextRun {
+                    len: run.text.len(),
+                    font,
+                    color,
+                    background_color: None,
+                    underline: run.underline.then_some(UnderlineStyle {
+                        thickness: px(1.0),
+                        color: Some(color),
+                        wavy: false,
+                    }),
+                    strikethrough: None,
+                    letter_spacing: None,
+                };
+                // 13px JetBrainsMono 的自然字进宽约 7.8px，
+                // 长行若直接整段塑形，边框和竖线会逐列偏离 8px 网格。
+                let mut text_run = text_run;
+                if run.text.is_ascii() && run.columns > 1 {
+                    let measured = window.text_system().shape_line(
+                        run.text.clone().into(),
+                        px(13.0),
+                        &[text_run.clone()],
+                    );
+                    text_run.letter_spacing = lure_desktop::terminal::terminal_run_tracking(
+                        f32::from(measured.width()),
+                        run.text.len(),
+                        run.columns,
+                    )
+                    .map(px);
+                }
+                Some(
+                    window
+                        .text_system()
+                        .shape_line(run.text.into(), px(13.0), &[text_run]),
+                )
+            };
+            let painted = PaintedRun {
+                column,
+                columns: run.columns,
+                background: run.background,
+                shaped,
+            };
+            column += run.columns;
+            painted
+        })
+        .collect()
+}
+
 impl Render for LureApp {
     #[allow(clippy::too_many_lines)]
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
@@ -1439,12 +1512,15 @@ impl Render for LureApp {
         let running = self.phase == Phase::Running;
         let cursor_visible = running && self.terminal.cursor_visible();
         let scrollback = self.terminal.scrollback();
-        let terminal_rows = self
-            .terminal
-            .lines()
-            .into_iter()
-            .map(|line| line.runs())
-            .collect::<Vec<_>>();
+        let terminal_rows = if self.route == Route::Terminal {
+            self.terminal
+                .cached_visible_rows(&mut self.visible_rows, |line| {
+                    shape_terminal_row(line, window)
+                })
+        } else {
+            self.visible_rows = VisibleRowCache::default();
+            Vec::new()
+        };
         let marked_text = self.marked_text.clone();
         let graphics = self.terminal.graphics();
         let mut released_images = self.terminal.take_released_images();
@@ -1664,69 +1740,6 @@ impl Render for LureApp {
                         .child(
                             canvas(
                                 move |_bounds, window, _cx| {
-                                    let mut painted_runs = Vec::new();
-                                    for (row, runs) in terminal_rows.into_iter().enumerate() {
-                                        let mut column = 0_u16;
-                                        for run in runs {
-                                            let shaped = if run.text.is_empty() {
-                                                None
-                                            } else {
-                                                let mut font = terminal_font();
-                                                if run.bold {
-                                                    font.weight = FontWeight::BOLD;
-                                                }
-                                                if run.italic {
-                                                    font.style = FontStyle::Italic;
-                                                }
-                                                let color = rgb_to_hsla(rgb(run.foreground));
-                                                let text_run = TextRun {
-                                                    len: run.text.len(),
-                                                    font,
-                                                    color,
-                                                    background_color: None,
-                                                    underline: run.underline.then_some(
-                                                        UnderlineStyle {
-                                                            thickness: px(1.0),
-                                                            color: Some(color),
-                                                            wavy: false,
-                                                        },
-                                                    ),
-                                                    strikethrough: None,
-                                                    letter_spacing: None,
-                                                };
-                                                // 13px JetBrainsMono 的自然字进宽约 7.8px，
-                                                // 长行若直接整段塑形，边框和竖线会逐列偏离 8px 网格。
-                                                let mut text_run = text_run;
-                                                if run.text.is_ascii() && run.columns > 1 {
-                                                    let measured = window.text_system().shape_line(
-                                                        run.text.clone().into(),
-                                                        px(13.0),
-                                                        &[text_run.clone()],
-                                                    );
-                                                    text_run.letter_spacing =
-                                                        lure_desktop::terminal::terminal_run_tracking(
-                                                            f32::from(measured.width()),
-                                                            run.text.len(),
-                                                            run.columns,
-                                                        )
-                                                        .map(px);
-                                                }
-                                                Some(window.text_system().shape_line(
-                                                    run.text.into(),
-                                                    px(13.0),
-                                                    &[text_run],
-                                                ))
-                                            };
-                                            painted_runs.push((
-                                                u16::try_from(row).unwrap_or(u16::MAX),
-                                                column,
-                                                run.columns,
-                                                run.background,
-                                                shaped,
-                                            ));
-                                            column += run.columns;
-                                        }
-                                    }
                                     let marked = if marked_text.is_empty() {
                                         None
                                     } else {
@@ -1750,23 +1763,37 @@ impl Render for LureApp {
                                             &[text_run],
                                         ))
                                     };
-                                    (painted_runs, marked)
+                                    (terminal_rows, marked)
                                 },
-                                move |bounds, (painted_runs, marked), window, cx| {
+                                move |bounds, (terminal_rows, marked), window, cx| {
                                     window.handle_input(
                                         &input_focus,
                                         ElementInputHandler::new(bounds, terminal_entity),
                                         cx,
                                     );
 
-                                    for (row, column, columns, background, _) in &painted_runs {
+                                    let runs = || {
+                                        terminal_rows.iter().enumerate().flat_map(|(row, runs)| {
+                                            let row = u16::try_from(row).unwrap_or(u16::MAX);
+                                            runs.iter().map(move |run| (row, run))
+                                        })
+                                    };
+                                    for (
+                                        row,
+                                        PaintedRun {
+                                            column,
+                                            columns,
+                                            background,
+                                            ..
+                                        },
+                                    ) in runs()
+                                    {
                                         window.paint_quad(
                                             PaintQuad::new(Bounds::new(
                                                 point(
                                                     bounds.left()
                                                         + px(CELL_WIDTH * f32::from(*column)),
-                                                    bounds.top()
-                                                        + px(CELL_HEIGHT * f32::from(*row)),
+                                                    bounds.top() + px(CELL_HEIGHT * f32::from(row)),
                                                 ),
                                                 size(
                                                     px(CELL_WIDTH * f32::from(*columns)),
@@ -1827,14 +1854,13 @@ impl Render for LureApp {
                                         }
                                     }
 
-                                    for (row, column, _, _, shaped) in &painted_runs {
+                                    for (row, PaintedRun { column, shaped, .. }) in runs() {
                                         if let Some(shaped) = shaped {
                                             let _ = shaped.paint(
                                                 point(
                                                     bounds.left()
                                                         + px(CELL_WIDTH * f32::from(*column)),
-                                                    bounds.top()
-                                                        + px(CELL_HEIGHT * f32::from(*row)),
+                                                    bounds.top() + px(CELL_HEIGHT * f32::from(row)),
                                                 ),
                                                 px(CELL_HEIGHT),
                                                 TextAlign::Left,

@@ -118,6 +118,66 @@ pub struct TerminalLine {
     cells: Vec<TerminalCell>,
 }
 
+/// 缓存上一帧的可见行，最多保存一个视口，不随历史记录增长。
+pub struct VisibleRowCache<T> {
+    top: usize,
+    rows: Vec<Option<CachedRow<T>>>,
+    next: Vec<Option<CachedRow<T>>>,
+}
+
+impl<T> Default for VisibleRowCache<T> {
+    fn default() -> Self {
+        Self {
+            top: 0,
+            rows: Vec::new(),
+            next: Vec::new(),
+        }
+    }
+}
+
+struct CachedRow<T> {
+    line: TerminalLine,
+    rendered: std::rc::Rc<T>,
+}
+
+type GridRow = rio_vt::crosswords::grid::row::Row<rio_vt::crosswords::square::Square>;
+
+struct CellView<'a> {
+    base: Option<char>,
+    extras: &'a [char],
+    foreground: u32,
+    background: u32,
+    bold: bool,
+    italic: bool,
+    underline: bool,
+}
+
+impl CellView<'_> {
+    fn chars(&self) -> impl Iterator<Item = char> + '_ {
+        self.base.into_iter().chain(self.extras.iter().copied())
+    }
+
+    fn matches(&self, cell: &TerminalCell) -> bool {
+        self.foreground == cell.foreground
+            && self.background == cell.background
+            && self.bold == cell.bold
+            && self.italic == cell.italic
+            && self.underline == cell.underline
+            && self.chars().eq(cell.text.chars())
+    }
+
+    fn to_cell(&self) -> TerminalCell {
+        TerminalCell {
+            text: self.chars().collect(),
+            foreground: self.foreground,
+            background: self.background,
+            bold: self.bold,
+            italic: self.italic,
+            underline: self.underline,
+        }
+    }
+}
+
 impl TerminalLine {
     #[must_use]
     pub fn cells(&self) -> &[TerminalCell] {
@@ -731,64 +791,110 @@ impl TerminalGrid {
 
     #[must_use]
     pub fn lines(&self) -> Vec<TerminalLine> {
+        self.visible_grid_rows()
+            .map(|row| self.terminal_line(row))
+            .collect()
+    }
+
+    /// 只为变化的可见行调用 `build`。缓存应由同一绘制上下文和构建逻辑复用。
+    /// 在滚动或追加历史后尝试复用移位的行，始终按实际文本和样式校验。
+    pub fn cached_visible_rows<T>(
+        &self,
+        cache: &mut VisibleRowCache<T>,
+        mut build: impl FnMut(&TerminalLine) -> T,
+    ) -> Vec<std::rc::Rc<T>> {
+        let top = usize::try_from(self.term.lines_evicted())
+            .unwrap_or(usize::MAX)
+            .saturating_add(
+                self.term
+                    .history_size()
+                    .saturating_sub(self.term.display_offset()),
+            );
+        let columns = self.term.columns();
+        let mut rendered = Vec::with_capacity(self.term.screen_lines());
+        for (index, row) in self.visible_grid_rows().enumerate() {
+            let previous = if top >= cache.top {
+                index.checked_add(top - cache.top)
+            } else {
+                index.checked_sub(cache.top - top)
+            };
+            let entry = previous
+                .and_then(|index| cache.rows.get_mut(index))
+                .and_then(Option::take)
+                .filter(|entry| {
+                    entry.line.cells.len() == columns
+                        && (0..columns)
+                            .all(|col| self.cell_view(row, col).matches(&entry.line.cells[col]))
+                })
+                .unwrap_or_else(|| {
+                    let line = self.terminal_line(row);
+                    let rendered = std::rc::Rc::new(build(&line));
+                    CachedRow { line, rendered }
+                });
+            rendered.push(std::rc::Rc::clone(&entry.rendered));
+            cache.next.push(Some(entry));
+        }
+        std::mem::swap(&mut cache.rows, &mut cache.next);
+        cache.next.clear();
+        cache.top = top;
+        rendered
+    }
+
+    fn visible_grid_rows(&self) -> impl Iterator<Item = &GridRow> {
+        use rio_vt::crosswords::pos::Line;
+        let start = -i32::try_from(self.term.display_offset()).unwrap_or(i32::MAX);
+        let height = i32::from(self.size().0);
+        (start..start + height).map(|line| &self.term.grid[Line(line)])
+    }
+
+    fn terminal_line(&self, row: &GridRow) -> TerminalLine {
+        TerminalLine {
+            cells: (0..self.term.columns())
+                .map(|column| self.cell_view(row, column).to_cell())
+                .collect(),
+        }
+    }
+
+    fn cell_view<'a>(&'a self, row: &'a GridRow, column: usize) -> CellView<'a> {
         use rio_vt::crosswords::pos::Column;
         use rio_vt::crosswords::square::Wide;
         use rio_vt::crosswords::style::StyleFlags;
-        let (rows, columns) = self.size();
-        let mut lines = vec![
-            TerminalLine {
-                cells: vec![
-                    TerminalCell {
-                        text: " ".to_string(),
-                        foreground: FOREGROUND,
-                        background: BACKGROUND,
-                        bold: false,
-                        italic: false,
-                        underline: false,
-                    };
-                    usize::from(columns)
-                ]
+        if column >= row.len() {
+            return CellView {
+                base: Some(' '),
+                extras: &[],
+                foreground: FOREGROUND,
+                background: BACKGROUND,
+                bold: false,
+                italic: false,
+                underline: false,
             };
-            usize::from(rows)
-        ];
-        let visible = self.term.visible_rows();
-        for (row_index, row) in visible.iter().take(usize::from(rows)).enumerate() {
-            for column in 0..usize::from(columns) {
-                if column >= row.len() {
-                    break;
-                }
-                let square = row[Column(column)];
-                let style = self.term.grid.style_of(&square);
-                let mut foreground = color(style.fg, FOREGROUND);
-                let mut background = color(style.bg, BACKGROUND);
-                if style.flags.contains(StyleFlags::INVERSE) {
-                    std::mem::swap(&mut foreground, &mut background);
-                }
-                let mut text = if matches!(square.wide(), Wide::Spacer | Wide::LeadingSpacer) {
-                    String::new()
-                } else {
-                    match square.c() {
-                        '\0' => " ".to_string(),
-                        c => c.to_string(),
-                    }
-                };
-                if !text.is_empty()
-                    && let Some(extras_id) = square.extras_id_checked()
-                    && let Some(extras) = self.term.grid.extras_table.get(extras_id)
-                {
-                    text.extend(extras.zerowidth.iter());
-                }
-                lines[row_index].cells[column] = TerminalCell {
-                    text,
-                    foreground,
-                    background,
-                    bold: style.flags.contains(StyleFlags::BOLD),
-                    italic: style.flags.contains(StyleFlags::ITALIC),
-                    underline: style.flags.intersects(StyleFlags::ALL_UNDERLINES),
-                };
-            }
         }
-        lines
+        let square = row[Column(column)];
+        let style = self.term.grid.style_of(&square);
+        let mut foreground = color(style.fg, FOREGROUND);
+        let mut background = color(style.bg, BACKGROUND);
+        if style.flags.contains(StyleFlags::INVERSE) {
+            std::mem::swap(&mut foreground, &mut background);
+        }
+        let base = match (square.wide(), square.c()) {
+            (Wide::Spacer | Wide::LeadingSpacer, _) => None,
+            (_, '\0') => Some(' '),
+            (_, c) => Some(c),
+        };
+        let extras = base
+            .and_then(|_| square.extras_id_checked())
+            .and_then(|id| self.term.grid.extras_table.get(id))
+            .map_or(&[][..], |extras| extras.zerowidth.as_slice());
+        CellView {
+            base,
+            extras,
+            foreground,
+            background,
+            bold: style.flags.contains(StyleFlags::BOLD),
+            italic: style.flags.contains(StyleFlags::ITALIC),
+            underline: style.flags.intersects(StyleFlags::ALL_UNDERLINES),
+        }
     }
 }
 
