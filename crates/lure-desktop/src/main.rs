@@ -945,6 +945,10 @@ impl LureApp {
             .w(px(240.0))
             .h(px(112.0))
             .p(px(16.0))
+            .flex()
+            .flex_col()
+            .justify_center()
+            .overflow_hidden()
             .rounded(px(12.0))
             .border_1()
             .border_color(rgb(BORDER))
@@ -956,9 +960,17 @@ impl LureApp {
                     this.open_project(project, window, cx);
                 }
             }))
-            .child(div().font_weight(FontWeight::SEMIBOLD).child(name))
             .child(
                 div()
+                    .min_w_0()
+                    .overflow_hidden()
+                    .text_ellipsis()
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .child(name),
+            )
+            .child(
+                div()
+                    .min_w_0()
                     .mt(px(10.0))
                     .text_size(px(11.0))
                     .text_color(rgb(MUTED))

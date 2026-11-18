@@ -103,6 +103,23 @@ fn terminal_transition_panel_uses_the_current_dark_palette() {
 }
 
 #[test]
+fn project_cards_constrain_both_text_lines_inside_the_card() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let main = fs::read_to_string(root.join("crates/lure-desktop/src/main.rs")).unwrap();
+    let card = main
+        .split("    fn project_card(")
+        .nth(1)
+        .unwrap()
+        .split("    fn project_draft_panel(")
+        .next()
+        .unwrap();
+    assert!(card.contains(".flex_col()"));
+    assert!(card.contains(".overflow_hidden()"));
+    assert_eq!(card.matches(".text_ellipsis()").count(), 2);
+    assert_eq!(card.matches(".min_w_0()").count(), 2);
+}
+
+#[test]
 fn project_home_and_multi_tab_lifecycle_are_wired() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     let main = fs::read_to_string(root.join("crates/lure-desktop/src/main.rs")).unwrap();
