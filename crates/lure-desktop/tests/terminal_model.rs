@@ -3,7 +3,43 @@ use lure_desktop::terminal::{
     TERMINAL_FONT_FALLBACKS, TERMINAL_FONT_FAMILY, TerminalGrid, TerminalSelection,
     terminal_size_for_viewport,
 };
-use lure_desktop::theme::{ANSI_COLORS, BACKGROUND, FOREGROUND, indexed_color};
+use lure_desktop::theme::{
+    ACCENT, ANSI_COLORS, BACKGROUND, BORDER, ERROR, FOREGROUND, MUTED, TITLEBAR, indexed_color,
+};
+
+#[test]
+fn defaults_to_dracula_dark_palette_for_window_and_terminal() {
+    assert_eq!(BACKGROUND, 0x0028_2A36);
+    assert_eq!(TITLEBAR, 0x0021_222C);
+    assert_eq!(FOREGROUND, 0x00F8_F8F2);
+    assert_eq!(MUTED, 0x00A6_ABCB);
+    assert_eq!(BORDER, 0x0044_475A);
+    assert_eq!(ERROR, 0x00FF_5555);
+    assert_eq!(ACCENT, 0x00BD_93F9);
+    assert_eq!(
+        ANSI_COLORS,
+        [
+            0x0021_222C,
+            0x00FF_5555,
+            0x0050_FA7B,
+            0x00F1_FA8C,
+            0x00BD_93F9,
+            0x00FF_79C6,
+            0x008B_E9FD,
+            0x00F8_F8F2,
+            0x0062_72A4,
+            0x00FF_6E6E,
+            0x0069_FF94,
+            0x00FF_FFA5,
+            0x00D6_ACFF,
+            0x00FF_92DF,
+            0x00A4_FFFF,
+            0x00FF_FFFF,
+        ]
+    );
+    assert_eq!(indexed_color(1), 0x00FF_5555);
+    assert_eq!(indexed_color(15), 0x00FF_FFFF);
+}
 
 #[test]
 fn parses_ansi_output_without_exposing_escape_sequences() {

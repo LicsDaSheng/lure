@@ -1240,7 +1240,7 @@ impl LureApp {
             .flex()
             .items_center()
             .justify_center()
-            .bg(gpui::rgba(0x3c38_361a))
+            .bg(gpui::rgba((TITLEBAR << 8) | 0x66))
             .child(
                 div()
                     .w(px(420.0))
@@ -1248,7 +1248,7 @@ impl LureApp {
                     .rounded(px(12.0))
                     .border_1()
                     .border_color(rgb(BORDER))
-                    .bg(rgb(0xF2_E5_BC))
+                    .bg(rgb(TITLEBAR))
                     .text_color(rgb(FOREGROUND))
                     .child(div().font_weight(FontWeight::SEMIBOLD).child(title))
                     .child(

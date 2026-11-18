@@ -1,30 +1,30 @@
-//! Gruvbox Light 终端配色。
+//! Dracula 深色界面与终端配色。
 
-pub const BACKGROUND: u32 = 0x00FB_F1C7;
-pub const TITLEBAR: u32 = 0x00EB_DBB2;
-pub const FOREGROUND: u32 = 0x003C_3836;
-pub const MUTED: u32 = 0x007C_6F64;
-pub const BORDER: u32 = 0x00D5_C4A1;
-pub const ERROR: u32 = 0x00CC_241D;
-pub const ACCENT: u32 = 0x0045_8588;
+pub const BACKGROUND: u32 = 0x0028_2A36;
+pub const TITLEBAR: u32 = 0x0021_222C;
+pub const FOREGROUND: u32 = 0x00F8_F8F2;
+pub const MUTED: u32 = 0x00A6_ABCB;
+pub const BORDER: u32 = 0x0044_475A;
+pub const ERROR: u32 = 0x00FF_5555;
+pub const ACCENT: u32 = 0x00BD_93F9;
 
 pub const ANSI_COLORS: [u32; 16] = [
-    BACKGROUND,
-    0x00CC_241D,
-    0x0098_971A,
-    0x00D7_9921,
-    0x0045_8588,
-    0x00B1_6286,
-    0x0068_9D6A,
-    MUTED,
-    0x0092_8374,
-    0x009D_0006,
-    0x0079_740E,
-    0x00B5_7614,
-    0x0007_6678,
-    0x008F_3F71,
-    0x0042_7B58,
-    FOREGROUND,
+    0x0021_222C,
+    0x00FF_5555,
+    0x0050_FA7B,
+    0x00F1_FA8C,
+    0x00BD_93F9,
+    0x00FF_79C6,
+    0x008B_E9FD,
+    0x00F8_F8F2,
+    0x0062_72A4,
+    0x00FF_6E6E,
+    0x0069_FF94,
+    0x00FF_FFA5,
+    0x00D6_ACFF,
+    0x00FF_92DF,
+    0x00A4_FFFF,
+    0x00FF_FFFF,
 ];
 
 #[must_use]

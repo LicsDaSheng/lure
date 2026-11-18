@@ -86,6 +86,23 @@ fn macos_bundle_uses_the_lure_logo_and_native_application_identity() {
 }
 
 #[test]
+fn terminal_transition_panel_uses_the_current_dark_palette() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let main = fs::read_to_string(root.join("crates/lure-desktop/src/main.rs")).unwrap();
+    let panel = main
+        .split("    fn status_panel(")
+        .nth(1)
+        .unwrap()
+        .split("impl EntityInputHandler")
+        .next()
+        .unwrap();
+    assert!(panel.contains(".bg(rgb(TITLEBAR))"));
+    assert!(panel.contains(".bg(gpui::rgba((TITLEBAR << 8) | 0x66))"));
+    assert!(!panel.contains("0xF2_E5_BC"));
+    assert!(!panel.contains("0x3c38_361a"));
+}
+
+#[test]
 fn project_home_and_multi_tab_lifecycle_are_wired() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     let main = fs::read_to_string(root.join("crates/lure-desktop/src/main.rs")).unwrap();
