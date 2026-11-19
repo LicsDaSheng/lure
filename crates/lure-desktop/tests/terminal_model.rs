@@ -801,3 +801,28 @@ fn visible_row_cache_reuses_scrolled_rows_but_not_stale_rows() {
             .collect::<Vec<_>>()
     );
 }
+
+#[test]
+fn theme_switch_recolors_existing_terminal_without_changing_content_or_cursor() {
+    use lure_desktop::theme::Theme;
+    let mut grid = TerminalGrid::new(2, 12);
+    grid.process(b"a\x1b[31mb\x1b[38;2;18;52;86mc\x1b[0m\x1b[7md");
+    let original = grid.lines();
+    let cursor = grid.cursor();
+    let mut cache = VisibleRowCache::default();
+    let dark = grid.cached_visible_rows(&mut cache, Clone::clone);
+    grid.set_theme(Theme::Light);
+    let light = grid.cached_visible_rows(&mut cache, Clone::clone);
+    assert!(!std::rc::Rc::ptr_eq(&dark[0], &light[0]));
+    let cells = light[0].cells();
+    assert_eq!(cells[0].foreground, Theme::Light.palette().foreground);
+    assert_eq!(cells[0].background, Theme::Light.palette().background);
+    assert_eq!(cells[1].foreground, Theme::Light.indexed_color(1));
+    assert_eq!(cells[2].foreground, 0x0012_3456);
+    assert_eq!(cells[3].foreground, Theme::Light.palette().background);
+    assert_eq!(cells[3].background, Theme::Light.palette().foreground);
+    assert_eq!(light[0].text(), original[0].text());
+    assert_eq!(grid.cursor(), cursor);
+    grid.set_theme(Theme::Dark);
+    assert_eq!(grid.lines(), original);
+}

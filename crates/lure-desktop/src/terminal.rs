@@ -1,6 +1,6 @@
 //! ANSI/VT 字节流的纯 Rust 终端模型。
 
-use crate::theme::{BACKGROUND, FOREGROUND, indexed_color};
+use crate::theme::Theme;
 
 pub const TERMINAL_FONT_FAMILY: &str = "JetBrainsMono Nerd Font Mono";
 pub const TERMINAL_FONT_FALLBACKS: [&str; 4] = [
@@ -267,6 +267,7 @@ impl std::fmt::Debug for TerminalGraphic {
 
 /// ANSI/VT 网格由 rio-vt 终端内核维护，展示层只读取可见单元格与图片 placement。
 pub struct TerminalGrid {
+    theme: Theme,
     term: rio_vt::crosswords::Crosswords<TerminalEvents>,
     processor: rio_vt::performer::handler::Processor,
     events: TerminalEvents,
@@ -439,6 +440,11 @@ impl rio_vt::event::EventListener for TerminalEvents {
 }
 
 impl TerminalGrid {
+    /// 仅更换绘制色板，不修改终端内容或子进程。
+    pub fn set_theme(&mut self, theme: Theme) {
+        self.theme = theme;
+    }
+
     #[must_use]
     pub fn new(rows: u16, columns: u16) -> Self {
         use rio_vt::ansi::CursorShape;
@@ -471,6 +477,8 @@ impl TerminalGrid {
             term,
             processor: rio_vt::performer::handler::Processor::default(),
             events,
+            // 保持独立终端模型的默认色板；应用绘制前显式应用所选主题。
+            theme: Theme::Dark,
             graphics_memory: 0,
             graphics_limit: GRAPHICS_MEMORY_LIMIT,
         }
@@ -863,8 +871,8 @@ impl TerminalGrid {
             return CellView {
                 base: Some(' '),
                 extras: &[],
-                foreground: FOREGROUND,
-                background: BACKGROUND,
+                foreground: self.theme.palette().foreground,
+                background: self.theme.palette().background,
                 bold: false,
                 italic: false,
                 underline: false,
@@ -872,8 +880,8 @@ impl TerminalGrid {
         }
         let square = row[Column(column)];
         let style = self.term.grid.style_of(&square);
-        let mut foreground = color(style.fg, FOREGROUND);
-        let mut background = color(style.bg, BACKGROUND);
+        let mut foreground = color(style.fg, self.theme.palette().foreground, self.theme);
+        let mut background = color(style.bg, self.theme.palette().background, self.theme);
         if style.flags.contains(StyleFlags::INVERSE) {
             std::mem::swap(&mut foreground, &mut background);
         }
@@ -898,19 +906,19 @@ impl TerminalGrid {
     }
 }
 
-fn color(color: rio_vt::config::colors::AnsiColor, default: u32) -> u32 {
+fn color(color: rio_vt::config::colors::AnsiColor, default: u32, theme: Theme) -> u32 {
     use rio_vt::config::colors::{AnsiColor, NamedColor};
     match color {
         AnsiColor::Spec(rgb) => {
             (u32::from(rgb.r) << 16) | (u32::from(rgb.g) << 8) | u32::from(rgb.b)
         }
-        AnsiColor::Indexed(index) => indexed_color(index),
+        AnsiColor::Indexed(index) => theme.indexed_color(index),
         AnsiColor::Named(
             NamedColor::Foreground | NamedColor::LightForeground | NamedColor::DimForeground,
-        ) => FOREGROUND,
-        AnsiColor::Named(NamedColor::Background) => BACKGROUND,
+        ) => theme.palette().foreground,
+        AnsiColor::Named(NamedColor::Background) => theme.palette().background,
         AnsiColor::Named(name) if (name as usize) < 16 => {
-            indexed_color(u8::try_from(name as usize).unwrap_or_default())
+            theme.indexed_color(u8::try_from(name as usize).unwrap_or_default())
         }
         AnsiColor::Named(_) => default,
     }

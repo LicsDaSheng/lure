@@ -27,7 +27,7 @@ use lure_desktop::terminal::{
     TerminalLine, TerminalSelection, VisibleRowCache, terminal_font, terminal_pixel_size,
     terminal_size_for_viewport,
 };
-use lure_desktop::theme::{ACCENT, BACKGROUND, BORDER, ERROR, FOREGROUND, MUTED, TITLEBAR};
+use lure_desktop::theme::{Palette, Theme};
 use lure_pty::{
     PtyCommand, PtyEvent, PtyProcess, SpawnEnvResolver, TerminalSize, resolve_pi_executable,
 };
@@ -135,6 +135,7 @@ struct ProjectDraft {
 }
 
 struct LureApp {
+    theme: Theme,
     focus: FocusHandle,
     route: Route,
     current_id: Option<SessionId>,
@@ -160,9 +161,6 @@ struct LureApp {
     projects_path: PathBuf,
     projects_error: Option<String>,
     project_draft: Option<ProjectDraft>,
-    home_query: String,
-    home_marked_text: String,
-    home_search_active: bool,
     home_filter: ProjectFilter,
     sidebar_visibility: SidebarVisibility,
 }
@@ -187,6 +185,7 @@ impl LureApp {
             Err(error) => (ProjectList::default(), Some(error)),
         };
         let app = Self {
+            theme: Theme::default(),
             focus,
             route: Route::Home,
             current_id: None,
@@ -212,9 +211,6 @@ impl LureApp {
             projects_path,
             projects_error,
             project_draft: None,
-            home_query: String::new(),
-            home_marked_text: String::new(),
-            home_search_active: false,
             home_filter: ProjectFilter::All,
             sidebar_visibility: SidebarVisibility::Expanded,
         };
@@ -340,63 +336,6 @@ impl LureApp {
         });
         self.focus.focus(window, cx);
         self.start(cx);
-    }
-
-    fn close_current(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let was_home = self.route == Route::Home;
-        self.stop_process();
-        let mut closing = std::mem::replace(
-            &mut self.terminal,
-            TerminalGrid::new(self.dimensions.1, self.dimensions.0),
-        );
-        Self::release_images(&mut closing, window);
-        self.generation.fetch_add(1, Ordering::AcqRel);
-        self.current_id = None;
-        let next_index = self.projects.projects.iter().find_map(|project| {
-            self.parked_sessions
-                .iter()
-                .position(|session| session.directory == project.path)
-        });
-        if let Some(index) = next_index {
-            let session = self.parked_sessions.swap_remove(index);
-            self.restore_session(session);
-            if was_home {
-                self.route = Route::Home;
-            }
-            self.focus.focus(window, cx);
-        } else {
-            self.route = Route::Home;
-            self.current_name.clear();
-            self.directory.clear();
-        }
-        cx.notify();
-    }
-
-    fn close_session(&mut self, id: SessionId, window: &mut Window, cx: &mut Context<Self>) {
-        if self.current_id == Some(id) {
-            self.close_current(window, cx);
-            return;
-        }
-        if let Some(index) = self
-            .parked_sessions
-            .iter()
-            .position(|session| session.id == id)
-        {
-            let mut session = self.parked_sessions.swap_remove(index);
-            if let Some(mut process) = session.process.take() {
-                let _ = process.stop();
-            }
-            session.generation.fetch_add(1, Ordering::AcqRel);
-            Self::release_images(&mut session.terminal, window);
-            cx.notify();
-        }
-    }
-
-    /// 关闭会话时把图片纹理从 GPU atlas 中移除，避免跨会话泄漏。
-    fn release_images(terminal: &mut TerminalGrid, window: &mut Window) {
-        for image in terminal.release_all_images() {
-            let _ = window.drop_image(image);
-        }
     }
 
     fn choose_project_directory(open_after_create: bool, cx: &mut Context<Self>) {
@@ -692,11 +631,23 @@ impl LureApp {
         self.start(cx);
     }
 
-    fn stop(&mut self, cx: &mut Context<Self>) {
-        self.stop_process();
-        self.generation.fetch_add(1, Ordering::AcqRel);
+    fn close_terminal(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(mut session) = self.take_current() {
+            // 先使启动中或读取中的旧任务失效；迟到的 Started 由消息处理器回收。
+            session.generation.fetch_add(1, Ordering::AcqRel);
+            if let Some(mut process) = session.process.take() {
+                let _ = process.stop();
+            }
+            for image in session.terminal.release_all_images() {
+                let _ = window.drop_image(image);
+            }
+        }
+        self.visible_rows = VisibleRowCache::default();
         self.phase = Phase::Exited;
-        self.exit_code = None;
+        self.scroll_rows_accumulator = 0.0;
+        self.selection_dragged = false;
+        self.route = Route::Home;
+        self.focus.focus(window, cx);
         cx.notify();
     }
 
@@ -742,32 +693,6 @@ impl LureApp {
         if event.keystroke.modifiers.platform && event.keystroke.key.eq_ignore_ascii_case("b") {
             self.sidebar_visibility.toggle();
             cx.notify();
-            return;
-        }
-        if self.route == Route::Home {
-            let key = event.keystroke.key.as_str();
-            if event.keystroke.modifiers.platform && key.eq_ignore_ascii_case("k") {
-                self.home_search_active = true;
-                cx.notify();
-                return;
-            }
-            if self.home_search_active {
-                if key == "escape" {
-                    self.home_search_active = false;
-                    self.home_marked_text.clear();
-                } else if key == "backspace" {
-                    self.home_query.pop();
-                } else if event.keystroke.modifiers.platform && key.eq_ignore_ascii_case("a") {
-                    self.home_query.clear();
-                } else if event.keystroke.modifiers.platform && key.eq_ignore_ascii_case("v") {
-                    if let Some(text) = cx.read_from_clipboard().and_then(|item| item.text()) {
-                        self.home_query.push_str(&text);
-                    }
-                } else if let Some(text) = event.keystroke.key_char.as_deref() {
-                    self.home_query.push_str(text);
-                }
-                cx.notify();
-            }
             return;
         }
         if self.route != Route::Terminal {
@@ -959,35 +884,6 @@ impl LureApp {
         }
     }
 
-    fn title_button(
-        id: &'static str,
-        label: &'static str,
-        symbol: &'static str,
-        enabled: bool,
-        handler: impl Fn(&gpui::ClickEvent, &mut Window, &mut App) + 'static,
-    ) -> impl IntoElement {
-        div()
-            .id(id)
-            .role(Role::Button)
-            .aria_label(label)
-            .aria_disabled(!enabled)
-            .w(px(36.0))
-            .h(px(36.0))
-            .flex()
-            .items_center()
-            .justify_center()
-            .rounded(px(8.0))
-            .text_size(px(16.0))
-            .text_color(rgb(if enabled { FOREGROUND } else { MUTED }))
-            .cursor_pointer()
-            .when(enabled, |element| {
-                element
-                    .hover_style(|style| style.bg(rgb(BORDER)))
-                    .on_click(handler)
-            })
-            .child(symbol)
-    }
-
     fn home_icon(data: &'static [u8], size: f32, color: u32) -> impl IntoElement {
         svg()
             .data(data)
@@ -999,6 +895,7 @@ impl LureApp {
 
     #[allow(clippy::too_many_lines)]
     fn project_card(
+        palette: Palette,
         index: usize,
         project: &ProjectEntry,
         running: bool,
@@ -1018,10 +915,10 @@ impl LureApp {
             .overflow_hidden()
             .rounded(px(12.0))
             .border_1()
-            .border_color(rgb(0x24_2A30))
-            .bg(rgb(0x10_1419))
+            .border_color(rgb(palette.home_border))
+            .bg(rgb(palette.card))
             .cursor_pointer()
-            .hover_style(|style| style.border_color(rgb(0x19_BFAF)))
+            .hover_style(move |style| style.border_color(rgb(palette.accent)))
             .on_click(cx.listener(move |this, _, window, cx| {
                 if let Some(project) = this.projects.projects.get(index).cloned() {
                     this.open_project(project, window, cx);
@@ -1042,12 +939,12 @@ impl LureApp {
                             .justify_center()
                             .rounded(px(8.0))
                             .border_1()
-                            .border_color(rgb(0x2C_343D))
-                            .bg(rgb(0x1B_2127))
+                            .border_color(rgb(palette.home_border))
+                            .bg(rgb(palette.surface))
                             .child(Self::home_icon(
                                 include_bytes!("../../../assets/home/robot.svg"),
                                 16.0,
-                                0x00D4_DCE7,
+                                palette.secondary,
                             )),
                     )
                     .child(
@@ -1067,8 +964,16 @@ impl LureApp {
                             .py(px(4.0))
                             .rounded(px(12.0))
                             .border_1()
-                            .border_color(rgb(if running { 0x1B_5145 } else { 0x34_3B44 }))
-                            .text_color(rgb(if running { 0x2A_D7A5 } else { 0x9A_A7B8 }))
+                            .border_color(rgb(if running {
+                                palette.success_border
+                            } else {
+                                palette.home_border
+                            }))
+                            .text_color(rgb(if running {
+                                palette.success
+                            } else {
+                                palette.hint
+                            }))
                             .text_size(px(11.0))
                             .child(if running {
                                 "● 运行中"
@@ -1088,13 +993,13 @@ impl LureApp {
                     .min_w_0()
                     .rounded(px(6.0))
                     .border_1()
-                    .border_color(rgb(0x1E_252B))
-                    .bg(rgb(0x0B_0E12))
+                    .border_color(rgb(palette.home_border))
+                    .bg(rgb(palette.path))
                     .text_size(px(11.0))
                     .child(Self::home_icon(
                         include_bytes!("../../../assets/home/folder.svg"),
                         14.0,
-                        0x0074_899E,
+                        palette.hint,
                     ))
                     .child(
                         div()
@@ -1108,7 +1013,7 @@ impl LureApp {
                 div()
                     .mt(px(16.0))
                     .text_size(px(12.0))
-                    .text_color(rgb(0xAC_B8C7))
+                    .text_color(rgb(palette.secondary))
                     .child(if running {
                         "› 返回正在运行的 Pi 终端"
                     } else {
@@ -1119,16 +1024,17 @@ impl LureApp {
             .child(
                 div()
                     .border_t_1()
-                    .border_color(rgb(0x22_2830))
+                    .border_color(rgb(palette.home_border))
                     .pt(px(10.0))
                     .text_size(px(11.0))
-                    .text_color(rgb(0x70_839A))
+                    .text_color(rgb(palette.hint))
                     .child("Pi · 本地终端"),
             )
             .into_any_element()
     }
 
     fn project_draft_panel(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let palette = self.theme.palette();
         let draft = self.project_draft.as_ref();
         let name = draft.map_or_else(String::new, |draft| {
             format!("{}{}", draft.name, draft.marked_text)
@@ -1149,14 +1055,14 @@ impl LureApp {
                     .p(px(20.0))
                     .rounded(px(12.0))
                     .border_1()
-                    .border_color(rgb(BORDER))
-                    .bg(rgb(BACKGROUND))
+                    .border_color(rgb(palette.border))
+                    .bg(rgb(palette.background))
                     .child(div().font_weight(FontWeight::SEMIBOLD).child("创建项目"))
                     .child(
                         div()
                             .mt(px(8.0))
                             .text_size(px(11.0))
-                            .text_color(rgb(MUTED))
+                            .text_color(rgb(palette.muted))
                             .child(path),
                     )
                     .child(
@@ -1169,8 +1075,8 @@ impl LureApp {
                             .px(px(12.0))
                             .rounded(px(8.0))
                             .border_1()
-                            .border_color(rgb(ACCENT))
-                            .bg(rgb(TITLEBAR))
+                            .border_color(rgb(palette.accent))
+                            .bg(rgb(palette.titlebar))
                             .child(if name.is_empty() {
                                 "项目名称（可为空）".to_string()
                             } else {
@@ -1218,8 +1124,8 @@ impl LureApp {
                                     .px(px(12.0))
                                     .py(px(8.0))
                                     .rounded(px(8.0))
-                                    .bg(rgb(FOREGROUND))
-                                    .text_color(rgb(BACKGROUND))
+                                    .bg(rgb(palette.foreground))
+                                    .text_color(rgb(palette.background))
                                     .cursor_pointer()
                                     .on_click(cx.listener(|this, _, window, cx| {
                                         this.save_project_draft(window, cx);
@@ -1232,6 +1138,7 @@ impl LureApp {
 
     #[allow(clippy::too_many_lines)]
     fn project_sidebar(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let palette = self.theme.palette();
         let total = self.projects.projects.len();
         let running_for = |path: &Path| {
             (self.current_id.is_some() && self.directory == path && self.phase == Phase::Running)
@@ -1249,15 +1156,15 @@ impl LureApp {
             .min_h_0()
             .overflow_y_scroll()
             .border_r_1()
-            .border_color(rgb(0x20_252B))
-            .bg(rgb(0x0E_1014))
+            .border_color(rgb(palette.home_border))
+            .bg(rgb(palette.sidebar))
             .child(
                 div()
                     .px(px(18.0))
                     .pt(px(18.0))
                     .pb(px(9.0))
                     .text_size(px(11.0))
-                    .text_color(rgb(0x69_8098))
+                    .text_color(rgb(palette.hint))
                     .child("工作台导航"),
             )
             .child(
@@ -1277,19 +1184,19 @@ impl LureApp {
                     .gap(px(10.0))
                     .rounded(px(8.0))
                     .border_1()
-                    .border_color(rgb(0x30_363E))
-                    .bg(rgb(0x1D_2026))
+                    .border_color(rgb(palette.home_border))
+                    .bg(rgb(palette.selected))
                     .child(Self::home_icon(
                         include_bytes!("../../../assets/home/grid.svg"),
                         16.0,
-                        0x0017_CCD1,
+                        palette.accent,
                     ))
                     .child(div().flex_1().text_size(px(13.0)).child("项目"))
                     .child(
                         div()
                             .px(px(6.0))
                             .rounded(px(5.0))
-                            .bg(rgb(0x30_343B))
+                            .bg(rgb(palette.badge))
                             .text_size(px(11.0))
                             .child(total.to_string()),
                     ),
@@ -1299,7 +1206,7 @@ impl LureApp {
                     .mt(px(22.0))
                     .px(px(18.0))
                     .text_size(px(11.0))
-                    .text_color(rgb(0x69_8098))
+                    .text_color(rgb(palette.hint))
                     .child("本地项目目录"),
             )
             .children(
@@ -1333,9 +1240,13 @@ impl LureApp {
                             .items_center()
                             .gap(px(8.0))
                             .rounded(px(6.0))
-                            .bg(rgb(if selected { 0x1D_2026 } else { 0x0E_1014 }))
+                            .bg(rgb(if selected {
+                                palette.selected
+                            } else {
+                                palette.sidebar
+                            }))
                             .cursor_pointer()
-                            .hover_style(|style| style.bg(rgb(0x1D_2026)))
+                            .hover_style(move |style| style.bg(rgb(palette.selected)))
                             .on_click(cx.listener(move |this, _, window, cx| {
                                 if let Some(project) = this.projects.projects.get(index).cloned() {
                                     this.open_project(project, window, cx);
@@ -1344,7 +1255,7 @@ impl LureApp {
                             .child(Self::home_icon(
                                 include_bytes!("../../../assets/home/folder.svg"),
                                 14.0,
-                                0x0070_869B,
+                                palette.hint,
                             ))
                             .child(
                                 div()
@@ -1353,33 +1264,23 @@ impl LureApp {
                                     .overflow_hidden()
                                     .text_ellipsis()
                                     .text_size(px(11.0))
-                                    .text_color(rgb(0xA8_B6C7))
+                                    .text_color(rgb(palette.secondary))
                                     .child(name),
                             )
                             .child(
                                 div()
-                                    .text_color(rgb(if is_running { 0x2A_D7A5 } else { 0x52_6276 }))
-                                    .child("●"),
+                                    .id(("sidebar-project-status", index))
+                                    .aria_label(if is_running { "运行中" } else { "未打开" })
+                                    .w(px(6.0))
+                                    .h(px(6.0))
+                                    .flex_none()
+                                    .rounded_full()
+                                    .bg(rgb(if is_running {
+                                        palette.status_running
+                                    } else {
+                                        palette.status_idle
+                                    })),
                             )
-                            .when_some(opened_id, |row, id| {
-                                row.child(
-                                    div()
-                                        .id(("sidebar-close-session", index))
-                                        .role(Role::Button)
-                                        .aria_label("关闭项目终端")
-                                        .px(px(5.0))
-                                        .cursor_pointer()
-                                        .text_color(rgb(0xA8_B6C7))
-                                        .on_mouse_down(MouseButton::Left, |_, _, cx| {
-                                            cx.stop_propagation();
-                                        })
-                                        .on_click(cx.listener(move |this, _, window, cx| {
-                                            cx.stop_propagation();
-                                            this.close_session(id, window, cx);
-                                        }))
-                                        .child("×"),
-                                )
-                            })
                     }),
             )
             .child(div().flex_1())
@@ -1387,6 +1288,7 @@ impl LureApp {
 
     #[allow(clippy::too_many_lines)]
     fn home_page(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let palette = self.theme.palette();
         let running_for = |path: &Path| {
             (self.current_id.is_some() && self.directory == path && self.phase == Phase::Running)
                 || self
@@ -1407,119 +1309,120 @@ impl LureApp {
             .iter()
             .enumerate()
             .filter(|(_, project)| {
-                matches_project(
-                    project,
-                    &self.home_query,
-                    running_for(&project.path),
-                    self.home_filter,
-                )
+                matches_project(project, "", running_for(&project.path), self.home_filter)
             })
             .map(|(index, project)| {
-                Self::project_card(index, project, running_for(&project.path), cx)
+                Self::project_card(palette, index, project, running_for(&project.path), cx)
             })
             .collect::<Vec<_>>();
         let empty = cards.is_empty();
-        div().flex_1().min_h_0().flex().bg(rgb(0x09_0B0D)).child(
-            div()
-                .relative()
-                .flex_1()
-                .min_w_0()
-                .flex()
-                .flex_col()
-                .child(
-                    div()
-                        .px(px(24.0))
-                        .py(px(18.0))
-                        .border_b_1()
-                        .border_color(rgb(0x20_252B))
-                        .flex()
-                        .items_center()
-                        .justify_between()
-                        .gap(px(12.0))
-                        .child(
-                            div()
-                                .min_w_0()
-                                .flex()
-                                .flex_col()
-                                .gap(px(5.0))
-                                .child(
-                                    div()
-                                        .flex()
-                                        .items_center()
-                                        .gap(px(8.0))
-                                        .child(
-                                            div()
-                                                .text_size(px(19.0))
-                                                .font_weight(FontWeight::SEMIBOLD)
-                                                .child("项目工作区"),
-                                        )
-                                        .child(
-                                            div()
-                                                .px(px(8.0))
-                                                .py(px(3.0))
-                                                .rounded(px(12.0))
-                                                .border_1()
-                                                .border_color(rgb(0x1B_5145))
-                                                .text_color(rgb(0x2A_D7A5))
-                                                .text_size(px(11.0))
-                                                .child(format!("● {active} 运行中")),
-                                        ),
-                                )
-                                .child(
-                                    div()
-                                        .text_size(px(11.0))
-                                        .text_color(rgb(0x86_95A8))
-                                        .child("每个项目在自己的本地目录中运行 Pi 终端。"),
-                                ),
-                        )
-                        .child(
-                            div()
-                                .flex_none()
-                                .flex()
-                                .items_center()
-                                .gap(px(6.0))
-                                .child(self.home_filter_button("全部", ProjectFilter::All, cx))
-                                .child(self.home_filter_button(
-                                    "运行中",
-                                    ProjectFilter::Running,
-                                    cx,
-                                ))
-                                .child(self.home_filter_button("未打开", ProjectFilter::Idle, cx)),
-                        ),
-                )
-                .when_some(self.projects_error.clone(), |page, error| {
-                    page.child(
+        div()
+            .flex_1()
+            .min_h_0()
+            .flex()
+            .bg(rgb(palette.home_background))
+            .child(
+                div()
+                    .relative()
+                    .flex_1()
+                    .min_w_0()
+                    .flex()
+                    .flex_col()
+                    .child(
                         div()
-                            .mx(px(24.0))
-                            .mt(px(12.0))
-                            .text_color(rgb(ERROR))
-                            .child(error),
+                            .px(px(24.0))
+                            .py(px(18.0))
+                            .border_b_1()
+                            .border_color(rgb(palette.home_border))
+                            .flex()
+                            .items_center()
+                            .justify_between()
+                            .gap(px(12.0))
+                            .child(
+                                div()
+                                    .min_w_0()
+                                    .flex()
+                                    .flex_col()
+                                    .gap(px(5.0))
+                                    .child(
+                                        div()
+                                            .flex()
+                                            .items_center()
+                                            .gap(px(8.0))
+                                            .child(
+                                                div()
+                                                    .text_size(px(19.0))
+                                                    .font_weight(FontWeight::SEMIBOLD)
+                                                    .child("项目工作区"),
+                                            )
+                                            .child(
+                                                div()
+                                                    .px(px(8.0))
+                                                    .py(px(3.0))
+                                                    .rounded(px(12.0))
+                                                    .border_1()
+                                                    .border_color(rgb(palette.success_border))
+                                                    .text_color(rgb(palette.success))
+                                                    .text_size(px(11.0))
+                                                    .child(format!("● {active} 运行中")),
+                                            ),
+                                    )
+                                    .child(
+                                        div()
+                                            .text_size(px(11.0))
+                                            .text_color(rgb(palette.hint))
+                                            .child("每个项目在自己的本地目录中运行 Pi 终端。"),
+                                    ),
+                            )
+                            .child(
+                                div()
+                                    .flex_none()
+                                    .flex()
+                                    .items_center()
+                                    .gap(px(6.0))
+                                    .child(self.home_filter_button("全部", ProjectFilter::All, cx))
+                                    .child(self.home_filter_button(
+                                        "运行中",
+                                        ProjectFilter::Running,
+                                        cx,
+                                    ))
+                                    .child(self.home_filter_button(
+                                        "未打开",
+                                        ProjectFilter::Idle,
+                                        cx,
+                                    )),
+                            ),
                     )
-                })
-                .when(empty, |page| {
-                    page.child(
-                        div()
-                            .m(px(24.0))
-                            .text_color(rgb(0x8F_9EB1))
-                            .child(if total == 0 {
+                    .when_some(self.projects_error.clone(), |page, error| {
+                        page.child(
+                            div()
+                                .mx(px(24.0))
+                                .mt(px(12.0))
+                                .text_color(rgb(palette.error))
+                                .child(error),
+                        )
+                    })
+                    .when(empty, |page| {
+                        page.child(div().m(px(24.0)).text_color(rgb(palette.hint)).child(
+                            if total == 0 {
                                 "还没有项目，点击右上角新建项目"
                             } else {
                                 "没有匹配的项目"
-                            }),
+                            },
+                        ))
+                    })
+                    .child(
+                        div()
+                            .p(px(24.0))
+                            .flex()
+                            .flex_wrap()
+                            .gap(px(16.0))
+                            .children(cards),
                     )
-                })
-                .child(
-                    div()
-                        .p(px(24.0))
-                        .flex()
-                        .flex_wrap()
-                        .gap(px(16.0))
-                        .children(cards),
-                )
-                .when(self.project_draft.is_some(), |page| {
-                    page.child(self.project_draft_panel(cx))
-                }),
-        )
+                    .when(self.project_draft.is_some(), |page| {
+                        page.child(self.project_draft_panel(cx))
+                    }),
+            )
     }
 
     fn home_filter_button(
@@ -1528,6 +1431,7 @@ impl LureApp {
         filter: ProjectFilter,
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
+        let palette = self.theme.palette();
         let selected = self.home_filter == filter;
         div()
             .id(label)
@@ -1536,8 +1440,16 @@ impl LureApp {
             .py(px(6.0))
             .rounded(px(6.0))
             .cursor_pointer()
-            .bg(rgb(if selected { 0x29_2D35 } else { 0x15_1920 }))
-            .text_color(rgb(if selected { FOREGROUND } else { 0x86_95A8 }))
+            .bg(rgb(if selected {
+                palette.selected
+            } else {
+                palette.surface
+            }))
+            .text_color(rgb(if selected {
+                palette.foreground
+            } else {
+                palette.hint
+            }))
             .text_size(px(11.0))
             .on_click(cx.listener(move |this, _, _, cx| {
                 this.home_filter = filter;
@@ -1547,6 +1459,7 @@ impl LureApp {
     }
 
     fn status_panel(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let palette = self.theme.palette();
         let (title, detail, action) = match self.phase {
             Phase::Starting => (
                 "正在启动 Pi…".to_string(),
@@ -1574,25 +1487,25 @@ impl LureApp {
             .flex()
             .items_center()
             .justify_center()
-            .bg(gpui::rgba((TITLEBAR << 8) | 0x66))
+            .bg(gpui::rgba((palette.titlebar << 8) | 0x66))
             .child(
                 div()
                     .w(px(420.0))
                     .p(px(20.0))
                     .rounded(px(12.0))
                     .border_1()
-                    .border_color(rgb(BORDER))
-                    .bg(rgb(TITLEBAR))
-                    .text_color(rgb(FOREGROUND))
+                    .border_color(rgb(palette.border))
+                    .bg(rgb(palette.titlebar))
+                    .text_color(rgb(palette.foreground))
                     .child(div().font_weight(FontWeight::SEMIBOLD).child(title))
                     .child(
                         div()
                             .mt(px(8.0))
                             .text_size(px(12.0))
                             .text_color(rgb(if self.phase == Phase::Error {
-                                ERROR
+                                palette.error
                             } else {
-                                MUTED
+                                palette.muted
                             }))
                             .child(detail),
                     )
@@ -1606,8 +1519,8 @@ impl LureApp {
                                 .px(px(12.0))
                                 .py(px(8.0))
                                 .rounded(px(8.0))
-                                .bg(rgb(FOREGROUND))
-                                .text_color(rgb(BACKGROUND))
+                                .bg(rgb(palette.foreground))
+                                .text_color(rgb(palette.background))
                                 .text_size(px(12.0))
                                 .cursor_pointer()
                                 .on_click(cx.listener(|this, _, _, cx| this.restart(cx)))
@@ -1650,19 +1563,12 @@ impl EntityInputHandler for LureApp {
             return (!draft.marked_text.is_empty())
                 .then(|| 0..draft.marked_text.encode_utf16().count());
         }
-        if self.route == Route::Home && self.home_search_active {
-            return (!self.home_marked_text.is_empty())
-                .then(|| 0..self.home_marked_text.encode_utf16().count());
-        }
         (!self.marked_text.is_empty()).then(|| 0..self.marked_text.encode_utf16().count())
     }
 
     fn unmark_text(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
         if let Some(draft) = self.project_draft.as_mut() {
             draft.marked_text.clear();
-            cx.notify();
-        } else if self.route == Route::Home && self.home_search_active {
-            self.home_marked_text.clear();
             cx.notify();
         } else if !self.marked_text.is_empty() {
             self.marked_text.clear();
@@ -1680,12 +1586,9 @@ impl EntityInputHandler for LureApp {
         if let Some(draft) = self.project_draft.as_mut() {
             draft.marked_text.clear();
             draft.name.push_str(text);
-        } else if self.route == Route::Home && self.home_search_active {
-            self.home_marked_text.clear();
-            self.home_query.push_str(text);
         } else {
             self.marked_text.clear();
-            if !text.is_empty() {
+            if self.route == Route::Terminal && !text.is_empty() {
                 self.write(text.as_bytes(), cx);
             }
         }
@@ -1703,9 +1606,6 @@ impl EntityInputHandler for LureApp {
         if let Some(draft) = self.project_draft.as_mut() {
             draft.marked_text.clear();
             draft.marked_text.push_str(new_text);
-        } else if self.route == Route::Home && self.home_search_active {
-            self.home_marked_text.clear();
-            self.home_marked_text.push_str(new_text);
         } else {
             self.marked_text.clear();
             self.marked_text.push_str(new_text);
@@ -1725,15 +1625,6 @@ impl EntityInputHandler for LureApp {
                 point(
                     element_bounds.left() + px(16.0),
                     element_bounds.top() + px(16.0),
-                ),
-                size(px(CELL_WIDTH), px(CELL_HEIGHT)),
-            ));
-        }
-        if self.route == Route::Home && self.home_search_active {
-            return Some(Bounds::new(
-                point(
-                    element_bounds.left() + px(32.0),
-                    element_bounds.top() + px(12.0),
                 ),
                 size(px(CELL_WIDTH), px(CELL_HEIGHT)),
             ));
@@ -1846,6 +1737,9 @@ fn shape_terminal_row(line: &TerminalLine, window: &Window) -> Vec<PaintedRun> {
 impl Render for LureApp {
     #[allow(clippy::too_many_lines)]
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let palette = self.theme.palette();
+        self.terminal.set_theme(self.theme);
+
         if self.route == Route::Terminal {
             self.sync_size(window);
         }
@@ -1873,7 +1767,6 @@ impl Render for LureApp {
         let dimensions = self.dimensions;
         let terminal_entity = cx.entity();
         let input_focus = self.focus.clone();
-        let starting = self.phase == Phase::Starting;
         let route = self.route;
         div()
             .id("lure-application")
@@ -1887,9 +1780,9 @@ impl Render for LureApp {
             .flex_col()
             .rounded(px(16.0))
             .border_1()
-            .border_color(rgb(BORDER))
-            .bg(rgb(BACKGROUND))
-            .text_color(rgb(FOREGROUND))
+            .border_color(rgb(palette.border))
+            .bg(rgb(palette.background))
+            .text_color(rgb(palette.foreground))
             .child(
                 div()
                     .h(px(48.0))
@@ -1899,14 +1792,14 @@ impl Render for LureApp {
                     .px(px(8.0))
                     .border_b_1()
                     .border_color(rgb(if route == Route::Home {
-                        0x20_252B
+                        palette.home_border
                     } else {
-                        BORDER
+                        palette.border
                     }))
                     .bg(rgb(if route == Route::Home {
-                        0x0E_1014
+                        palette.home_titlebar
                     } else {
-                        TITLEBAR
+                        palette.titlebar
                     }))
                     .child(window_controls())
                     .child(
@@ -1948,7 +1841,7 @@ impl Render for LureApp {
                                     .justify_center()
                                     .rounded(px(7.0))
                                     .cursor_pointer()
-                                    .hover_style(|style| style.bg(rgb(0x1D_2026)))
+                                    .hover_style(move |style| style.bg(rgb(palette.selected)))
                                     .on_mouse_down(MouseButton::Left, |_, _, cx| {
                                         cx.stop_propagation();
                                     })
@@ -1959,7 +1852,7 @@ impl Render for LureApp {
                                     .child(Self::home_icon(
                                         include_bytes!("../../../assets/home/sidebar.svg"),
                                         16.0,
-                                        0x00A8_B6C7,
+                                        palette.secondary,
                                     )),
                             )
                             .when(route == Route::Home, |bar| {
@@ -1974,8 +1867,8 @@ impl Render for LureApp {
                                                 .w(px(20.0))
                                                 .h(px(20.0))
                                                 .rounded(px(6.0))
-                                                .bg(rgb(0x16_C7B5))
-                                                .text_color(rgb(0x09_211F))
+                                                .bg(rgb(palette.brand))
+                                                .text_color(rgb(palette.on_brand))
                                                 .flex()
                                                 .items_center()
                                                 .justify_center()
@@ -1984,7 +1877,7 @@ impl Render for LureApp {
                                                         "../../../assets/home/brand.svg"
                                                     ),
                                                     14.0,
-                                                    0x0009_211F,
+                                                    palette.on_brand,
                                                 )),
                                         )
                                         .child(
@@ -2000,89 +1893,10 @@ impl Render for LureApp {
                                                 .py(px(3.0))
                                                 .rounded(px(4.0))
                                                 .border_1()
-                                                .border_color(rgb(0x2B_333A))
-                                                .text_color(rgb(0x8F_9EB1))
+                                                .border_color(rgb(palette.home_border))
+                                                .text_color(rgb(palette.hint))
                                                 .text_size(px(10.0))
                                                 .child(concat!("v", env!("CARGO_PKG_VERSION"))),
-                                        ),
-                                )
-                                .child(div().flex_1())
-                                .child(
-                                    div()
-                                        .id("home-search")
-                                        .role(Role::Button)
-                                        .relative()
-                                        .w(px(310.0))
-                                        .h(px(32.0))
-                                        .px(px(10.0))
-                                        .flex()
-                                        .items_center()
-                                        .gap(px(8.0))
-                                        .rounded(px(7.0))
-                                        .border_1()
-                                        .border_color(rgb(0x2B_333A))
-                                        .bg(rgb(0x15_1920))
-                                        .cursor_pointer()
-                                        .on_mouse_down(MouseButton::Left, |_, _, cx| {
-                                            cx.stop_propagation();
-                                        })
-                                        .on_click(cx.listener(|this, _, window, cx| {
-                                            this.home_search_active = true;
-                                            this.focus.focus(window, cx);
-                                            cx.notify();
-                                        }))
-                                        .child(Self::home_icon(
-                                            include_bytes!("../../../assets/home/search.svg"),
-                                            14.0,
-                                            0x0074_899E,
-                                        ))
-                                        .child(
-                                            div()
-                                                .flex_1()
-                                                .min_w_0()
-                                                .overflow_hidden()
-                                                .text_ellipsis()
-                                                .text_color(rgb(if self.home_query.is_empty() {
-                                                    0x74_899E
-                                                } else {
-                                                    FOREGROUND
-                                                }))
-                                                .child(
-                                                    if self.home_query.is_empty()
-                                                        && self.home_marked_text.is_empty()
-                                                    {
-                                                        "搜索项目名称或本地目录路径…".to_string()
-                                                    } else {
-                                                        format!(
-                                                            "{}{}",
-                                                            self.home_query, self.home_marked_text
-                                                        )
-                                                    },
-                                                ),
-                                        )
-                                        .child(
-                                            div()
-                                                .px(px(4.0))
-                                                .rounded(px(4.0))
-                                                .border_1()
-                                                .border_color(rgb(0x2B_333A))
-                                                .text_color(rgb(0x74_899E))
-                                                .child("⌘K"),
-                                        )
-                                        .child(
-                                            canvas(|_, _, _| (), {
-                                                let focus = self.focus.clone();
-                                                let entity = cx.entity();
-                                                move |bounds, (), window, cx| {
-                                                    window.handle_input(
-                                                        &focus,
-                                                        ElementInputHandler::new(bounds, entity),
-                                                        cx,
-                                                    );
-                                                }
-                                            })
-                                            .absolute()
-                                            .inset_0(),
                                         ),
                                 )
                                 .child(div().flex_1())
@@ -2105,66 +1919,103 @@ impl Render for LureApp {
                                         }))
                                         .child("项目"),
                                 )
-                                .child(div().text_color(rgb(MUTED)).child("/"))
+                                .child(div().text_color(rgb(palette.muted)).child("/"))
                                 .child(
                                     div()
                                         .min_w_0()
                                         .overflow_hidden()
                                         .text_ellipsis()
-                                        .text_color(rgb(FOREGROUND))
+                                        .text_color(rgb(palette.foreground))
                                         .child(self.current_name.clone()),
                                 )
                             }),
                     )
                     .child(
                         div()
-                            .id("new-project-home")
-                            .role(Role::Button)
-                            .px(px(13.0))
-                            .py(px(8.0))
-                            .rounded(px(7.0))
-                            .bg(rgb(0xEE_F2F5))
-                            .text_color(rgb(0x10_1419))
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .text_size(px(12.0))
-                            .cursor_pointer()
-                            .on_mouse_down(MouseButton::Left, |_, _, cx| {
-                                cx.stop_propagation();
-                            })
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                Self::choose_project_directory(this.route == Route::Terminal, cx);
-                            }))
+                            .id("titlebar-actions")
                             .flex()
+                            .flex_none()
                             .items_center()
-                            .gap(px(6.0))
-                            .child(Self::home_icon(
-                                include_bytes!("../../../assets/home/plus.svg"),
-                                14.0,
-                                0x0010_1419,
-                            ))
-                            .child("新建项目"),
-                    )
-                    .when(route == Route::Terminal, |titlebar| {
-                        titlebar.child(
-                            div()
-                                .flex()
-                                .gap(px(4.0))
-                                .child(Self::title_button(
-                                    "restart",
-                                    "重新启动 Pi",
-                                    "↻",
-                                    !starting,
-                                    cx.listener(|this, _, _, cx| this.restart(cx)),
-                                ))
-                                .child(Self::title_button(
-                                    "stop",
-                                    "停止 Pi",
-                                    "■",
-                                    running,
-                                    cx.listener(|this, _, _, cx| this.stop(cx)),
-                                )),
-                        )
-                    }),
+                            .gap(px(8.0))
+                            .mr(px(8.0))
+                            .child(
+                                div()
+                                    .id("toggle-theme")
+                                    .role(Role::Button)
+                                    .aria_label(if self.theme == Theme::Dark {
+                                        "切换至浅色主题"
+                                    } else {
+                                        "切换至深色主题"
+                                    })
+                                    .w(px(32.0))
+                                    .h(px(32.0))
+                                    .flex_none()
+                                    .flex()
+                                    .items_center()
+                                    .justify_center()
+                                    .rounded(px(8.0))
+                                    .border_1()
+                                    .border_color(rgb(palette.home_border))
+                                    .bg(rgb(palette.surface))
+                                    .cursor_pointer()
+                                    .hover_style(move |style| style.bg(rgb(palette.selected)))
+                                    .on_mouse_down(MouseButton::Left, |_, _, cx| {
+                                        cx.stop_propagation();
+                                    })
+                                    .on_click(cx.listener(|this, _, _, cx| {
+                                        this.theme = this.theme.toggle();
+                                        this.visible_rows = VisibleRowCache::default();
+                                        cx.notify();
+                                    }))
+                                    .child(Self::home_icon(
+                                        if self.theme == Theme::Dark {
+                                            include_bytes!("../../../assets/home/sun.svg")
+                                        } else {
+                                            include_bytes!("../../../assets/home/moon.svg")
+                                        },
+                                        16.0,
+                                        if self.theme == Theme::Dark {
+                                            0x00F1_FA8C
+                                        } else {
+                                            palette.accent
+                                        },
+                                    )),
+                            )
+                            .child(
+                                div()
+                                    .id("new-project-home")
+                                    .role(Role::Button)
+                                    .aria_label("新建项目")
+                                    .px(px(12.0))
+                                    .h(px(32.0))
+                                    .flex_none()
+                                    .flex()
+                                    .items_center()
+                                    .gap(px(6.0))
+                                    .rounded(px(8.0))
+                                    .bg(rgb(palette.primary))
+                                    .hover_style(move |style| style.bg(rgb(palette.primary_hover)))
+                                    .text_color(rgb(palette.on_primary))
+                                    .font_weight(FontWeight::SEMIBOLD)
+                                    .text_size(px(12.0))
+                                    .cursor_pointer()
+                                    .on_mouse_down(MouseButton::Left, |_, _, cx| {
+                                        cx.stop_propagation();
+                                    })
+                                    .on_click(cx.listener(|this, _, _, cx| {
+                                        Self::choose_project_directory(
+                                            this.route == Route::Terminal,
+                                            cx,
+                                        );
+                                    }))
+                                    .child(Self::home_icon(
+                                        include_bytes!("../../../assets/home/plus.svg"),
+                                        14.0,
+                                        palette.on_primary,
+                                    ))
+                                    .child("新建项目"),
+                            ),
+                    ),
             )
             .when(route == Route::Home, |app| {
                 app.child(
@@ -2199,7 +2050,7 @@ impl Render for LureApp {
                                 .min_h_0()
                                 .overflow_hidden()
                                 .p(px(8.0))
-                                .bg(rgb(BACKGROUND))
+                                .bg(rgb(palette.background))
                                 .on_mouse_down(
                                     MouseButton::Left,
                                     cx.listener(|this, event: &MouseDownEvent, window, cx| {
@@ -2231,7 +2082,7 @@ impl Render for LureApp {
                                             let marked = if marked_text.is_empty() {
                                                 None
                                             } else {
-                                                let color = rgb_to_hsla(rgb(FOREGROUND));
+                                                let color = rgb_to_hsla(rgb(palette.foreground));
                                                 let text_run = TextRun {
                                                     len: marked_text.len(),
                                                     font: terminal_font(),
@@ -2407,7 +2258,7 @@ impl Render for LureApp {
                                                 }
                                             }
 
-                                            if cursor_visible {
+                                            if cursor_visible && marked.is_none() {
                                                 window.paint_quad(
                                                     PaintQuad::new(Bounds::new(
                                                         point(
@@ -2422,11 +2273,29 @@ impl Render for LureApp {
                                                     ))
                                                     .background(rgba(0x4585_8840))
                                                     .border_widths(px(1.0))
-                                                    .border_color(rgb(ACCENT)),
+                                                    .border_color(rgb(palette.accent)),
                                                 );
                                             }
 
                                             if let Some(marked) = marked {
+                                                // 覆盖 Pi 绘制的反色光标及底层文字，避免预编辑首字母被吞没。
+                                                window.paint_quad(
+                                                    PaintQuad::new(Bounds::new(
+                                                        point(
+                                                            bounds.left()
+                                                                + px(CELL_WIDTH
+                                                                    * f32::from(cursor.1)),
+                                                            bounds.top()
+                                                                + px(CELL_HEIGHT
+                                                                    * f32::from(cursor.0)),
+                                                        ),
+                                                        size(
+                                                            marked.width.max(px(CELL_WIDTH)),
+                                                            px(CELL_HEIGHT),
+                                                        ),
+                                                    ))
+                                                    .background(rgb(palette.background)),
+                                                );
                                                 let _ = marked.paint(
                                                     point(
                                                         bounds.left()
@@ -2453,12 +2322,12 @@ impl Render for LureApp {
                                             .aria_label("Back to bottom")
                                             .absolute()
                                             .top(px(12.0))
-                                            .right(px(16.0))
+                                            .right(px(44.0))
                                             .px(px(12.0))
                                             .py(px(8.0))
                                             .rounded(px(8.0))
-                                            .bg(rgb(TITLEBAR))
-                                            .text_color(rgb(FOREGROUND))
+                                            .bg(rgb(palette.titlebar))
+                                            .text_color(rgb(palette.foreground))
                                             .cursor_pointer()
                                             .on_mouse_down(MouseButton::Left, |_, _, cx| {
                                                 cx.stop_propagation();
@@ -2475,7 +2344,43 @@ impl Render for LureApp {
                                 })
                                 .when(self.phase != Phase::Running, |workspace| {
                                     workspace.child(self.status_panel(cx))
-                                }),
+                                })
+                                .child(
+                                    div()
+                                        .id("close-terminal")
+                                        .role(Role::Button)
+                                        .aria_label("关闭当前终端并返回首页")
+                                        .absolute()
+                                        .top(px(8.0))
+                                        .right(px(8.0))
+                                        .w(px(28.0))
+                                        .h(px(28.0))
+                                        .flex()
+                                        .items_center()
+                                        .justify_center()
+                                        .rounded(px(7.0))
+                                        .border_1()
+                                        .border_color(rgb(palette.home_border))
+                                        .bg(rgb(palette.surface))
+                                        .cursor_pointer()
+                                        .hover_style(move |style| style.bg(rgb(palette.selected)))
+                                        .on_mouse_down(MouseButton::Left, |_, _, cx| {
+                                            cx.stop_propagation();
+                                        })
+                                        .on_mouse_up(MouseButton::Left, |_, _, cx| {
+                                            cx.stop_propagation();
+                                        })
+                                        .on_scroll_wheel(|_, _, cx| cx.stop_propagation())
+                                        .on_click(cx.listener(|this, _, window, cx| {
+                                            cx.stop_propagation();
+                                            this.close_terminal(window, cx);
+                                        }))
+                                        .child(Self::home_icon(
+                                            include_bytes!("../../../assets/home/close.svg"),
+                                            14.0,
+                                            palette.secondary,
+                                        )),
+                                ),
                         ),
                 )
             })
