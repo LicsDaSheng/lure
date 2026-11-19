@@ -39,7 +39,7 @@ fn terminal_registers_gpui_text_input_and_uses_canvas_shaping() {
     assert!(main.contains("window.handle_input("));
     assert!(main.contains(".on_scroll_wheel("));
     assert!(main.contains("self.terminal.scroll_by("));
-    assert!(main.contains(".on_mouse_move("));
+    assert!(main.contains(".on_mouse_move_all("));
     assert!(main.contains(".on_mouse_up("));
     assert!(main.contains("this.finish_selection(event.position, cx)"));
     assert!(main.contains("write_to_clipboard(ClipboardItem::new_string"));
@@ -367,4 +367,27 @@ fn ime_preedit_masks_terminal_cells_and_suppresses_terminal_cursor() {
     let text = overlay.find("marked.paint(").unwrap();
     assert!(background < text, "预编辑文字前必须覆盖底层反色单元格");
     assert!(overlay[..text].contains("marked.width.max(px(CELL_WIDTH))"));
+}
+
+#[test]
+fn terminal_drag_selection_receives_moves_and_release_outside_hitbox() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let main = fs::read_to_string(root.join("crates/lure-desktop/src/main.rs")).unwrap();
+    assert!(main.contains(".on_mouse_move_all("));
+    assert!(main.contains(".on_mouse_up_all("));
+    assert!(main.contains("this.selection_active"));
+    assert!(main.contains("phase == gpui::DispatchPhase::Capture"));
+    assert!(main.contains("observe_window_activation"));
+}
+
+#[test]
+fn terminal_forwards_mouse_drags_without_starting_local_selection() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let main = fs::read_to_string(root.join("crates/lure-desktop/src/main.rs")).unwrap();
+    assert!(main.contains("this.forward_mouse_drag(event, cx)"));
+    assert!(main.contains("self.terminal.mouse_drag_sequence(point.0, point.1)"));
+    assert!(main.contains("self.reported_mouse_cell = Some(point)"));
+    assert!(main.contains("if point == previous"));
+    let compact: String = main.chars().filter(|c| !c.is_whitespace()).collect();
+    assert!(compact.contains("this.selection_active||this.reported_mouse_cell.is_some()"));
 }

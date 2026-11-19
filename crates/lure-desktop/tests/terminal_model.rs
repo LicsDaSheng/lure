@@ -843,3 +843,31 @@ fn paste_respects_bracketed_mode_without_submitting() {
     grid.process(b"\x1b[?2004l");
     assert_eq!(grid.paste_input("text"), b"text");
 }
+
+#[test]
+fn mouse_drag_reports_motion_only_when_requested() {
+    let mut grid = TerminalGrid::new(3, 20);
+    assert_eq!(grid.mouse_drag_sequence(1, 2), None);
+    grid.process(b"\x1b[?1000h\x1b[?1006h");
+    assert_eq!(grid.mouse_drag_sequence(1, 2), None);
+    grid.process(b"\x1b[?1002h");
+    assert_eq!(
+        grid.mouse_drag_sequence(1, 2),
+        Some(b"\x1b[<32;3;2M".to_vec())
+    );
+    grid.process(b"\x1b[?1002l");
+    assert_eq!(grid.mouse_drag_sequence(1, 2), None);
+    grid.process(b"\x1b[?1003h");
+    assert_eq!(
+        grid.mouse_drag_sequence(2, 5),
+        Some(b"\x1b[<32;6;3M".to_vec())
+    );
+}
+
+#[test]
+fn mouse_drag_supports_legacy_encoding_and_its_coordinate_limit() {
+    let mut grid = TerminalGrid::new(3, 300);
+    grid.process(b"\x1b[?1002h");
+    assert_eq!(grid.mouse_drag_sequence(1, 2), Some(b"\x1b[M@#\"".to_vec()));
+    assert_eq!(grid.mouse_drag_sequence(1, 223), None);
+}

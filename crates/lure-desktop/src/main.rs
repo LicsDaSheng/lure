@@ -34,6 +34,19 @@ use lure_pty::{
     PtyCommand, PtyEvent, PtyProcess, SpawnEnvResolver, TerminalSize, resolve_pi_executable,
 };
 
+// 按需输出事件链路，不记录终端内容或剪贴板文本。
+fn trace_selection(stage: &str, detail: impl std::fmt::Debug) {
+    static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    static START: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
+    if *ENABLED.get_or_init(|| std::env::var_os("LURE_TRACE_SELECTION").is_some()) {
+        let elapsed = START.get_or_init(std::time::Instant::now).elapsed();
+        eprintln!(
+            "[拖选 {:>8.3}ms] {stage}: {detail:?}",
+            elapsed.as_secs_f64() * 1000.0
+        );
+    }
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Phase {
     Starting,
@@ -157,6 +170,9 @@ struct LureApp {
     scroll_rows_accumulator: f32,
     selection: Option<TerminalSelection>,
     selection_dragged: bool,
+    // 拖选属于当前窗口手势，不随会话保存。
+    selection_active: bool,
+    reported_mouse_cell: Option<(u16, u16)>,
     parked_sessions: Vec<SessionState>,
     next_session_id: SessionId,
     projects: ProjectList,
@@ -175,6 +191,14 @@ impl LureApp {
                 && let Err(error) = window_geometry::save(bounds)
             {
                 eprintln!("保存窗口布局失败：{error}");
+            }
+        })
+        .detach();
+        cx.observe_window_activation(window, |this, window, _cx| {
+            if !window.is_window_active() {
+                trace_selection("窗口失焦", this.selection_active);
+                this.selection_active = false;
+                this.reported_mouse_cell = None;
             }
         })
         .detach();
@@ -216,6 +240,8 @@ impl LureApp {
             scroll_rows_accumulator: 0.0,
             selection: None,
             selection_dragged: false,
+            selection_active: false,
+            reported_mouse_cell: None,
             parked_sessions: Vec::new(),
             next_session_id: 1,
             projects,
@@ -244,6 +270,8 @@ impl LureApp {
     }
 
     fn take_current(&mut self) -> Option<SessionState> {
+        self.selection_active = false;
+        self.reported_mouse_cell = None;
         let id = self.current_id.take()?;
         Some(SessionState {
             id,
@@ -539,6 +567,8 @@ impl LureApp {
             AppMessage::Output {
                 generation, data, ..
             } if self.is_current(generation) => {
+                trace_selection("PTY 输出清除选区", (data.len(), self.selection_active));
+                self.selection_active = false;
                 self.selection = None;
                 self.terminal.process(&data);
                 for response in self.terminal.take_responses() {
@@ -663,6 +693,8 @@ impl LureApp {
     }
 
     fn stop_process(&mut self) {
+        self.selection_active = false;
+        self.reported_mouse_cell = None;
         if let Some(mut process) = self.process.take() {
             let _ = process.stop();
         }
@@ -752,6 +784,7 @@ impl LureApp {
     fn write(&mut self, bytes: &[u8], cx: &mut Context<Self>) {
         self.terminal.scroll_to_bottom();
         self.scroll_rows_accumulator = 0.0;
+        self.selection_active = false;
         self.selection = None;
         cx.notify();
         let Some(process) = self.process.as_mut() else {
@@ -788,35 +821,77 @@ impl LureApp {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        trace_selection("按下", position);
         self.focus.focus(window, cx);
+        self.selection_active = false;
+        self.reported_mouse_cell = None;
         let point = self.terminal_cell_at(position);
         if let Some(sequence) = self.terminal.mouse_button_sequence(point.0, point.1, false) {
+            trace_selection("转发 Pi 鼠标报告", point);
+            trace_selection(
+                "Pi 请求拖动报告",
+                self.terminal
+                    .mouse_drag_sequence(point.0, point.1)
+                    .is_some(),
+            );
+            self.reported_mouse_cell = Some(point);
             self.selection = None;
             self.write_repeated(&sequence, 1, cx);
             return;
         }
+        self.selection_active = true;
         self.selection = Some(TerminalSelection::new(point, point));
         self.selection_dragged = false;
         cx.notify();
     }
 
     fn update_selection(&mut self, position: gpui::Point<gpui::Pixels>, cx: &mut Context<Self>) {
+        if !self.selection_active {
+            return;
+        }
         let Some(selection) = self.selection else {
             return;
         };
         let point = self.terminal_cell_at(position);
         self.selection_dragged |= point != selection.anchor();
         self.selection = Some(selection.with_head(point));
+        trace_selection("更新选区", self.selection);
         cx.notify();
     }
 
-    fn finish_selection(&mut self, position: gpui::Point<gpui::Pixels>, cx: &mut Context<Self>) {
-        let point = self.terminal_cell_at(position);
-        if let Some(sequence) = self.terminal.mouse_button_sequence(point.0, point.1, true) {
+    fn forward_mouse_drag(&mut self, event: &MouseMoveEvent, cx: &mut Context<Self>) {
+        let Some(previous) = self.reported_mouse_cell else {
+            return;
+        };
+        if !event.dragging() {
+            self.reported_mouse_cell = None;
+            return;
+        }
+        let point = self.terminal_cell_at(event.position);
+        if point == previous {
+            return;
+        }
+        self.reported_mouse_cell = Some(point);
+        if let Some(sequence) = self.terminal.mouse_drag_sequence(point.0, point.1) {
+            trace_selection("转发 Pi 拖动", point);
             self.write_repeated(&sequence, 1, cx);
+        } else {
+            trace_selection("终端模式未请求拖动报告", point);
+        }
+    }
+
+    fn finish_selection(&mut self, position: gpui::Point<gpui::Pixels>, cx: &mut Context<Self>) {
+        trace_selection("松开", (position, self.selection_active));
+        self.reported_mouse_cell = None;
+        let point = self.terminal_cell_at(position);
+        if !self.selection_active {
+            if let Some(sequence) = self.terminal.mouse_button_sequence(point.0, point.1, true) {
+                self.write_repeated(&sequence, 1, cx);
+            }
             return;
         }
         self.update_selection(position, cx);
+        self.selection_active = false;
         if !self.selection_dragged {
             self.selection = None;
             cx.notify();
@@ -851,6 +926,7 @@ impl LureApp {
             return;
         }
         self.scroll_rows_accumulator -= whole_rows as f32;
+        self.selection_active = false;
         self.selection = None;
 
         let up = whole_rows > 0;
@@ -1202,6 +1278,8 @@ impl LureApp {
                     .role(Role::Button)
                     .cursor_pointer()
                     .on_click(cx.listener(|this, _, _, cx| {
+                        this.selection_active = false;
+                        this.reported_mouse_cell = None;
                         this.route = Route::Home;
                         cx.notify();
                     }))
@@ -1793,6 +1871,9 @@ impl Render for LureApp {
             released_images.extend(session.terminal.take_released_images());
         }
         let selection = self.selection;
+        if self.selection_active {
+            trace_selection("渲染", selection);
+        }
         let dimensions = self.dimensions;
         let terminal_entity = cx.entity();
         let input_focus = self.focus.clone();
@@ -1943,6 +2024,8 @@ impl Render for LureApp {
                                             cx.stop_propagation();
                                         })
                                         .on_click(cx.listener(|this, _, _, cx| {
+                                            this.selection_active = false;
+                                            this.reported_mouse_cell = None;
                                             this.route = Route::Home;
                                             cx.notify();
                                         }))
@@ -2086,13 +2169,62 @@ impl Render for LureApp {
                                         this.start_selection(event.position, window, cx);
                                     }),
                                 )
-                                .on_mouse_move(cx.listener(
-                                    |this, event: &MouseMoveEvent, _window, cx| {
-                                        if event.dragging() {
-                                            this.update_selection(event.position, cx);
-                                        }
-                                    },
-                                ))
+                                // 活动拖选不依赖 hovered；捕获阶段避免子元素截断手势。
+                                .on_mouse_move_all({
+                                    let listener = cx.listener(
+                                        |this,
+                                         (event, phase): &(MouseMoveEvent, gpui::DispatchPhase),
+                                         _window,
+                                         cx| {
+                                            if *phase == gpui::DispatchPhase::Capture {
+                                                trace_selection(
+                                                    "移动",
+                                                    (
+                                                        event.position,
+                                                        event.pressed_button,
+                                                        this.selection_active,
+                                                    ),
+                                                );
+                                            }
+                                            if *phase == gpui::DispatchPhase::Capture {
+                                                this.forward_mouse_drag(event, cx);
+                                            }
+                                            if *phase == gpui::DispatchPhase::Capture
+                                                && this.selection_active
+                                            {
+                                                if event.dragging() {
+                                                    this.update_selection(event.position, cx);
+                                                } else {
+                                                    // 窗口外释放后返回时，不继续修改旧选区。
+                                                    this.selection_active = false;
+                                                }
+                                            }
+                                        },
+                                    );
+                                    move |event, phase, _hitbox, window, cx| {
+                                        listener(&(event.clone(), phase), window, cx);
+                                    }
+                                })
+                                .on_mouse_up_all({
+                                    let listener = cx.listener(
+                                        |this,
+                                         (event, phase): &(MouseUpEvent, gpui::DispatchPhase),
+                                         _window,
+                                         cx| {
+                                            if *phase == gpui::DispatchPhase::Capture
+                                                && event.button == MouseButton::Left
+                                                && (this.selection_active
+                                                    || this.reported_mouse_cell.is_some())
+                                            {
+                                                this.finish_selection(event.position, cx);
+                                                cx.stop_propagation();
+                                            }
+                                        },
+                                    );
+                                    move |event, phase, _hitbox, window, cx| {
+                                        listener(&(event.clone(), phase), window, cx);
+                                    }
+                                })
                                 .on_mouse_up(
                                     MouseButton::Left,
                                     cx.listener(|this, event: &MouseUpEvent, _window, cx| {
@@ -2256,6 +2388,7 @@ impl Render for LureApp {
                                             }
 
                                             if let Some(selection) = selection {
+                                                trace_selection("绘制", selection);
                                                 for row in 0..dimensions.1 {
                                                     if let Some(columns) =
                                                         selection.columns_for_row(row, dimensions.0)

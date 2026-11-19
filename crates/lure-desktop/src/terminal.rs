@@ -726,6 +726,21 @@ impl TerminalGrid {
         Some(bytes)
     }
 
+    /// 左键按住时的位置报告；仅在子进程请求拖动或全部移动报告时编码。
+    #[must_use]
+    pub fn mouse_drag_sequence(&self, row: u16, column: u16) -> Option<Vec<u8>> {
+        use rio_vt::crosswords::Mode;
+        if !self
+            .term
+            .mode()
+            .intersects(Mode::MOUSE_DRAG | Mode::MOUSE_MOTION)
+        {
+            return None;
+        }
+        // 鼠标协议中 32 表示移动，左键按钮编号为 0。
+        self.mouse_sequence(row, column, 32, false)
+    }
+
     #[must_use]
     pub fn mouse_button_sequence(&self, row: u16, column: u16, release: bool) -> Option<Vec<u8>> {
         self.mouse_sequence(row, column, 0, release)
