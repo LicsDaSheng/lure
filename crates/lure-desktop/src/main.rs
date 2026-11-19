@@ -1,5 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod window_geometry;
+
 use std::ffi::{OsStr, OsString};
 use std::ops::Range;
 use std::path::{Path, PathBuf};
@@ -167,6 +169,15 @@ struct LureApp {
 
 impl LureApp {
     fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
+        cx.observe_window_bounds(window, |_, window, _| {
+            // 只记忆普通窗口，避免最大化和全屏覆盖用户手动尺寸。
+            if let WindowBounds::Windowed(bounds) = window.window_bounds()
+                && let Err(error) = window_geometry::save(bounds)
+            {
+                eprintln!("保存窗口布局失败：{error}");
+            }
+        })
+        .detach();
         let focus = cx.focus_handle();
         focus.focus(window, cx);
         let dimensions = (80, 24);
@@ -2528,7 +2539,7 @@ fn canonical_directory(path: &Path) -> Result<PathBuf, String> {
 fn main() {
     gpui_platform::application().run(|cx: &mut App| {
         cx.set_app_identity("com.lure.desktop", "Lure");
-        let bounds = Bounds::centered(None, size(px(960.0), px(640.0)), cx);
+        let bounds = window_geometry::startup(cx);
         cx.open_window(
             WindowOptions::new()
                 .window_bounds(Some(WindowBounds::Windowed(bounds)))
