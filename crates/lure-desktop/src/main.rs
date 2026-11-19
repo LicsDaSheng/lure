@@ -657,7 +657,7 @@ impl LureApp {
         }
     }
 
-    fn handle_key(&mut self, event: &KeyDownEvent, cx: &mut Context<Self>) {
+    fn handle_key(&mut self, event: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
         if let Some(draft) = self.project_draft.as_mut() {
             if event.keystroke.modifiers.platform && event.keystroke.key.eq_ignore_ascii_case("a") {
                 draft.name.clear();
@@ -705,8 +705,26 @@ impl LureApp {
             platform: event.keystroke.modifiers.platform,
         };
         if modifiers.platform && event.keystroke.key.eq_ignore_ascii_case("v") {
-            if let Some(text) = cx.read_from_clipboard().and_then(|item| item.text()) {
-                self.write(text.as_bytes(), cx);
+            if self.phase != Phase::Running {
+                return;
+            }
+            if let Some(item) = cx.read_from_clipboard() {
+                match lure_desktop::clipboard::paste_text(&item, &std::env::temp_dir()) {
+                    Ok(Some(text)) => {
+                        let bytes = self.terminal.paste_input(&text);
+                        self.write(&bytes, cx);
+                    }
+                    Ok(None) => {}
+                    Err(error) => {
+                        drop(window.prompt(
+                            gpui::PromptLevel::Critical,
+                            "无法粘贴剪贴板图片",
+                            Some(&error.to_string()),
+                            &["确定"],
+                            cx,
+                        ));
+                    }
+                }
             }
             return;
         }
@@ -1773,7 +1791,7 @@ impl Render for LureApp {
             .role(Role::Application)
             .aria_label("Lure Pi 桌面终端")
             .track_focus(&self.focus)
-            .on_key_down(cx.listener(|this, event, _, cx| this.handle_key(event, cx)))
+            .on_key_down(cx.listener(Self::handle_key))
             .size_full()
             .overflow_hidden()
             .flex()

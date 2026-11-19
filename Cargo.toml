@@ -18,6 +18,7 @@ rio-vt = { version = "0.5.32", default-features = false, features = ["graphics"]
 smallvec = "1"
 serde = { version = "1", features = ["derive"] }
 serde_yaml = "0.9"
+tempfile = "3"
 thiserror = "2"
 tokio = { version = "1", features = ["fs", "macros", "process", "rt-multi-thread", "sync", "time"] }
 

@@ -826,3 +826,20 @@ fn theme_switch_recolors_existing_terminal_without_changing_content_or_cursor() 
     grid.set_theme(Theme::Dark);
     assert_eq!(grid.lines(), original);
 }
+
+#[test]
+fn paste_respects_bracketed_mode_without_submitting() {
+    let mut grid = TerminalGrid::new(2, 20);
+    assert_eq!(grid.paste_input("/tmp/image.png"), b"/tmp/image.png");
+    grid.process(b"\x1b[?2004h");
+    assert_eq!(
+        grid.paste_input("/tmp/image.png"),
+        b"\x1b[200~/tmp/image.png\x1b[201~"
+    );
+    assert_eq!(
+        grid.paste_input("a\x1b[201~b"),
+        b"\x1b[200~a[201~b\x1b[201~"
+    );
+    grid.process(b"\x1b[?2004l");
+    assert_eq!(grid.paste_input("text"), b"text");
+}

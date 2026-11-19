@@ -2965,6 +2965,7 @@ dependencies = [
  "serde",
  "serde_yaml",
  "smallvec",
+ "tempfile",
  "tokio",
 ]
 

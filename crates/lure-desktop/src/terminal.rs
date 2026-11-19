@@ -649,6 +649,20 @@ impl TerminalGrid {
                 .contains(rio_vt::crosswords::Mode::SHOW_CURSOR)
     }
 
+    /// 按终端模式包装粘贴，不追加回车；过滤可提前结束 bracketed paste 的 ESC。
+    #[must_use]
+    pub fn paste_input(&self, text: &str) -> Vec<u8> {
+        if self
+            .term
+            .mode()
+            .contains(rio_vt::crosswords::Mode::BRACKETED_PASTE)
+        {
+            format!("\x1b[200~{}\x1b[201~", text.replace('\x1b', "")).into_bytes()
+        } else {
+            text.as_bytes().to_vec()
+        }
+    }
+
     #[must_use]
     pub fn keyboard_input(&self, input: &crate::input::KeyInput) -> Option<Vec<u8>> {
         use rio_vt::ansi::KeyboardModes;
