@@ -1,74 +1,29 @@
 # Lure 工程结构概览
 
-## 1. 项目定位
+## 产品边界
 
-Lure 是已安装 Pi 的原生桌面终端客户端。应用不复制 Pi 的 Agent、会话或 TUI 能力，而是在用户选择的工作目录中通过 Rust 创建 PTY，启动普通交互模式的 `pi`，再由 GPUI-CE 直接绘制终端网格。
+Lure 是已安装 Pi 的原生桌面终端客户端。应用不实现 Pi 的认证、模型、Agent、工具或会话语义；只在用户选择的项目目录中通过 PTY 启动交互式 `pi`，将输出交给 rio-vt 维护终端状态，再由 GPUI-CE 绘制字符网格及图片。
 
-当前技术栈：
+项目列表存储在 `$HOME/.pi/projects.yaml`，由 Lure 独占读写。应用不创建 `.pi` 目录，也不访问其中其他文件。
 
-- 桌面与展示框架：GPUI-CE（纯 Rust）
-- ANSI/VT 终端内核：`alacritty_terminal`
-- PTY 与进程管理：Rust + `portable-pty`
-- 异步消息通道：`async-channel`
-- 初始平台：macOS，PTY 与按键编码保留跨平台边界
+## Rust crate 职责
 
-项目不包含 Tauri、WebView、React、TypeScript、Node.js 或前端包管理器。
+- `lure-pty`：检测 Pi 可执行文件、合成登录 shell 环境、校验工作目录、创建和管理 PTY 与子进程、转发字节并同步终端尺寸。不依赖 GPUI，也不解析终端或 Pi 业务语义。
+- `lure-desktop`：管理 GPUI 窗口、项目列表、侧栏、每项目独立的终端会话及故障恢复；将原始 PTY 输出交给 rio-vt，绘制其可见网格和图片，编码输入并向 PTY 转发终端查询回复。
 
-## 2. 运行边界
+应用不使用 WebView、Tauri 或前端运行时。同一项目目录只对应一个已打开的 Pi 子进程；不并发启动该会话的 RPC 子进程。
 
-```text
-键盘 / 粘贴 / resize
-          │
-          ▼
-     GPUI-CE 窗口
-          │
-          ▼
-   VT 网格与按键编码
-          │ 原始字节
-          ▼
-       lure-pty
-          │ PTY
-          ▼
-     pi（交互模式）
-          │
-          ▼
-        Pi TUI
-```
+## 页面与会话生命周期
 
-- Rust 展示层只解释 ANSI/VT 控制序列以绘制字符网格，不理解 Pi 的 Agent、工具、消息或会话语义。
-- Pi 负责模型认证、Agent、工具、skills、extensions、slash commands、会话和完整 TUI。
-- 同一桌面终端会话只运行一个 Pi 进程，不同时启动 RPC 模式。
+1. 启动时从 `$HOME/.pi/projects.yaml` 加载项目并显示首页；不自动启动 Pi。
+2. 用户通过项目卡片或侧栏打开项目时，在该目录启动 Pi。打开已有会话只切换前台，不重启进程。
+3. 首页与终端页共用可折叠的项目侧栏。侧栏展示已保存的项目，切换会话不停止后台进程；从终端返回首页也保留会话。
+4. 每个会话持有独立 PTY、终端状态与图片纹理。会话 id 和 generation 隔离关闭及重启后的迟到消息；后台输出仍更新对应终端状态。
+5. 窗口或侧栏尺寸变化时同步终端字符网格与 PTY winsize。关闭侧栏中的会话只回收该会话；关闭窗口回收全部 Pi 子进程。
 
-## 3. Rust crate 职责
+界面与终端交互的详细约束见 [`ui-design.md`](ui-design.md)。
 
-### `lure-pty`
-
-负责工作目录校验、Pi 可执行文件定位、登录 shell 环境合成、PTY 创建、输入输出、resize、停止与退出事件。该 crate 不依赖 GPUI，也不解析 ANSI 或 Pi 语义。
-
-### `lure-desktop`
-
-纯 Rust 组合根，负责：
-
-- 创建 GPUI 窗口与自定义标题栏；
-- 将 PTY 输出交给 Alacritty 终端内核，转发终端查询回复；
-- 根据终端内核提供的可见字符网格与光标模式绘制颜色、样式和光标；
-- 将键盘、粘贴和窗口尺寸转换为 PTY 输入与字符网格；
-- 选择工作目录、启动、重启、停止和错误恢复；
-- 窗口关闭时停止 Pi 子进程。
-
-GPUI-CE 依赖固定到上游 Git commit，避免未审阅的框架漂移。
-
-## 4. 生命周期
-
-1. 创建 `~/lure` 默认工作目录并打开 GPUI 窗口。
-2. 后台线程合成登录 shell 环境并创建 Pi PTY。
-3. PTY reader 事件经 `async-channel` 回到 GPUI 主线程。
-4. 输出更新 VT 网格并触发重绘；窗口尺寸变化同步到 VT 网格和 PTY。
-5. 选择新目录或重启时先停止旧进程，并用 generation 丢弃旧会话事件。
-6. 停止、退出或错误时保留已绘制终端内容并显示恢复面板。
-7. 关闭窗口或销毁根视图时停止子进程。
-
-## 5. 验证命令
+## 验证
 
 ```bash
 cargo fmt --all --check
@@ -76,8 +31,4 @@ cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo test --workspace
 ```
 
-真实 Pi 冒烟测试：
-
-```bash
-LURE_RUN_REAL_PI_PTY=1 cargo test -p lure-pty --test real_pi
-```
+真实 Pi 的 PTY 冒烟测试：`LURE_RUN_REAL_PI_PTY=1 cargo test -p lure-pty --test real_pi`。

@@ -645,10 +645,10 @@ fn real_pi_recording_survives_arbitrary_pty_chunk_boundaries() {
         assert_eq!(left.placement_id, right.placement_id);
         assert_eq!(left.pixel_width, right.pixel_width);
         assert_eq!(left.pixel_height, right.pixel_height);
-        assert!(left.x.to_bits() == right.x.to_bits());
-        assert!(left.y.to_bits() == right.y.to_bits());
-        assert!(left.width.to_bits() == right.width.to_bits());
-        assert!(left.height.to_bits() == right.height.to_bits());
+        assert_eq!(left.x.to_bits(), right.x.to_bits());
+        assert_eq!(left.y.to_bits(), right.y.to_bits());
+        assert_eq!(left.width.to_bits(), right.width.to_bits());
+        assert_eq!(left.height.to_bits(), right.height.to_bits());
         assert!(
             left.source_rect
                 .iter()

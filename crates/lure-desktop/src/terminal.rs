@@ -19,9 +19,9 @@ pub const TERMINAL_PADDING: f32 = 16.0;
 pub const WINDOW_BORDER: f32 = 1.0;
 /// 单张终端图片解码后的像素字节上限（RGBA，约 4096 × 1024）。
 pub const MAX_GRAPHIC_BYTES: usize = 16 * 1024 * 1024;
-/// 每个终端 Tab 的图片纹理内存上限。
+/// 每个项目会话的图片纹理内存上限。
 pub const GRAPHICS_MEMORY_LIMIT: usize = 64 * 1024 * 1024;
-/// 全应用所有 Tab 合计的图片纹理内存上限。
+/// 全应用所有项目会话合计的图片纹理内存上限。
 pub const GLOBAL_GRAPHICS_MEMORY_LIMIT: usize = 256 * 1024 * 1024;
 
 #[must_use]
@@ -363,7 +363,7 @@ impl TextureStore {
         std::mem::take(&mut self.released)
     }
 
-    /// 清空当前 Tab 的全部纹理（关闭 tab 或进程结束时调用）。
+    /// 清空当前项目会话的全部纹理（关闭会话时调用）。
     fn clear(&mut self) -> Vec<std::sync::Arc<gpui::RenderImage>> {
         use std::sync::atomic::Ordering;
         GLOBAL_TEXTURE_BYTES.fetch_sub(self.bytes, Ordering::AcqRel);
@@ -561,20 +561,20 @@ impl TerminalGrid {
         self.events.0.borrow_mut().textures.take_released()
     }
 
-    /// 释放当前 Tab 的全部图片纹理。
+    /// 释放当前项目会话 的全部图片纹理。
     #[must_use]
     pub fn release_all_images(&mut self) -> Vec<std::sync::Arc<gpui::RenderImage>> {
         self.graphics_memory = 0;
         self.events.0.borrow_mut().textures.clear()
     }
 
-    /// 当前 Tab 持有的图片纹理字节数。
+    /// 当前项目会话 持有的图片纹理字节数。
     #[must_use]
     pub fn graphics_memory_bytes(&self) -> usize {
         self.events.0.borrow().textures.bytes
     }
 
-    /// 调整当前 Tab 的图片纹理内存上限；立即回收最久未使用的纹理直到满足上限。
+    /// 调整当前项目会话 的图片纹理内存上限；立即回收最久未使用的纹理直到满足上限。
     pub fn set_graphics_memory_limit(&mut self, limit: usize) {
         self.graphics_limit = limit;
         self.term.graphics.total_limit = limit;

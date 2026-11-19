@@ -1,6 +1,6 @@
 # Lure
 
-Lure 是使用 [GPUI-CE](https://github.com/gpui-ce/gpui-ce)、[Alacritty 终端内核](https://github.com/alacritty/alacritty)与 Rust PTY 构建的 Pi 原生桌面终端。项目不包含 Tauri、React、TypeScript 或 WebView。
+Lure 是使用 [GPUI-CE](https://github.com/gpui-ce/gpui-ce)、[rio-vt](https://crates.io/crates/rio-vt) 与 Rust PTY 构建的 Pi 原生桌面终端。项目不包含 Tauri、React、TypeScript 或 WebView。
 
 ## 前置条件
 
@@ -22,7 +22,7 @@ make build                  # 构建 release 可执行文件
 
 `make dev` 首次运行时将固定版本的 `cargo-watch` 安装在被 Git 忽略的 `target/dev-tools` 中，不会安装到全局 Cargo bin 目录，也不参与应用构建或打包。它会在保存 Rust 源码后重新编译并重启窗口，不是无需重启的热更新；重启会结束当前 Pi PTY 会话。`make run` 等价于 `cargo run -p lure-desktop`。
 
-应用会创建 `~/lure` 作为默认工作目录，通过 PTY 启动普通交互模式的 Pi，由 Alacritty 终端内核维护 ANSI/VT 状态并在 GPUI 窗口中绘制可见网格。也可通过 `LURE_PI_PATH` 指定 Pi 可执行文件。
+应用从 `$HOME/.pi/projects.yaml` 加载项目；首次进入首页时不启动 Pi。点击项目卡片或侧栏项目后，应用在对应目录通过 PTY 启动普通交互模式的 Pi。rio-vt 维护 ANSI/VT 状态，GPUI 绘制可见网格；侧栏用于切换多个项目会话，返回首页不会停止后台 Pi。也可通过 `LURE_PI_PATH` 指定 Pi 可执行文件。
 
 macOS 使用原生交通灯进行关闭、缩放与最小化到 Dock；拖动窗口、系统平铺及第三方窗口管理工具使用原生窗口机制。最小化不会停止 Pi，关闭窗口会停止 Pi。本应用不另设后台托盘。
 

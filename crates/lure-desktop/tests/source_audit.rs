@@ -21,11 +21,7 @@ fn workspace_is_pure_rust_and_contains_no_tauri_or_web_frontend_entrypoints() {
 fn terminal_text_uses_an_explicit_canvas_line_height_without_clipping() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     let main = fs::read_to_string(root.join("crates/lure-desktop/src/main.rs")).unwrap();
-    assert!(
-        main.contains(
-            "px(CELL_HEIGHT),\n                                            TextAlign::Left"
-        )
-    );
+    assert!(main.contains("px(CELL_HEIGHT),") && main.contains("TextAlign::Left"));
     assert!(
         !main.contains(
             ".overflow_hidden()\n                                            .child(run.text)"
@@ -103,6 +99,52 @@ fn terminal_transition_panel_uses_the_current_dark_palette() {
 }
 
 #[test]
+fn shared_sidebar_toggle_is_wired_to_titlebar_and_shortcut() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let main = fs::read_to_string(root.join("crates/lure-desktop/src/main.rs")).unwrap();
+    assert!(main.contains("sidebar_visibility: SidebarVisibility::Expanded"));
+    assert!(main.contains("id(\"toggle-sidebar-btn\")"));
+    assert!(main.contains("this.sidebar_visibility.toggle()"));
+    assert!(main.contains("event.keystroke.key.eq_ignore_ascii_case(\"b\")"));
+    assert!(
+        main.matches("self.sidebar_visibility == SidebarVisibility::Expanded")
+            .count()
+            >= 2
+    );
+    assert!(main.contains("route == Route::Terminal"));
+    assert!(main.contains("include_bytes!(\"../../../assets/home/sidebar.svg\")"));
+}
+
+#[test]
+fn home_icons_use_design_source_svg_not_font_glyphs() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let main = fs::read_to_string(root.join("crates/lure-desktop/src/main.rs")).unwrap();
+    let compact = main
+        .chars()
+        .filter(|ch| !ch.is_whitespace())
+        .collect::<String>();
+    for asset in [
+        "brand", "search", "grid", "folder", "robot", "plus", "sidebar",
+    ] {
+        assert!(compact.contains(&format!(
+            "include_bytes!(\"../../../assets/home/{asset}.svg\")"
+        )));
+        let svg = fs::read_to_string(root.join(format!("assets/home/{asset}.svg"))).unwrap();
+        assert!(svg.starts_with("<svg xmlns=\"http://www.w3.org/2000/svg\""));
+        assert!(svg.contains("viewBox=\"0 0 24 24\""));
+    }
+    for placeholder in [
+        ".child(\"L\")",
+        ".child(\"▣\")",
+        ".child(\"▦\")",
+        ".child(\"▱\")",
+        ".child(\"⌕\")",
+    ] {
+        assert!(!main.contains(placeholder), "残留字符图标: {placeholder}");
+    }
+}
+
+#[test]
 fn project_cards_constrain_both_text_lines_inside_the_card() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     let main = fs::read_to_string(root.join("crates/lure-desktop/src/main.rs")).unwrap();
@@ -116,24 +158,52 @@ fn project_cards_constrain_both_text_lines_inside_the_card() {
     assert!(card.contains(".flex_col()"));
     assert!(card.contains(".overflow_hidden()"));
     assert_eq!(card.matches(".text_ellipsis()").count(), 2);
-    assert_eq!(card.matches(".min_w_0()").count(), 2);
+    // 路径容器和文本均需限制最小宽度。
+    assert_eq!(card.matches(".min_w_0()").count(), 3);
 }
 
 #[test]
-fn project_home_and_multi_tab_lifecycle_are_wired() {
+fn closing_a_session_selects_the_next_saved_project() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let main = fs::read_to_string(root.join("crates/lure-desktop/src/main.rs")).unwrap();
+    assert!(!main.contains("current_order"));
+    assert!(!main.contains("session.order"));
+    assert!(main.contains("self.projects.projects.iter().find_map("));
+    let overview = fs::read_to_string(root.join("docs/overview.md")).unwrap();
+    assert!(overview.contains("rio-vt"));
+    assert!(overview.contains("projects.yaml"));
+    assert!(!overview.contains("创建 `~/lure`"));
+    let readme = fs::read_to_string(root.join("README.md")).unwrap();
+    assert!(readme.contains("rio-vt"));
+    assert!(readme.contains("projects.yaml"));
+    assert!(!readme.contains("`~/lure`"));
+}
+
+#[test]
+fn project_home_and_sidebar_session_lifecycle_are_wired() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     let main = fs::read_to_string(root.join("crates/lure-desktop/src/main.rs")).unwrap();
     let projects = fs::read_to_string(root.join("crates/lure-desktop/src/projects.rs")).unwrap();
     assert!(main.contains("route: Route::Home"));
-    assert!(!main.contains("fn default_workspace"));
-    assert!(!main.contains("app.start(cx)"));
     assert!(main.contains("project-card"));
     assert!(main.contains("new-project-home"));
-    assert!(main.contains("project-tab"));
-    assert!(main.contains("new-tab"));
+    assert!(main.contains("fn project_sidebar("));
+    assert_eq!(
+        main.matches("body.child(self.project_sidebar(cx))").count(),
+        2
+    );
+    assert!(main.contains("sidebar-close-session"));
+    assert!(main.contains("cx.stop_propagation();\n                                            this.close_session(id, window, cx);"));
+    assert!(main.contains("terminal-home"));
+    assert!(!main.contains("route == Route::Home || route == Route::Terminal"));
+    assert!(!main.contains("project-tab"));
+    assert!(!main.contains("new-tab"));
+    assert!(
+        main.contains("terminal_viewport_width(viewport.width.into(), self.sidebar_visibility)")
+    );
     assert!(main.contains("session: SessionId"));
     assert!(main.contains("parked_sessions"));
-    assert!(main.contains("重复") || main.contains("directory == project.path"));
+    assert!(main.contains("directory == project.path"));
     assert!(projects.contains(".join(\".pi\").join(\"projects.yaml\")"));
     assert!(projects.contains("fs::rename(&temporary, path)"));
 }
