@@ -346,7 +346,12 @@ fn header_has_no_project_search_or_hidden_search_shortcut() {
     assert!(!main.contains("home-search"));
     assert!(!main.contains("home_search_active"));
     assert!(!main.contains("home_query"));
-    assert!(!main.contains("⌘K"));
+    // 项目切换弹框允许显示导航提示，其他界面仍不提供搜索快捷键。
+    let picker_start = main.find("    fn project_picker_panel(").unwrap();
+    let picker_end = main.find("    fn project_draft_panel(").unwrap();
+    assert!(!main[..picker_start].contains("⌘K"));
+    assert!(!main[picker_end..].contains("⌘K"));
+    assert!(main[picker_start..picker_end].contains("⌘K / ↑ 向上"));
     assert!(main.contains("toggle-theme"));
     assert!(main.contains("new-project-home"));
     assert!(main.contains("home_filter_button(\"全部\""));
@@ -390,4 +395,60 @@ fn terminal_forwards_mouse_drags_without_starting_local_selection() {
     assert!(main.contains("if point == previous"));
     let compact: String = main.chars().filter(|c| !c.is_whitespace()).collect();
     assert!(compact.contains("this.selection_active||this.reported_mouse_cell.is_some()"));
+}
+
+#[test]
+fn project_picker_reuses_project_opening_and_blocks_terminal_input() {
+    let main = include_str!("../src/main.rs");
+    let handler = main
+        .split("fn handle_project_picker_key(")
+        .nth(1)
+        .unwrap()
+        .split("fn handle_key(")
+        .next()
+        .unwrap();
+    assert!(handler.contains("key.eq_ignore_ascii_case(\"e\")"));
+    assert!(
+        handler.contains("this.open_project")
+            || handler.contains("self.open_project(project, window, cx)")
+    );
+    assert!(handler.contains("cx.stop_propagation()"));
+    assert!(handler.contains("scroll_to_item(index)"));
+    for method in [
+        "fn replace_text_in_range(",
+        "fn replace_and_mark_text_in_range(",
+    ] {
+        let body = main.split(method).nth(1).unwrap();
+        assert!(
+            body.find("if self.project_picker.is_some()").unwrap()
+                < body.find("if let Some(draft)").unwrap()
+        );
+    }
+}
+
+#[test]
+fn project_picker_shortcuts_are_bound_only_in_modal_focus_context() {
+    let main = include_str!("../src/main.rs");
+    assert!(main.contains("cx.bind_keys(project_picker::key_bindings())"));
+    let root = main.split(".id(\"lure-application\")").nth(1).unwrap();
+    let keyboard = root
+        .split(".on_key_down(cx.listener(Self::handle_key))")
+        .next()
+        .unwrap();
+    assert!(keyboard.contains(".track_focus(&self.focus)"));
+    assert!(keyboard.contains(".when(self.project_picker.is_some(), |app|"));
+    assert!(keyboard.contains("app.key_context(\"ProjectPicker\")"));
+    assert!(keyboard.contains("_: &NextProject"));
+    assert!(keyboard.contains("_: &PreviousProject"));
+    assert!(keyboard.contains("this.navigate_project_picker(true, cx)"));
+    assert!(keyboard.contains("this.navigate_project_picker(false, cx)"));
+    let handler = main
+        .split("fn handle_project_picker_key(")
+        .nth(1)
+        .unwrap()
+        .split("fn handle_key(")
+        .next()
+        .unwrap();
+    assert!(handler.contains("\"down\" | \"up\" => self.navigate_project_picker"));
+    assert!(handler.contains("\"j\" | \"k\" if platform => self.navigate_project_picker"));
 }

@@ -1,6 +1,9 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod project_picker;
 mod window_geometry;
+
+use project_picker::{NextProject, PreviousProject, ProjectPicker};
 
 use std::ffi::{OsStr, OsString};
 use std::ops::Range;
@@ -181,6 +184,8 @@ struct LureApp {
     project_draft: Option<ProjectDraft>,
     home_filter: ProjectFilter,
     sidebar_visibility: SidebarVisibility,
+    project_picker: Option<ProjectPicker>,
+    project_picker_scroll: gpui::ScrollHandle,
 }
 
 impl LureApp {
@@ -250,6 +255,8 @@ impl LureApp {
             project_draft: None,
             home_filter: ProjectFilter::All,
             sidebar_visibility: SidebarVisibility::Expanded,
+            project_picker: None,
+            project_picker_scroll: gpui::ScrollHandle::new(),
         };
         Self::receive_messages(receiver, cx);
         app
@@ -700,6 +707,71 @@ impl LureApp {
         }
     }
 
+    fn navigate_project_picker(&mut self, down: bool, cx: &mut Context<Self>) {
+        if let Some(picker) = self.project_picker.as_mut() {
+            picker.move_selection(self.projects.projects.len(), down);
+            if let Some(index) = picker.selected {
+                self.project_picker_scroll.scroll_to_item(index);
+            }
+            cx.stop_propagation();
+            cx.notify();
+        }
+    }
+
+    fn handle_project_picker_key(
+        &mut self,
+        event: &KeyDownEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        let key = event.keystroke.key.as_str();
+        let platform = event.keystroke.modifiers.platform;
+        if platform && key.eq_ignore_ascii_case("e") {
+            if self.project_picker.is_some() {
+                self.project_picker = None;
+            } else {
+                let active = self.projects.projects.iter().position(|project| {
+                    self.route == Route::Terminal && project.path == self.directory
+                });
+                let picker = ProjectPicker::new(self.projects.projects.len(), active);
+                self.project_picker_scroll = gpui::ScrollHandle::new();
+                if let Some(index) = picker.selected {
+                    self.project_picker_scroll.scroll_to_item(index);
+                }
+                self.project_picker = Some(picker);
+                self.selection_active = false;
+                self.reported_mouse_cell = None;
+                self.marked_text.clear();
+            }
+            cx.stop_propagation();
+            cx.notify();
+            return true;
+        }
+        if let Some(picker) = self.project_picker.as_mut() {
+            cx.stop_propagation();
+            match key {
+                "escape" => self.project_picker = None,
+                "enter" => {
+                    let project = picker
+                        .selected
+                        .and_then(|index| self.projects.projects.get(index))
+                        .cloned();
+                    self.project_picker = None;
+                    if let Some(project) = project {
+                        self.open_project(project, window, cx);
+                    }
+                }
+                "down" | "up" => self.navigate_project_picker(key == "down", cx),
+                // 绑定命中时已消费按键；此处兜底 macOS key equivalent 与输入法分发路径。
+                "j" | "k" if platform => self.navigate_project_picker(key == "j", cx),
+                _ => {}
+            }
+            cx.notify();
+            return true;
+        }
+        false
+    }
+
     fn handle_key(&mut self, event: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
         if let Some(draft) = self.project_draft.as_mut() {
             if event.keystroke.modifiers.platform && event.keystroke.key.eq_ignore_ascii_case("a") {
@@ -731,6 +803,9 @@ impl LureApp {
                     }
                 }
             }
+            return;
+        }
+        if self.handle_project_picker_key(event, window, cx) {
             return;
         }
         if event.keystroke.modifiers.platform && event.keystroke.key.eq_ignore_ascii_case("b") {
@@ -1136,6 +1211,91 @@ impl LureApp {
                     .child("Pi · 本地终端"),
             )
             .into_any_element()
+    }
+
+    fn project_picker_panel(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let palette = self.theme.palette();
+        let selected = self
+            .project_picker
+            .as_ref()
+            .and_then(|picker| picker.selected);
+        div()
+            .id("project-picker-overlay")
+            .absolute()
+            .inset_0()
+            .flex()
+            .items_center()
+            .justify_center()
+            .bg(rgba(0x0000_0060))
+            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+            .on_mouse_up(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+            .on_scroll_wheel(|_, _, cx| cx.stop_propagation())
+            .on_click(cx.listener(|this, _, _, cx| {
+                this.project_picker = None;
+                cx.notify();
+            }))
+            .child(
+                div()
+                    .id("project-picker")
+                    .w(px(460.0))
+                    .p(px(16.0))
+                    .rounded(px(12.0))
+                    .border_1()
+                    .border_color(rgb(palette.border))
+                    .bg(rgb(palette.background))
+                    .on_click(|_, _, cx| cx.stop_propagation())
+                    .child(div().font_weight(FontWeight::SEMIBOLD).child("切换项目"))
+                    .child(
+                        div()
+                            .mt(px(8.0))
+                            .text_size(px(11.0))
+                            .text_color(rgb(palette.muted))
+                            .child("⌘J / ↓ 向下 · ⌘K / ↑ 向上 · Enter 打开 · Esc 取消"),
+                    )
+                    .child(
+                        div()
+                            .id("project-picker-list")
+                            .mt(px(12.0))
+                            .max_h(px(280.0))
+                            .overflow_y_scroll()
+                            .track_scroll(&self.project_picker_scroll)
+                            .when(self.projects.projects.is_empty(), |list| {
+                                list.child(div().p(px(12.0)).child("暂无项目，请先新建项目"))
+                            })
+                            .children(self.projects.projects.iter().enumerate().map(
+                                |(index, project)| {
+                                    div()
+                                        .id(("project-picker-item", index))
+                                        .role(Role::Button)
+                                        .px(px(12.0))
+                                        .py(px(8.0))
+                                        .rounded(px(8.0))
+                                        .cursor_pointer()
+                                        .when(selected == Some(index), |row| {
+                                            row.bg(rgb(palette.selected))
+                                        })
+                                        .hover_style(move |style| style.bg(rgb(palette.selected)))
+                                        .on_click(cx.listener(move |this, _, window, cx| {
+                                            cx.stop_propagation();
+                                            this.project_picker = None;
+                                            if let Some(project) =
+                                                this.projects.projects.get(index).cloned()
+                                            {
+                                                this.open_project(project, window, cx);
+                                            }
+                                        }))
+                                        .child(div().truncate().child(project.display_name()))
+                                        .child(
+                                            div()
+                                                .truncate()
+                                                .text_size(px(11.0))
+                                                .text_color(rgb(palette.muted))
+                                                .child(project.path.display().to_string()),
+                                        )
+                                },
+                            )),
+                    ),
+            )
     }
 
     fn project_draft_panel(&self, cx: &mut Context<Self>) -> impl IntoElement {
@@ -1690,6 +1850,9 @@ impl EntityInputHandler for LureApp {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if self.project_picker.is_some() {
+            return;
+        }
         if let Some(draft) = self.project_draft.as_mut() {
             draft.marked_text.clear();
             draft.name.push_str(text);
@@ -1710,6 +1873,9 @@ impl EntityInputHandler for LureApp {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if self.project_picker.is_some() {
+            return;
+        }
         if let Some(draft) = self.project_draft.as_mut() {
             draft.marked_text.clear();
             draft.marked_text.push_str(new_text);
@@ -1880,9 +2046,20 @@ impl Render for LureApp {
         let route = self.route;
         div()
             .id("lure-application")
+            .relative()
             .role(Role::Application)
             .aria_label("Lure Pi 桌面终端")
             .track_focus(&self.focus)
+            // 快捷键上下文必须与焦点节点同层，弹框关闭后不拦截 Pi 快捷键。
+            .when(self.project_picker.is_some(), |app| {
+                app.key_context("ProjectPicker")
+                    .on_action(cx.listener(|this, _: &NextProject, _, cx| {
+                        this.navigate_project_picker(true, cx);
+                    }))
+                    .on_action(cx.listener(|this, _: &PreviousProject, _, cx| {
+                        this.navigate_project_picker(false, cx);
+                    }))
+            })
             .on_key_down(cx.listener(Self::handle_key))
             .size_full()
             .overflow_hidden()
@@ -2546,6 +2723,9 @@ impl Render for LureApp {
                         ),
                 )
             })
+            .when(self.project_picker.is_some(), |app| {
+                app.child(self.project_picker_panel(cx))
+            })
             .when(
                 route == Route::Terminal && self.project_draft.is_some(),
                 |app| app.child(self.project_draft_panel(cx)),
@@ -2672,6 +2852,7 @@ fn canonical_directory(path: &Path) -> Result<PathBuf, String> {
 fn main() {
     gpui_platform::application().run(|cx: &mut App| {
         cx.set_app_identity("com.lure.desktop", "Lure");
+        cx.bind_keys(project_picker::key_bindings());
         let bounds = window_geometry::startup(cx);
         cx.open_window(
             WindowOptions::new()
