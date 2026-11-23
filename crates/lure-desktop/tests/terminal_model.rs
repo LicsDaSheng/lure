@@ -114,6 +114,36 @@ fn application_cursor_mode_changes_arrow_key_sequences() {
 }
 
 #[test]
+fn color_queries_reply_with_the_active_terminal_palette() {
+    use lure_desktop::theme::Theme;
+
+    let mut grid = TerminalGrid::new(2, 12);
+    grid.set_theme(Theme::Light);
+    grid.process(b"\x1b]10;?\x07\x1b]11;?\x1b\\\x1b]4;1;?\x07");
+    assert_eq!(
+        grid.take_responses(),
+        vec![
+            "\x1b]10;rgb:0f0f/1717/2a2a\x07",
+            "\x1b]11;rgb:f7f7/f8f8/fafa\x1b\\",
+            "\x1b]4;1;rgb:b9b9/1c1c/1c1c\x07",
+        ]
+    );
+    assert!(grid.take_responses().is_empty());
+
+    grid.process(b"\x1b]10;?\x07\x1b]11;?\x07\x1b]12;?\x07\x1b]4;1;?\x07");
+    grid.set_theme(Theme::Dark);
+    assert_eq!(
+        grid.take_responses(),
+        vec![
+            "\x1b]10;rgb:f8f8/f8f8/f2f2\x07",
+            "\x1b]11;rgb:2828/2a2a/3636\x07",
+            "\x1b]12;rgb:f8f8/f8f8/f2f2\x07",
+            "\x1b]4;1;rgb:ffff/5555/5555\x07",
+        ]
+    );
+}
+
+#[test]
 fn keyboard_protocol_queries_are_answered_through_the_pty_channel() {
     let mut grid = TerminalGrid::new(2, 12);
     grid.process(b"\x1b[?u");

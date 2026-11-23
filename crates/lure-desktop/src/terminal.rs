@@ -365,8 +365,17 @@ struct TerminalEvents(std::rc::Rc<std::cell::RefCell<TerminalQueues>>);
 
 #[derive(Default)]
 struct TerminalQueues {
-    responses: Vec<String>,
+    responses: Vec<TerminalResponse>,
     textures: TextureStore,
+}
+
+// 颜色查询直到取回复时才按当前主题求值，避免输出分块期间切换主题后回复旧色板。
+enum TerminalResponse {
+    Text(String),
+    Color(
+        usize,
+        std::sync::Arc<dyn Fn(rio_vt::config::colors::ColorRgb) -> String + Send + Sync + 'static>,
+    ),
 }
 
 struct TextureEntry {
@@ -517,7 +526,16 @@ impl rio_vt::event::EventListener for TerminalEvents {
     fn send_event(&self, event: rio_vt::event::RioEvent, _window: rio_vt::event::WindowId) {
         match event {
             rio_vt::event::RioEvent::PtyWrite(_, text) => {
-                self.0.borrow_mut().responses.push(text);
+                self.0
+                    .borrow_mut()
+                    .responses
+                    .push(TerminalResponse::Text(text));
+            }
+            rio_vt::event::RioEvent::ColorRequest(_, index, formatter) => {
+                self.0
+                    .borrow_mut()
+                    .responses
+                    .push(TerminalResponse::Color(index, formatter));
             }
             rio_vt::event::RioEvent::UpdateGraphics { mut queues, .. } => {
                 let mut queues_ref = self.0.borrow_mut();
@@ -696,7 +714,33 @@ impl TerminalGrid {
     /// 回复终端控制序列查询的字节必须由 PTY 发送，不能渲染成文本。
     #[must_use]
     pub fn take_responses(&self) -> Vec<String> {
+        use rio_vt::config::colors::{ColorRgb, NamedColor};
+
         std::mem::take(&mut self.events.0.borrow_mut().responses)
+            .into_iter()
+            .filter_map(|response| match response {
+                TerminalResponse::Text(text) => Some(text),
+                TerminalResponse::Color(index, formatter) => {
+                    let palette = self.theme.palette();
+                    let rgb = if index < 16 {
+                        self.theme.indexed_color(u8::try_from(index).ok()?)
+                    } else if index == NamedColor::Foreground as usize {
+                        palette.foreground
+                    } else if index == NamedColor::Background as usize {
+                        palette.background
+                    } else if index == NamedColor::Cursor as usize {
+                        palette.foreground
+                    } else {
+                        return None;
+                    };
+                    Some(formatter(ColorRgb {
+                        r: u8::try_from((rgb >> 16) & 0xff).unwrap_or_default(),
+                        g: u8::try_from((rgb >> 8) & 0xff).unwrap_or_default(),
+                        b: u8::try_from(rgb & 0xff).unwrap_or_default(),
+                    }))
+                }
+            })
+            .collect()
     }
 
     pub fn resize(&mut self, rows: u16, columns: u16) {

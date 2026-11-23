@@ -543,6 +543,7 @@ impl LureApp {
                 generation, data, ..
             } if state.generation.load(Ordering::Acquire) == generation => {
                 state.selection = None;
+                state.terminal.set_theme(self.theme);
                 state.terminal.process(&data);
                 for response in state.terminal.take_responses() {
                     if let Some(process) = state.process.as_mut()
@@ -621,6 +622,7 @@ impl LureApp {
                 trace_selection("PTY 输出清除选区", (data.len(), self.selection_active));
                 self.selection_active = false;
                 self.selection = None;
+                self.terminal.set_theme(self.theme);
                 self.terminal.process(&data);
                 self.links.invalidate();
                 for response in self.terminal.take_responses() {

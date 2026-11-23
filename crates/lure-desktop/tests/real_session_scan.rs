@@ -5,6 +5,28 @@ use lure_desktop::terminal::TerminalGrid;
 const PI_TOOL_BYTES: &[u8] = include_bytes!("fixtures/pi_tool.bin");
 
 #[test]
+fn recorded_pi_startup_color_queries_receive_terminal_replies() {
+    let mut grid = TerminalGrid::new(30, 120);
+    grid.process(&PI_TOOL_BYTES[..300]);
+    let responses = grid.take_responses();
+    assert!(
+        responses
+            .iter()
+            .any(|reply| reply.starts_with("\x1b]10;rgb:"))
+    );
+    assert!(
+        responses
+            .iter()
+            .any(|reply| reply.starts_with("\x1b]11;rgb:"))
+    );
+    assert!(
+        responses
+            .iter()
+            .any(|reply| reply.starts_with("\x1b]4;0;rgb:"))
+    );
+}
+
+#[test]
 fn real_pi_session_produces_only_plausible_links() {
     let mut grid = TerminalGrid::new(30, 120);
     // 分块喂入，模拟 PTY 任意切分边界（含多字节字符中间）。
