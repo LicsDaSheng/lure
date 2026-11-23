@@ -3114,27 +3114,35 @@ fn canonical_directory(path: &Path) -> Result<PathBuf, String> {
     Ok(path)
 }
 
+fn open_main_window(cx: &mut App) {
+    let bounds = window_geometry::startup(cx);
+    cx.open_window(
+        WindowOptions::new()
+            .window_bounds(Some(WindowBounds::Windowed(bounds)))
+            .window_min_size(Some(size(px(720.0), px(480.0))))
+            .titlebar(Some(
+                TitlebarOptions::default()
+                    .title(SharedString::from("Lure"))
+                    .appears_transparent(true)
+                    .traffic_light_position(point(px(12.0), px(14.0))),
+            ))
+            .app_id("com.lure.desktop".to_string())
+            .app_owns_titlebar_drag(true),
+        |window, cx| cx.new(|cx| LureApp::new(window, cx)),
+    )
+    .expect("无法创建 Lure 窗口");
+    cx.activate(true);
+}
+
 fn main() {
-    gpui_platform::application().run(|cx: &mut App| {
+    let application = gpui_platform::application();
+    application.on_reopen(|cx| {
+        open_main_window(cx);
+    });
+    application.run(|cx: &mut App| {
         cx.set_app_identity("com.lure.desktop", "Lure");
         cx.bind_keys(project_picker::key_bindings());
-        let bounds = window_geometry::startup(cx);
-        cx.open_window(
-            WindowOptions::new()
-                .window_bounds(Some(WindowBounds::Windowed(bounds)))
-                .window_min_size(Some(size(px(720.0), px(480.0))))
-                .titlebar(Some(
-                    TitlebarOptions::default()
-                        .title(SharedString::from("Lure"))
-                        .appears_transparent(true)
-                        .traffic_light_position(point(px(12.0), px(14.0))),
-                ))
-                .app_id("com.lure.desktop".to_string())
-                .app_owns_titlebar_drag(true),
-            |window, cx| cx.new(|cx| LureApp::new(window, cx)),
-        )
-        .expect("无法创建 Lure 窗口");
-        cx.activate(true);
+        open_main_window(cx);
     });
 }
 

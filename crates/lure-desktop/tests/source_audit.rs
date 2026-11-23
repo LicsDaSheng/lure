@@ -68,6 +68,19 @@ fn native_window_remains_manageable_by_the_operating_system() {
 }
 
 #[test]
+fn dock_reopen_recreates_the_main_window_after_macos_closes_it() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let main = fs::read_to_string(root.join("crates/lure-desktop/src/main.rs")).unwrap();
+    assert!(main.contains("fn open_main_window(cx: &mut App)"));
+    assert!(main.contains("application.on_reopen(|cx|"));
+    assert_eq!(
+        main.matches("open_main_window(cx);").count(),
+        2,
+        "首次启动与 Dock 重开必须共用同一窗口创建入口"
+    );
+}
+
+#[test]
 fn macos_bundle_uses_the_lure_logo_and_native_application_identity() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     let script = fs::read_to_string(root.join("scripts/package-macos.sh")).unwrap();
