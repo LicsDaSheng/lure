@@ -216,6 +216,23 @@ fn maps_text_navigation_control_and_paste_shortcuts_to_terminal_bytes() {
 }
 
 #[test]
+fn control_new_and_resume_shortcuts_submit_pi_commands() {
+    for (key, command) in [("n", b"/new\r".as_slice()), ("r", b"/resume\r".as_slice())] {
+        assert_eq!(
+            terminal_input(&KeyInput::new(
+                key,
+                None,
+                Modifiers {
+                    control: true,
+                    ..Default::default()
+                }
+            )),
+            Some(command.to_vec())
+        );
+    }
+}
+
+#[test]
 fn alt_prefixes_text_and_function_keys_use_xterm_sequences() {
     assert_eq!(
         terminal_input(&KeyInput::new(
