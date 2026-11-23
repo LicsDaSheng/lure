@@ -3,6 +3,8 @@
 pub mod clipboard;
 pub mod home;
 pub mod input;
+pub mod links;
+pub mod opener;
 pub mod projects;
 pub mod terminal;
 pub mod theme;

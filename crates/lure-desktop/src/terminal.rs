@@ -113,6 +113,91 @@ impl TerminalSelection {
     }
 }
 
+/// 可见区域内的一段 OSC 8 超链接，由同一行内连续的单元格组成。
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct HoverLink {
+    /// 可见网格行号，0 为当前视口顶部。
+    pub row: u16,
+    /// 相对终端网格左侧的起始列。
+    pub column: u16,
+    /// 覆盖的列数；宽字符的占位单元格同样计入。
+    pub columns: u16,
+    /// 目标原文，原样保留，由展示层负责校验与打开。
+    pub uri: String,
+    /// 目标类型，决定打开时是否需要基准目录。
+    pub kind: crate::links::LinkKind,
+}
+
+impl HoverLink {
+    #[must_use]
+    pub fn contains(&self, cell: (u16, u16)) -> bool {
+        cell.0 == self.row
+            && cell.1 >= self.column
+            && cell.1 < self.column.saturating_add(self.columns)
+    }
+}
+
+/// 终端字符网格在窗口中的几何位置。
+///
+/// 终端内容区相对窗口左上角的偏移由标题栏、可选侧栏与终端区域内边距决定，
+/// 与 `terminal_size_for_viewport` 使用同一口径，避免命中测试与网格换算错位。
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct TerminalGeometry {
+    origin_x: f32,
+    origin_y: f32,
+    rows: u16,
+    columns: u16,
+}
+
+impl TerminalGeometry {
+    #[must_use]
+    pub fn new(sidebar_width: f32, rows: u16, columns: u16) -> Self {
+        // 终端区域四周内边距各占 `TERMINAL_PADDING` 的一半。
+        let inset = TERMINAL_PADDING / 2.0;
+        Self {
+            origin_x: sidebar_width + inset,
+            origin_y: TITLEBAR_HEIGHT + inset,
+            rows,
+            columns,
+        }
+    }
+
+    /// 窗口坐标 → 单元格；落在标题栏、侧栏、网格外时返回 `None`。
+    #[must_use]
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    pub fn cell_at(&self, x: f32, y: f32) -> Option<(u16, u16)> {
+        if self.rows == 0 || self.columns == 0 {
+            return None;
+        }
+        let local_x = x - self.origin_x;
+        let local_y = y - self.origin_y;
+        if !local_x.is_finite() || !local_y.is_finite() || local_x < 0.0 || local_y < 0.0 {
+            return None;
+        }
+        let column = (local_x / CELL_WIDTH).floor();
+        let row = (local_y / CELL_HEIGHT).floor();
+        if column >= f32::from(self.columns) || row >= f32::from(self.rows) {
+            return None;
+        }
+        Some((row as u16, column as u16))
+    }
+
+    /// 窗口坐标 → 单元格；网格外按原行为夹取到最近的边界单元格。
+    #[must_use]
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    pub fn cell_at_or_clamped(&self, x: f32, y: f32) -> (u16, u16) {
+        let rows = f32::from(self.rows.max(1).saturating_sub(1));
+        let columns = f32::from(self.columns.max(1).saturating_sub(1));
+        let column = ((x - self.origin_x).max(0.0) / CELL_WIDTH)
+            .floor()
+            .clamp(0.0, columns);
+        let row = ((y - self.origin_y).max(0.0) / CELL_HEIGHT)
+            .floor()
+            .clamp(0.0, rows);
+        (row as u16, column as u16)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TerminalLine {
     cells: Vec<TerminalCell>,
@@ -372,6 +457,20 @@ impl TextureStore {
         let mut released = std::mem::take(&mut self.released);
         released.extend(self.map.drain().map(|(_, entry)| entry.image));
         released
+    }
+}
+
+fn push_link(links: &mut Vec<HoverLink>, uri: Option<String>, row: u16, column: u16, columns: u16) {
+    if columns > 0
+        && let Some(uri) = uri
+    {
+        links.push(HoverLink {
+            row,
+            column,
+            columns,
+            uri,
+            kind: crate::links::LinkKind::Uri,
+        });
     }
 }
 
@@ -824,6 +923,150 @@ impl TerminalGrid {
             column = column.saturating_sub(1);
         }
         (row, column)
+    }
+
+    /// 终端字符网格在窗口中的几何；侧栏展开状态影响水平偏移。
+    #[must_use]
+    pub fn geometry(&self, sidebar_width: f32) -> TerminalGeometry {
+        let (rows, columns) = self.size();
+        TerminalGeometry::new(sidebar_width, rows, columns)
+    }
+
+    /// 扫描可见网格，返回按行、列排序的 OSC 8 链接区间。
+    ///
+    /// 只读取 rio-vt 单元格附带的超链接元数据，不根据输出文字推断路径或 URL。
+    #[must_use]
+    pub fn visible_links(&self) -> Vec<HoverLink> {
+        let mut links = self.osc8_links();
+        let chars = self.visible_grid_chars();
+        if chars.is_empty() {
+            return links;
+        }
+        // 文本识别只补充 OSC 8 未覆盖的区域：显式超链接始终优先。
+        for detected in crate::links::detect_links(&chars) {
+            for (row, column, columns) in crate::links::map_to_cells(&chars, &detected) {
+                let overlaps = links.iter().any(|link| {
+                    link.row == row
+                        && link.column < column.saturating_add(columns)
+                        && column < link.column.saturating_add(link.columns)
+                });
+                if overlaps {
+                    continue;
+                }
+                links.push(HoverLink {
+                    row,
+                    column,
+                    columns,
+                    uri: detected.target.clone(),
+                    kind: detected.kind,
+                });
+            }
+        }
+        links
+    }
+
+    /// 读取 rio-vt 单元格上的显式 OSC 8 超链接。
+    fn osc8_links(&self) -> Vec<HoverLink> {
+        use rio_vt::crosswords::pos::Column;
+        let columns = self.term.columns();
+        let mut links: Vec<HoverLink> = Vec::new();
+        if columns == 0 {
+            return links;
+        }
+        for (row, grid_row) in self.visible_grid_rows().enumerate() {
+            // 没有 extras 的行不可能携带超链接，跳过整行扫描。
+            if !grid_row.has_extras {
+                continue;
+            }
+            let row = u16::try_from(row).unwrap_or(u16::MAX);
+            let mut span: Option<(u16, u16, u16)> = None;
+            for column in 0..columns {
+                // 越出行宽的列视为无链接；`Row::len()` 可能小于网格列数。
+                let id = (column < grid_row.len())
+                    .then(|| grid_row[Column(column)])
+                    .and_then(|cell| cell.has_hyperlink().then(|| cell.extras_id()).flatten());
+                let same = matches!((span, id), (Some((current, ..)), Some(id)) if current == id);
+                if same {
+                    if let Some((_, _, columns)) = span.as_mut() {
+                        *columns = columns.saturating_add(1);
+                    }
+                    continue;
+                }
+                if let Some((id, start, count)) = span.take() {
+                    push_link(&mut links, self.hyperlink_uri(id), row, start, count);
+                }
+                if let Some(id) = id {
+                    span = Some((id, u16::try_from(column).unwrap_or(u16::MAX), 1));
+                }
+            }
+            if let Some((id, start, count)) = span {
+                push_link(&mut links, self.hyperlink_uri(id), row, start, count);
+            }
+        }
+        links
+    }
+
+    /// 可见网格的字符流，供文本识别使用。
+    ///
+    /// 每个字符携带自己的可见行与列：宽字符占两列，占位单元格被跳过，
+    /// 软换行的行尾不插入分隔符，使跨行路径能拼成一段。
+    fn visible_grid_chars(&self) -> Vec<crate::links::GridChar> {
+        use rio_vt::crosswords::pos::Column;
+        use rio_vt::crosswords::square::Wide;
+        let columns = self.term.columns();
+        let mut chars = Vec::new();
+        for (index, grid_row) in self.visible_grid_rows().enumerate() {
+            let row = u16::try_from(index).unwrap_or(u16::MAX);
+            for column in 0..columns.min(grid_row.len()) {
+                let square = grid_row[Column(column)];
+                if matches!(square.wide(), Wide::Spacer | Wide::LeadingSpacer) {
+                    continue;
+                }
+                let ch = match square.c() {
+                    '\0' => ' ',
+                    ch => ch,
+                };
+                let width = if matches!(square.wide(), Wide::Wide) {
+                    2
+                } else {
+                    1
+                };
+                chars.push(crate::links::GridChar {
+                    row,
+                    column: u16::try_from(column).unwrap_or(u16::MAX),
+                    width,
+                    ch,
+                });
+            }
+            // 非软换行的行尾补一个分隔符，避免相邻两行被拼成一个 token。
+            if !grid_row.last().is_some_and(|cell| cell.wrapline()) {
+                chars.push(crate::links::GridChar {
+                    row,
+                    column: u16::try_from(columns).unwrap_or(u16::MAX),
+                    width: 1,
+                    ch: ' ',
+                });
+            }
+        }
+        chars
+    }
+
+    /// 命中测试：返回覆盖 `cell` 的链接区间。
+    #[must_use]
+    pub fn link_at(&self, cell: (u16, u16)) -> Option<HoverLink> {
+        self.visible_links()
+            .into_iter()
+            .find(|link| link.contains(cell))
+    }
+
+    /// 读取 extras 槽位的 OSC 8 目标地址；槽位回收后的链接视为不存在。
+    fn hyperlink_uri(&self, extras_id: u16) -> Option<String> {
+        self.term
+            .grid
+            .extras_table
+            .get(extras_id)
+            .and_then(|extras| extras.hyperlink.as_ref())
+            .map(|hyperlink| hyperlink.uri().to_string())
     }
 
     #[must_use]

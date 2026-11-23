@@ -452,3 +452,134 @@ fn project_picker_shortcuts_are_bound_only_in_modal_focus_context() {
     assert!(handler.contains("\"down\" | \"up\" => self.navigate_project_picker"));
     assert!(handler.contains("\"j\" | \"k\" if platform => self.navigate_project_picker"));
 }
+
+#[test]
+fn links_come_from_osc8_metadata_plus_shape_only_text_detection() {
+    let main = include_str!("../src/main.rs");
+    let terminal = include_str!("../src/terminal.rs");
+    let links = include_str!("../src/links.rs");
+
+    // 两条通道：rio-vt 的 OSC 8 元数据（优先）+ 只识别路径/URL 形态的文本扫描。
+    // Pi 的 TUI 只对 Markdown 链接与图片回退发 OSC 8，工具卡片里的路径是纯文本，
+    // 因此文本通道是 iTerm2 同等能力所必需的。
+    assert!(terminal.contains("pub fn visible_links("));
+    assert!(terminal.contains("fn osc8_links("));
+    assert!(terminal.contains("has_hyperlink()"));
+    assert!(terminal.contains("fn visible_grid_chars("));
+    assert!(terminal.contains("crate::links::detect_links("));
+    assert!(main.contains("self.terminal.visible_links()"));
+    assert!(links.contains("pub fn detect_links("));
+    // 识别边界：只做形态判断，不重建 Pi 的 Agent/工具/会话语义。
+    for forbidden in [
+        "ToolCall",
+        "AssistantMessage",
+        "tool_name",
+        "session_id",
+        "is_streaming",
+        "reasoning_text",
+    ] {
+        assert!(
+            !links.contains(forbidden),
+            "文本识别不得解析 Pi 语义：{forbidden}"
+        );
+    }
+    assert!(
+        links.contains("不解析 Pi 的 Agent、工具、会话或 TUI 语义"),
+        "文本识别的边界必须写在模块文档里"
+    );
+    // OSC 8 必须优先于文本识别（重叠时让位）。
+    assert!(links.contains("Uri,"));
+    assert!(terminal.contains("kind: crate::links::LinkKind::Uri"));
+    let visible = terminal
+        .split("pub fn visible_links(")
+        .nth(1)
+        .unwrap()
+        .split("fn osc8_links(")
+        .next()
+        .unwrap();
+    assert!(visible.contains("overlaps"));
+    assert!(visible.contains("continue;"));
+
+    // 修饰键悬停：手型光标 + 整段底纹，且按 Command 不需要移动鼠标。
+    assert!(main.contains("set_window_cursor_style_with"));
+    assert!(main.contains("CursorStyle::PointingHand"));
+    assert!(main.contains("this.handle_modifiers_changed(event.modifiers.platform, cx)"));
+    assert!(main.contains("fn update_hover("));
+    assert!(main.contains("link_highlight"));
+
+    // 修饰键事件沿「焦点节点 → 根」冒泡；必须挂在 track_focus 所在节点上，
+    // 挂在终端子节点上永远收不到，按 Command 时不会刷新光标形状。
+    let root = main.split(".track_focus(&self.focus)").nth(1).unwrap();
+    let before_terminal = root.split(".id(\"pi-terminal\")").next().unwrap();
+    assert!(
+        before_terminal.contains(".on_modifiers_changed("),
+        "on_modifiers_changed 必须与 track_focus 同层"
+    );
+
+    // 修饰键点击优先于 Pi 鼠标协议与拖选，并且只拦在 start_selection 之前。
+    let start = main
+        .split("fn start_selection(")
+        .nth(1)
+        .unwrap()
+        .split("fn update_selection(")
+        .next()
+        .unwrap();
+    assert!(start.contains("platform_modifier"));
+    assert!(start.contains("self.link_at_position(position)"));
+    assert!(start.contains("self.open_hover_link(&link, cx)"));
+    assert!(start.contains("return;"));
+    assert!(
+        start.find("self.open_hover_link(").unwrap()
+            < start.find("self.terminal.mouse_button_sequence(").unwrap(),
+        "链接点击必须先于 Pi 鼠标报告判定"
+    );
+
+    // scheme 白名单由展示层收敛，不把任意外部协议处理器暴露给终端输出。
+    let opener = include_str!("../src/opener.rs");
+    for scheme in ["\"http\" | \"https\" | \"mailto\"", "\"file\" =>"] {
+        assert!(opener.contains(scheme));
+    }
+    assert!(main.contains("opener::resolve_link(link.kind, &link.uri, &self.directory)"));
+    assert!(main.contains("cx.open_url(&target.url())"));
+}
+
+#[test]
+fn pi_child_env_declares_only_the_capabilities_lure_renders() {
+    let main = include_str!("../src/main.rs");
+    let pty_env = include_str!("../../lure-pty/src/env.rs");
+    assert!(main.contains("fn apply_terminal_capabilities("));
+    assert!(main.contains("set_environment(environment, \"PI_HYPERLINKS\", \"1\")"));
+    assert!(main.contains("apply_terminal_capabilities(&mut environment)"));
+    // 本次变更只声明超链接能力，不擅自打开图片协议与真彩色覆盖。
+    let capabilities = main
+        .split("fn apply_terminal_capabilities(")
+        .nth(1)
+        .unwrap()
+        .split("fn set_environment(")
+        .next()
+        .unwrap();
+    assert!(capabilities.contains("prune_host_terminal_marks"));
+    assert!(!capabilities.contains("PI_IMAGE_PROTOCOL"));
+    assert!(!capabilities.contains("PI_TRUE_COLOR"));
+    // 宿主终端泄漏的探测标记必须被清除，能力探测结果只由 Lure 决定。
+    assert!(pty_env.contains("pub fn prune_host_terminal_marks("));
+    assert!(pty_env.contains("\"KITTY_WINDOW_ID\""));
+    assert!(pty_env.contains("\"ITERM_SESSION_ID\""));
+    assert!(pty_env.contains("\"GHOSTTY_RESOURCES_DIR\""));
+}
+
+#[test]
+fn terminal_hit_testing_shares_one_geometry_with_selection_and_links() {
+    let main = include_str!("../src/main.rs");
+    let terminal = include_str!("../src/terminal.rs");
+    assert!(terminal.contains("pub struct TerminalGeometry"));
+    assert!(terminal.contains("pub fn cell_at_or_clamped("));
+    assert!(main.contains("fn terminal_geometry("));
+    assert!(main.contains(".cell_at_or_clamped("));
+    // 不允许再出现自定义的 padding / sidebar 偏移副本。
+    let compact: String = main.chars().filter(|c| !c.is_whitespace()).collect();
+    assert!(
+        !compact.contains("letinset=TERMINAL_PADDING/2.0;"),
+        "命中测试偏移必须收敛到 TerminalGeometry"
+    );
+}

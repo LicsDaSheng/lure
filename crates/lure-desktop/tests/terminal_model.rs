@@ -2,8 +2,8 @@ use lure_desktop::terminal::{TerminalLine, VisibleRowCache};
 
 use lure_desktop::input::{KeyInput, Modifiers, terminal_input};
 use lure_desktop::terminal::{
-    TERMINAL_FONT_FALLBACKS, TERMINAL_FONT_FAMILY, TerminalGrid, TerminalSelection,
-    terminal_size_for_viewport,
+    TERMINAL_FONT_FALLBACKS, TERMINAL_FONT_FAMILY, TerminalGeometry, TerminalGrid,
+    TerminalSelection, terminal_size_for_viewport,
 };
 use lure_desktop::theme::{
     ACCENT, ANSI_COLORS, BACKGROUND, BORDER, ERROR, FOREGROUND, MUTED, TITLEBAR, indexed_color,
@@ -870,4 +870,117 @@ fn mouse_drag_supports_legacy_encoding_and_its_coordinate_limit() {
     grid.process(b"\x1b[?1002h");
     assert_eq!(grid.mouse_drag_sequence(1, 2), Some(b"\x1b[M@#\"".to_vec()));
     assert_eq!(grid.mouse_drag_sequence(1, 223), None);
+}
+
+// OSC 8 超链接：终端内核解析元数据，展示层只按单元格命中，不解析输出文字。
+const OSC8_HOSTS: &str = "\x1b]8;;file:///etc/hosts\x1b\\hosts\x1b]8;;\x1b\\";
+const OSC8_DOCS: &str = "\x1b]8;;https://example.dev/docs\x1b\\docs\x1b]8;;\x1b\\";
+
+#[test]
+fn osc8_hyperlink_spans_are_reported_per_visible_row() {
+    let mut grid = TerminalGrid::new(3, 20);
+    grid.process(format!("open {OSC8_HOSTS} and {OSC8_DOCS}").as_bytes());
+
+    let links = grid.visible_links();
+    assert_eq!(links.len(), 2);
+    assert_eq!(links[0].row, 0);
+    assert_eq!(links[0].column, 5);
+    assert_eq!(links[0].columns, 5);
+    assert_eq!(links[0].uri, "file:///etc/hosts");
+    assert_eq!(links[1].row, 0);
+    assert_eq!(links[1].column, 15);
+    assert_eq!(links[1].columns, 4);
+    assert_eq!(links[1].uri, "https://example.dev/docs");
+
+    assert_eq!(grid.link_at((0, 5)).unwrap().uri, "file:///etc/hosts");
+    assert_eq!(grid.link_at((0, 9)).unwrap().uri, "file:///etc/hosts");
+    assert!(grid.link_at((0, 10)).is_none(), "链接外的空白不应命中");
+    assert!(grid.link_at((0, 4)).is_none(), "链接前的文字不应命中");
+    assert!(grid.link_at((1, 5)).is_none(), "其他行不应命中");
+    assert!(grid.link_at((5, 5)).is_none(), "网格外的行不应 panic");
+}
+
+#[test]
+fn osc8_hyperlinks_stay_linked_across_wide_characters() {
+    let mut grid = TerminalGrid::new(2, 12);
+    // 宽字符占位单元格同样属于链接区间，否则中文路径只能点中左半边。
+    grid.process("\x1b]8;;file:///tmp/日志\x1b\\日志文件\x1b]8;;\x1b\\".as_bytes());
+
+    let links = grid.visible_links();
+    assert_eq!(links.len(), 1);
+    assert_eq!(links[0].uri, "file:///tmp/日志");
+    assert_eq!(links[0].columns, 8);
+    for column in 0..8 {
+        assert_eq!(grid.link_at((0, column)).unwrap().uri, "file:///tmp/日志");
+    }
+    assert!(grid.link_at((0, 8)).is_none());
+}
+
+#[test]
+fn osc8_hyperlink_state_does_not_leak_after_close() {
+    let mut grid = TerminalGrid::new(2, 16);
+    grid.process(format!("{OSC8_DOCS} tail").as_bytes());
+
+    let links = grid.visible_links();
+    assert_eq!(links.len(), 1);
+    assert!(grid.link_at((0, 3)).is_some(), "最后一个链接单元格仍应命中");
+    assert!(
+        grid.link_at((0, 4)).is_none(),
+        "关闭序列之后的文字不继承链接"
+    );
+}
+
+#[test]
+fn hyperlinks_track_scrollback_and_alternate_screen() {
+    let mut grid = TerminalGrid::new(2, 16);
+    for _ in 0..4 {
+        grid.process(b"plain\r\n");
+    }
+    grid.process(OSC8_HOSTS.as_bytes());
+
+    // 链接位于实时输出区，尚未滚动时命中行号稳定。
+    let links = grid.visible_links();
+    assert_eq!(links.len(), 1);
+    assert_eq!(links[0].row, 1);
+
+    // 滚动历史后链接随所在行移动或移出视口，不应残留在原坐标。
+    grid.scroll_by(3);
+    for link in grid.visible_links() {
+        assert_eq!(grid.link_at((link.row, link.column)).unwrap().uri, link.uri);
+    }
+
+    // alternate screen 持有独立的 extras 表，切换后不保留主屏链接。
+    grid.process(b"\x1b[?1049h");
+    assert!(grid.visible_links().is_empty());
+    grid.process(b"\x1b[?1049l");
+    grid.scroll_to_bottom();
+    assert_eq!(grid.visible_links().len(), 1);
+}
+
+#[test]
+fn terminal_geometry_matches_viewport_origin_and_rejects_outside_cells() {
+    let geometry = TerminalGeometry::new(220.0, 20, 80);
+    // 侧栏 220 + 终端内边距 8；标题栏 48 + 终端内边距 8。
+    assert_eq!(geometry.cell_at(228.0, 56.0), Some((0, 0)));
+    assert_eq!(geometry.cell_at(235.9, 71.9), Some((0, 0)));
+    assert_eq!(geometry.cell_at(236.0, 72.0), Some((1, 1)));
+    assert_eq!(geometry.cell_at(227.9, 56.0), None, "内边距内不属于网格");
+    assert_eq!(geometry.cell_at(228.0, 55.9), None, "标题栏不属于网格");
+
+    // 展开的侧栏区域、网格右侧与下方都返回 None，光标样式不会被误改。
+    assert_eq!(geometry.cell_at(100.0, 200.0), None);
+    assert_eq!(geometry.cell_at(228.0 + 8.0 * 80.0, 56.0), None);
+    assert_eq!(geometry.cell_at(228.0, 56.0 + 16.0 * 20.0), None);
+    assert_eq!(geometry.cell_at(f32::NAN, 56.0), None);
+
+    // 拖选沿用夹取语义：越界位置收敛到最近边界单元格。
+    assert_eq!(geometry.cell_at_or_clamped(0.0, 0.0), (0, 0));
+    assert_eq!(geometry.cell_at_or_clamped(10_000.0, 10_000.0), (19, 79));
+}
+
+#[test]
+fn terminal_geometry_collapsed_sidebar_uses_full_width() {
+    let geometry = TerminalGeometry::new(0.0, 20, 80);
+    assert_eq!(geometry.cell_at(8.0, 56.0), Some((0, 0)));
+    assert_eq!(geometry.cell_at(100.0, 200.0), Some((9, 11)));
 }

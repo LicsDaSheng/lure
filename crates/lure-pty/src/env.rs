@@ -288,6 +288,32 @@ const PROXY_KEYS: [&str; 8] = [
     "no_proxy",
 ];
 
+/// 宿主终端泄露给 Pi 的能力探测标记。
+///
+/// 从 iTerm2、Ghostty、kitty 等终端内启动 Lure 时，这些变量会经由当前进程
+/// 继承到 PTY 子进程，令 Pi 误判外层终端具备 OSC 8 或内联图片能力。
+const HOST_TERMINAL_KEYS: [&str; 10] = [
+    "ITERM_SESSION_ID",
+    "KITTY_WINDOW_ID",
+    "GHOSTTY_RESOURCES_DIR",
+    "WEZTERM_PANE",
+    "WT_SESSION",
+    "ALACRITTY_WINDOW_ID",
+    "TERMINAL_EMULATOR",
+    "WARP_SESSION_ID",
+    "ORCA_IMAGE_PROTOCOL",
+    "PI_IMAGE_PROTOCOL",
+];
+
+/// 清理宿主终端泄露的能力探测标记，只保留 Lure 自身的终端身份。
+#[must_use]
+pub fn prune_host_terminal_marks(environment: EnvVars) -> EnvVars {
+    environment
+        .into_iter()
+        .filter(|(name, _)| !HOST_TERMINAL_KEYS.iter().any(|key| name == OsStr::new(key)))
+        .collect()
+}
+
 /// 合并合成环境：base 优先，系统代理仅补缺，PATH 强制覆盖。
 #[must_use]
 pub fn build_spawn_env(
@@ -593,6 +619,24 @@ mod tests {
         // 没有的键正常补
         assert!(merged.contains(&(OsString::from("HTTP_PROXY"), OsString::from("http://sys:2"))));
         assert!(merged.contains(&(OsString::from("NO_PROXY"), OsString::from(".local"))));
+    }
+
+    #[test]
+    fn prune_host_terminal_marks_drops_inherited_capability_probes() {
+        let environment = vars(&[
+            ("HOME", "/Users/me"),
+            ("ITERM_SESSION_ID", "w0t0p0"),
+            ("KITTY_WINDOW_ID", "2"),
+            ("GHOSTTY_RESOURCES_DIR", "/Applications/Ghostty.app"),
+            ("PI_IMAGE_PROTOCOL", "iterm2"),
+            ("PATH", "/usr/bin"),
+        ]);
+        let pruned = prune_host_terminal_marks(environment);
+        let keys: Vec<&str> = pruned
+            .iter()
+            .map(|(name, _)| name.to_str().unwrap_or_default())
+            .collect();
+        assert_eq!(keys, ["HOME", "PATH"], "宿主终端标记必须被清除");
     }
 
     #[test]

@@ -23,18 +23,20 @@ use gpui::{
 };
 use lure_desktop::home::{ProjectFilter, matches_project};
 use lure_desktop::input::{KeyInput, Modifiers};
+use lure_desktop::opener;
 use lure_desktop::projects::{
     ProjectEntry, ProjectList, backup_invalid_projects, load_projects, projects_file_from_home,
     save_projects,
 };
 use lure_desktop::terminal::{
-    CELL_HEIGHT, CELL_WIDTH, TERMINAL_PADDING, TITLEBAR_HEIGHT, TerminalGraphic, TerminalGrid,
+    CELL_HEIGHT, CELL_WIDTH, HoverLink, TerminalGeometry, TerminalGraphic, TerminalGrid,
     TerminalLine, TerminalSelection, VisibleRowCache, terminal_font, terminal_pixel_size,
     terminal_size_for_viewport,
 };
 use lure_desktop::theme::{Palette, Theme};
 use lure_pty::{
-    PtyCommand, PtyEvent, PtyProcess, SpawnEnvResolver, TerminalSize, resolve_pi_executable,
+    PtyCommand, PtyEvent, PtyProcess, SpawnEnvResolver, TerminalSize, prune_host_terminal_marks,
+    resolve_pi_executable,
 };
 
 // 按需输出事件链路，不记录终端内容或剪贴板文本。
@@ -186,6 +188,37 @@ struct LureApp {
     sidebar_visibility: SidebarVisibility,
     project_picker: Option<ProjectPicker>,
     project_picker_scroll: gpui::ScrollHandle,
+    /// OSC 8 超链接的悬停与点击状态，纯前台交互，不随会话持久化。
+    links: LinkState,
+}
+
+/// 链接交互状态。
+///
+/// 悬停只由指针位置与修饰键推导，不缓存链接内容；`click_consumed` 用于把
+/// 同一次手势的松开吞掉，避免向 Pi 发送孤立的鼠标松开报告。
+#[derive(Debug, Default)]
+struct LinkState {
+    hover: Option<HoverLink>,
+    platform_modifier_down: bool,
+    error: Option<String>,
+    click_consumed: bool,
+    /// 当前可见网格的链接区间缓存；终端内容或视口变化时置为脏。
+    cached: Vec<HoverLink>,
+    cache_dirty: bool,
+}
+
+impl LinkState {
+    /// 清除悬停与点击状态；打开失败的提示另行清除。
+    fn clear_hover(&mut self) {
+        self.hover = None;
+        self.platform_modifier_down = false;
+        self.click_consumed = false;
+    }
+
+    /// 标记链接缓存失效；下一帧或下一次命中测试时重建。
+    fn invalidate(&mut self) {
+        self.cache_dirty = true;
+    }
 }
 
 impl LureApp {
@@ -204,6 +237,8 @@ impl LureApp {
                 trace_selection("窗口失焦", this.selection_active);
                 this.selection_active = false;
                 this.reported_mouse_cell = None;
+                // 失焦后不再保留手型光标、链接底纹与点击吞噬状态。
+                this.links.clear_hover();
             }
         })
         .detach();
@@ -257,6 +292,10 @@ impl LureApp {
             sidebar_visibility: SidebarVisibility::Expanded,
             project_picker: None,
             project_picker_scroll: gpui::ScrollHandle::new(),
+            links: LinkState {
+                cache_dirty: true,
+                ..LinkState::default()
+            },
         };
         Self::receive_messages(receiver, cx);
         app
@@ -279,6 +318,9 @@ impl LureApp {
     fn take_current(&mut self) -> Option<SessionState> {
         self.selection_active = false;
         self.reported_mouse_cell = None;
+        // 链接悬停与提示属于前台交互，不随会话保存。
+        self.links.clear_hover();
+        self.links.error = None;
         let id = self.current_id.take()?;
         Some(SessionState {
             id,
@@ -316,6 +358,8 @@ impl LureApp {
         self.scroll_rows_accumulator = session.scroll_rows_accumulator;
         self.selection = session.selection;
         self.selection_dragged = session.selection_dragged;
+        self.links.clear_hover();
+        self.links.invalidate();
         self.route = Route::Terminal;
     }
 
@@ -578,6 +622,7 @@ impl LureApp {
                 self.selection_active = false;
                 self.selection = None;
                 self.terminal.process(&data);
+                self.links.invalidate();
                 for response in self.terminal.take_responses() {
                     if let Some(process) = self.process.as_mut()
                         && let Err(error) = process.write_all(response.as_bytes())
@@ -641,6 +686,9 @@ impl LureApp {
                         set_environment(&mut environment, "TERM", "xterm-256color");
                         set_environment(&mut environment, "COLORTERM", "truecolor");
                         set_environment(&mut environment, "TERM_PROGRAM", "Lure");
+                        // 能力宣告完全由 Lure 决定：先清掉宿主终端泄漏的探测标记，
+                        // 再显式声明 OSC 8 超链接渲染能力。
+                        apply_terminal_capabilities(&mut environment);
                         let mut command = PtyCommand::new(resolve_pi_executable(), &directory);
                         command.environment = Some(environment);
                         PtyProcess::spawn(command, pty_size(dimensions))
@@ -676,6 +724,8 @@ impl LureApp {
     }
 
     fn restart(&mut self, cx: &mut Context<Self>) {
+        self.links.clear_hover();
+        self.links.invalidate();
         self.start(cx);
     }
 
@@ -691,6 +741,8 @@ impl LureApp {
             }
         }
         self.visible_rows = VisibleRowCache::default();
+        self.links.clear_hover();
+        self.links.invalidate();
         self.phase = Phase::Exited;
         self.scroll_rows_accumulator = 0.0;
         self.selection_dragged = false;
@@ -810,6 +862,9 @@ impl LureApp {
         }
         if event.keystroke.modifiers.platform && event.keystroke.key.eq_ignore_ascii_case("b") {
             self.sidebar_visibility.toggle();
+            // 侧栏宽度变化会改变字符网格，链接区间随之失效。
+            self.links.clear_hover();
+            self.links.invalidate();
             cx.notify();
             return;
         }
@@ -872,27 +927,86 @@ impl LureApp {
         }
     }
 
-    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-    fn terminal_cell_at(&self, position: gpui::Point<gpui::Pixels>) -> (u16, u16) {
-        let x: f32 = position.x.into();
-        let y: f32 = position.y.into();
-        let inset = TERMINAL_PADDING / 2.0;
+    /// 当前窗口内容里的终端网格几何；侧栏展开状态决定水平偏移。
+    fn terminal_geometry(&self) -> TerminalGeometry {
         let sidebar = if self.sidebar_visibility == SidebarVisibility::Expanded {
             PROJECT_SIDEBAR_WIDTH
         } else {
             0.0
         };
-        let column = ((x - sidebar - inset).max(0.0) / CELL_WIDTH).floor() as u16;
-        let row = ((y - TITLEBAR_HEIGHT - inset).max(0.0) / CELL_HEIGHT).floor() as u16;
-        (
-            row.min(self.dimensions.1.saturating_sub(1)),
-            column.min(self.dimensions.0.saturating_sub(1)),
-        )
+        self.terminal.geometry(sidebar)
+    }
+
+    /// 拖选与鼠标报告使用夹取语义：窗口内任何位置都映射到最近边界单元格。
+    fn terminal_cell_at(&self, position: gpui::Point<gpui::Pixels>) -> (u16, u16) {
+        self.terminal_geometry()
+            .cell_at_or_clamped(position.x.into(), position.y.into())
+    }
+
+    /// 命中测试：窗口坐标落在 OSC 8 链接上时返回该链接。
+    ///
+    /// 只在终端页、网格范围内、且输入法未处于预编辑时生效，避免影响侧栏、
+    /// 标题栏与基础输入。
+    fn link_at_position(&self, position: gpui::Point<gpui::Pixels>) -> Option<HoverLink> {
+        if self.route != Route::Terminal || !self.marked_text.is_empty() {
+            return None;
+        }
+        let cell = self
+            .terminal_geometry()
+            .cell_at(position.x.into(), position.y.into())?;
+        self.links
+            .cached
+            .iter()
+            .find(|link| link.contains(cell))
+            .cloned()
+    }
+
+    /// 按住系统修饰键悬停超链接：手型光标与整段高亮。
+    ///
+    /// 无修饰键时清除悬停状态，保持与未实现前一致的终端行为。
+    fn update_hover(&mut self, position: gpui::Point<gpui::Pixels>, cx: &mut Context<Self>) {
+        let next = if self.links.platform_modifier_down {
+            self.link_at_position(position)
+        } else {
+            None
+        };
+        if self.links.hover != next {
+            self.links.hover = next;
+            cx.notify();
+        }
+    }
+
+    fn handle_modifiers_changed(&mut self, platform: bool, cx: &mut Context<Self>) {
+        if self.links.platform_modifier_down == platform {
+            return;
+        }
+        self.links.platform_modifier_down = platform;
+        if !platform {
+            self.links.hover = None;
+        }
+        cx.notify();
+    }
+
+    /// 打开链接：校验 scheme 后交给系统默认应用，不阻塞终端。
+    ///
+    /// 文本识别得到的相对路径以当前项目目录为基准；OSC 8 目标按原样解析。
+    fn open_hover_link(&mut self, link: &HoverLink, cx: &mut Context<Self>) {
+        match opener::resolve_link(link.kind, &link.uri, &self.directory) {
+            Ok(target) => {
+                cx.open_url(&target.url());
+                self.links.error = None;
+            }
+            Err(error) => {
+                self.links.error = Some(error.message());
+                cx.notify();
+            }
+        }
     }
 
     fn start_selection(
         &mut self,
         position: gpui::Point<gpui::Pixels>,
+        platform_modifier: bool,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
@@ -900,6 +1014,15 @@ impl LureApp {
         self.focus.focus(window, cx);
         self.selection_active = false;
         self.reported_mouse_cell = None;
+        // 修饰键 + 链接优先于 Pi 鼠标协议与拖选：与 iTerm2 一致，
+        // 不启动选区、不向 Pi 转发点击，也不改变终端内容。
+        if platform_modifier && let Some(link) = self.link_at_position(position) {
+            trace_selection("打开链接", link.uri.as_str());
+            // 同一次手势的松开跟随本次按下被吞掉，避免向 Pi 发送孤立的 release。
+            self.links.click_consumed = true;
+            self.open_hover_link(&link, cx);
+            return;
+        }
         let point = self.terminal_cell_at(position);
         if let Some(sequence) = self.terminal.mouse_button_sequence(point.0, point.1, false) {
             trace_selection("转发 Pi 鼠标报告", point);
@@ -958,6 +1081,11 @@ impl LureApp {
     fn finish_selection(&mut self, position: gpui::Point<gpui::Pixels>, cx: &mut Context<Self>) {
         trace_selection("松开", (position, self.selection_active));
         self.reported_mouse_cell = None;
+        if std::mem::take(&mut self.links.click_consumed) {
+            // 链接点击已在上次按下时消费，不启动选区也不向 Pi 转发释放。
+            self.selection_active = false;
+            return;
+        }
         let point = self.terminal_cell_at(position);
         if !self.selection_active {
             if let Some(sequence) = self.terminal.mouse_button_sequence(point.0, point.1, true) {
@@ -1021,6 +1149,7 @@ impl LureApp {
             self.write_repeated(if up { b"\x1b[A" } else { b"\x1b[B" }, count, cx);
         } else {
             self.terminal.scroll_by(whole_rows);
+            self.links.invalidate();
             cx.notify();
         }
     }
@@ -1048,6 +1177,8 @@ impl LureApp {
         if next != self.dimensions {
             self.dimensions = next;
             self.terminal.resize(next.1, next.0);
+            self.links.clear_hover();
+            self.links.invalidate();
             if let Some(process) = self.process.as_mut() {
                 let _ = process.resize(pty_size(next));
             }
@@ -1725,6 +1856,33 @@ impl LureApp {
             .child(label)
     }
 
+    /// 打开链接失败的非阻塞提示：不遮挡终端内容，不影响 Pi 进程。
+    fn link_error_toast(&self, message: String, cx: &mut Context<Self>) -> impl IntoElement {
+        let palette = self.theme.palette();
+        div()
+            .id("link-error-toast")
+            .role(Role::Alert)
+            .absolute()
+            .left(px(12.0))
+            .bottom(px(12.0))
+            .max_w(px(420.0))
+            .px(px(12.0))
+            .py(px(8.0))
+            .rounded(px(8.0))
+            .border_1()
+            .border_color(rgb(palette.border))
+            .bg(rgb(palette.titlebar))
+            .text_size(px(12.0))
+            .text_color(rgb(palette.error))
+            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+            .on_mouse_up(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+            .on_click(cx.listener(|this, _, _, cx| {
+                this.links.error = None;
+                cx.notify();
+            }))
+            .child(message)
+    }
+
     fn status_panel(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let palette = self.theme.palette();
         let (title, detail, action) = match self.phase {
@@ -2040,6 +2198,26 @@ impl Render for LureApp {
         if self.selection_active {
             trace_selection("渲染", selection);
         }
+        // 链接由 OSC 8 元数据与路径形态识别共同产出；后台会话不参与命中测试。
+        // 全视口扫描只在终端内容或视口变化后重算，避免每帧重复识别。
+        if self.route == Route::Terminal && self.links.cache_dirty {
+            self.links.cached = self.terminal.visible_links();
+            self.links.cache_dirty = false;
+        }
+        let links = if self.route == Route::Terminal {
+            self.links.cached.clone()
+        } else {
+            Vec::new()
+        };
+        let hover_link = if self.selection_active {
+            None
+        } else {
+            self.links.hover.clone()
+        };
+        let link_highlight = (palette.accent << 8) | 0x33;
+        let geometry = self.terminal_geometry();
+        let platform_modifier_down = self.links.platform_modifier_down;
+        let link_geometry = geometry;
         let dimensions = self.dimensions;
         let terminal_entity = cx.entity();
         let input_focus = self.focus.clone();
@@ -2061,6 +2239,14 @@ impl Render for LureApp {
                     }))
             })
             .on_key_down(cx.listener(Self::handle_key))
+            // 修饰键事件沿「焦点节点 → 根」冒泡，必须挂在焦点节点上；
+            // 挂在终端子节点上永远收不到，按 Command 时不会刷新光标。
+            .on_modifiers_changed(cx.listener(
+                |this, event: &gpui::ModifiersChangedEvent, window, cx| {
+                    this.handle_modifiers_changed(event.modifiers.platform, cx);
+                    this.update_hover(window.mouse_position(), cx);
+                },
+            ))
             .size_full()
             .overflow_hidden()
             .flex()
@@ -2134,6 +2320,9 @@ impl Render for LureApp {
                                     })
                                     .on_click(cx.listener(|this, _, _, cx| {
                                         this.sidebar_visibility.toggle();
+                                        // 网格宽度随之变化，链接区间需要重算。
+                                        this.links.clear_hover();
+                                        this.links.invalidate();
                                         cx.notify();
                                     }))
                                     .child(Self::home_icon(
@@ -2343,7 +2532,13 @@ impl Render for LureApp {
                                 .on_mouse_down(
                                     MouseButton::Left,
                                     cx.listener(|this, event: &MouseDownEvent, window, cx| {
-                                        this.start_selection(event.position, window, cx);
+                                        this.handle_modifiers_changed(event.modifiers.platform, cx);
+                                        this.start_selection(
+                                            event.position,
+                                            event.modifiers.platform,
+                                            window,
+                                            cx,
+                                        );
                                     }),
                                 )
                                 // 活动拖选不依赖 hovered；捕获阶段避免子元素截断手势。
@@ -2362,6 +2557,12 @@ impl Render for LureApp {
                                                         this.selection_active,
                                                     ),
                                                 );
+                                                // 悬停跟踪同步修饰键（如无拖选时按住 Command）。
+                                                this.handle_modifiers_changed(
+                                                    event.modifiers.platform,
+                                                    cx,
+                                                );
+                                                this.update_hover(event.position, cx);
                                             }
                                             if *phase == gpui::DispatchPhase::Capture {
                                                 this.forward_mouse_drag(event, cx);
@@ -2414,7 +2615,12 @@ impl Render for LureApp {
                                         cx.stop_propagation();
                                     },
                                 ))
-                                .child(
+                                .child({
+                                    let cursor_links = links.clone();
+                                    let cursor_geometry = link_geometry;
+                                    let cursor_modifier_down = platform_modifier_down;
+                                    let hover = hover_link.clone();
+                                    let highlight = link_highlight;
                                     canvas(
                                         move |_bounds, window, _cx| {
                                             let marked = if marked_text.is_empty() {
@@ -2448,6 +2654,23 @@ impl Render for LureApp {
                                                 ElementInputHandler::new(bounds, terminal_entity),
                                                 cx,
                                             );
+
+                                            // 修饰键悬停在超链接上时显示手型光标。
+                                            // 解析器在每次指针事件重新求值，因此按住
+                                            // Command 不需要移动鼠标也会刷新。
+                                            let cursor_links = cursor_links.clone();
+                                            window.set_window_cursor_style_with(move |position| {
+                                                if !cursor_modifier_down {
+                                                    return None;
+                                                }
+                                                let x: f32 = position.x.into();
+                                                let y: f32 = position.y.into();
+                                                let cell = cursor_geometry.cell_at(x, y)?;
+                                                cursor_links
+                                                    .iter()
+                                                    .any(|link| link.contains(cell))
+                                                    .then_some(gpui::CursorStyle::PointingHand)
+                                            });
 
                                             let runs = || {
                                                 terminal_rows.iter().enumerate().flat_map(
@@ -2564,6 +2787,28 @@ impl Render for LureApp {
                                                 }
                                             }
 
+                                            // 修饰键悬停时给整段链接上底纹；不改变文字颜色与选区。
+                                            if let Some(link) = hover.as_ref() {
+                                                window.paint_quad(
+                                                    PaintQuad::new(Bounds::new(
+                                                        point(
+                                                            bounds.left()
+                                                                + px(CELL_WIDTH
+                                                                    * f32::from(link.column)),
+                                                            bounds.top()
+                                                                + px(CELL_HEIGHT
+                                                                    * f32::from(link.row)),
+                                                        ),
+                                                        size(
+                                                            px(CELL_WIDTH
+                                                                * f32::from(link.columns)),
+                                                            px(CELL_HEIGHT),
+                                                        ),
+                                                    ))
+                                                    .background(rgba(highlight)),
+                                                );
+                                            }
+
                                             if let Some(selection) = selection {
                                                 trace_selection("绘制", selection);
                                                 for row in 0..dimensions.1 {
@@ -2651,8 +2896,8 @@ impl Render for LureApp {
                                             }
                                         },
                                     )
-                                    .size_full(),
-                                )
+                                    .size_full()
+                                })
                                 .when(scrollback > 0, |workspace| {
                                     workspace.child(
                                         div()
@@ -2676,6 +2921,7 @@ impl Render for LureApp {
                                             })
                                             .on_click(cx.listener(|this, _, _, cx| {
                                                 this.terminal.scroll_to_bottom();
+                                                this.links.invalidate();
                                                 cx.notify();
                                             }))
                                             .child("↓ Back to bottom"),
@@ -2683,6 +2929,9 @@ impl Render for LureApp {
                                 })
                                 .when(self.phase != Phase::Running, |workspace| {
                                     workspace.child(self.status_panel(cx))
+                                })
+                                .when_some(self.links.error.clone(), |workspace, message| {
+                                    workspace.child(self.link_error_toast(message, cx))
                                 })
                                 .child(
                                     div()
@@ -2826,6 +3075,20 @@ fn forward_pty_events(
             break;
         }
     }
+}
+
+/// 声明 Lure 渲染的终端能力，并清理宿主终端泄露的探测标记。
+///
+/// `PI_HYPERLINKS=1` 表示 Lure 已能渲染并点击 OSC 8 超链接：Pi 会改为发送
+/// `ESC]8` 而不再退化成「文字 (url)」的行内形式。在此之前必须先清理宿主
+/// 终端继承的探测变量，否则从 iTerm2、kitty、Ghostty 启动 Lure 时 Pi 会
+/// 误判外层终端能显示超链接，链接目标在 Lure 里直接消失。
+///
+/// 本次只声明超链接能力；图片协议与真彩色沿用既有探测结果，不在此扩大范围。
+fn apply_terminal_capabilities(environment: &mut Vec<(OsString, OsString)>) {
+    let pruned = prune_host_terminal_marks(std::mem::take(environment));
+    *environment = pruned;
+    set_environment(environment, "PI_HYPERLINKS", "1");
 }
 
 fn set_environment(environment: &mut Vec<(OsString, OsString)>, key: &str, value: &str) {
