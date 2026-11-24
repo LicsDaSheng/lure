@@ -27,5 +27,4 @@ target
 .idea/
 .pi
 
-# 真实 Pi 录制样本仅保留在本地，不进入版本追踪
 crates/lure-desktop/tests/fixtures/pi-terminal.raw
