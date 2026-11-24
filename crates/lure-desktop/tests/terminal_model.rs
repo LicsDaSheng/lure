@@ -2,8 +2,8 @@ use lure_desktop::terminal::{TerminalLine, VisibleRowCache};
 
 use lure_desktop::input::{KeyInput, Modifiers, terminal_input};
 use lure_desktop::terminal::{
-    TERMINAL_FONT_FALLBACKS, TERMINAL_FONT_FAMILY, TerminalGrid, TerminalSelection,
-    terminal_size_for_viewport,
+    ProgramActivity, TERMINAL_FONT_FALLBACKS, TERMINAL_FONT_FAMILY, TerminalGeometry, TerminalGrid,
+    TerminalSelection, terminal_size_for_viewport,
 };
 use lure_desktop::theme::{
     ACCENT, ANSI_COLORS, BACKGROUND, BORDER, ERROR, FOREGROUND, MUTED, TITLEBAR, indexed_color,
@@ -114,6 +114,36 @@ fn application_cursor_mode_changes_arrow_key_sequences() {
 }
 
 #[test]
+fn color_queries_reply_with_the_active_terminal_palette() {
+    use lure_desktop::theme::Theme;
+
+    let mut grid = TerminalGrid::new(2, 12);
+    grid.set_theme(Theme::Light);
+    grid.process(b"\x1b]10;?\x07\x1b]11;?\x1b\\\x1b]4;1;?\x07");
+    assert_eq!(
+        grid.take_responses(),
+        vec![
+            "\x1b]10;rgb:0f0f/1717/2a2a\x07",
+            "\x1b]11;rgb:f7f7/f8f8/fafa\x1b\\",
+            "\x1b]4;1;rgb:b9b9/1c1c/1c1c\x07",
+        ]
+    );
+    assert!(grid.take_responses().is_empty());
+
+    grid.process(b"\x1b]10;?\x07\x1b]11;?\x07\x1b]12;?\x07\x1b]4;1;?\x07");
+    grid.set_theme(Theme::Dark);
+    assert_eq!(
+        grid.take_responses(),
+        vec![
+            "\x1b]10;rgb:f8f8/f8f8/f2f2\x07",
+            "\x1b]11;rgb:2828/2a2a/3636\x07",
+            "\x1b]12;rgb:f8f8/f8f8/f2f2\x07",
+            "\x1b]4;1;rgb:ffff/5555/5555\x07",
+        ]
+    );
+}
+
+#[test]
 fn keyboard_protocol_queries_are_answered_through_the_pty_channel() {
     let mut grid = TerminalGrid::new(2, 12);
     grid.process(b"\x1b[?u");
@@ -121,6 +151,219 @@ fn keyboard_protocol_queries_are_answered_through_the_pty_channel() {
     assert!(grid.take_responses().is_empty());
     grid.process(b"\x1b[>1u\x1b[?u");
     assert_eq!(grid.take_responses(), vec!["\x1b[?1u"]);
+}
+
+#[test]
+fn program_status_queries_reply_through_pty_with_matching_terminators() {
+    let mut grid = TerminalGrid::new(2, 12);
+    grid.process(b"\x1b]7501;?\x07\x1b]7501;?\x1b\\");
+
+    assert_eq!(
+        grid.take_responses(),
+        vec![
+            "\x1b]7501;?:states=idle,working,done,blocked,error:kinds=permission,question,auth\x07",
+            "\x1b]7501;?:states=idle,working,done,blocked,error:kinds=permission,question,auth\x1b\\",
+        ]
+    );
+    assert!(grid.take_responses().is_empty());
+}
+
+#[test]
+fn program_status_maps_every_state_and_clear() {
+    let cases = [
+        ("idle", Some(ProgramActivity::Idle)),
+        ("working", Some(ProgramActivity::Working)),
+        ("blocked", Some(ProgramActivity::Blocked)),
+        ("done", Some(ProgramActivity::Done)),
+        ("error", Some(ProgramActivity::Error)),
+        ("clear", None),
+    ];
+
+    let mut grid = TerminalGrid::new(2, 12);
+    for (state, expected) in cases {
+        grid.process(format!("\x1b]7501;state={state}\x07").as_bytes());
+        assert_eq!(grid.program_activity(), expected, "state={state}");
+        assert_eq!(
+            grid.is_working(),
+            expected == Some(ProgramActivity::Working)
+        );
+    }
+}
+
+#[test]
+fn program_status_parses_reports_one_byte_at_a_time() {
+    let mut grid = TerminalGrid::new(2, 12);
+    for byte in b"\x1b]7501;state=working:app=pi\x1b\\" {
+        grid.process(std::slice::from_ref(byte));
+    }
+
+    assert_eq!(grid.program_activity(), Some(ProgramActivity::Working));
+}
+
+#[test]
+fn program_status_parses_reports_across_arbitrary_chunks() {
+    let mut grid = TerminalGrid::new(2, 12);
+    for chunk in [
+        b"\x1b]75".as_slice(),
+        b"01;state=bloc",
+        b"ked:kind=question",
+        b"\x07",
+    ] {
+        grid.process(chunk);
+    }
+
+    assert_eq!(grid.program_activity(), Some(ProgramActivity::Blocked));
+}
+
+#[test]
+fn program_status_root_record_is_replaced_by_later_root_reports() {
+    let mut grid = TerminalGrid::new(2, 12);
+    grid.process(
+        b"\x1b]7501;state=working\x07\x1b]7501;state=blocked:kind=auth\x07\x1b]7501;state=done\x07",
+    );
+
+    assert_eq!(grid.program_activity(), Some(ProgramActivity::Done));
+    assert!(!grid.is_working());
+}
+
+#[test]
+fn program_status_tracks_independent_records_and_any_working_record() {
+    let mut grid = TerminalGrid::new(2, 12);
+    grid.process(b"\x1b]7501;state=working:id=build\x07\x1b]7501;state=done:id=build/tests\x07");
+
+    assert_eq!(grid.program_activity(), Some(ProgramActivity::Done));
+    assert!(grid.is_working(), "子记录完成不得覆盖仍在工作的父记录");
+}
+
+#[test]
+fn program_status_clear_removes_only_the_addressed_record_subtree() {
+    let mut grid = TerminalGrid::new(2, 12);
+    grid.process(
+        b"\x1b]7501;state=working:id=build\x07\
+          \x1b]7501;state=working:id=build/tests\x07\
+          \x1b]7501;state=working:id=deploy\x07\
+          \x1b]7501;state=clear:id=build\x07",
+    );
+
+    assert!(grid.is_working(), "无关的 deploy 记录必须保留");
+    grid.process(b"\x1b]7501;state=done:id=deploy\x07");
+    assert!(!grid.is_working(), "build 子树必须已被定向 clear 删除");
+}
+
+#[test]
+fn program_status_root_clear_removes_every_record() {
+    let mut grid = TerminalGrid::new(2, 12);
+    grid.process(
+        b"\x1b]7501;state=working:id=build\x07\x1b]7501;state=error:id=deploy\x07\x1b]7501;state=clear\x07",
+    );
+
+    assert_eq!(grid.program_activity(), None);
+    assert!(!grid.is_working());
+}
+
+#[test]
+fn program_status_invalid_reports_do_not_overwrite_activity() {
+    let mut grid = TerminalGrid::new(2, 12);
+    grid.process(b"\x1b]7501;state=working\x07");
+
+    for invalid in [
+        b"\x1b]7501;state=bogus\x07".as_slice(),
+        b"\x1b]7501;app=pi\x07",
+        b"\x1b]7501;state=error:id=bad//path\x07",
+        b"\x1b]7501;state=error:msg=A\x07",
+        b"\x1b]7501;state=work\x01ing\x07",
+    ] {
+        grid.process(invalid);
+        assert_eq!(grid.program_activity(), Some(ProgramActivity::Working));
+    }
+
+    let oversized = format!("\x1b]7501;state=error:title={}\x07", "A".repeat(4096));
+    grid.process(oversized.as_bytes());
+    assert_eq!(grid.program_activity(), Some(ProgramActivity::Working));
+}
+
+#[test]
+fn program_status_does_not_interfere_with_utf8_ansi_osc8_or_color_queries() {
+    let mut grid = TerminalGrid::new(2, 40);
+    grid.process(
+        "前缀 \x1b[31m红色\x1b[0m \x1b]8;;https://example.com\x07链接\x1b]8;;\x07".as_bytes(),
+    );
+    grid.process(b"\x1b]7501;state=working\x07\x1b]10;?\x07\x1b]7501;?\x07");
+
+    assert_eq!(grid.program_activity(), Some(ProgramActivity::Working));
+    assert!(grid.lines().iter().any(|line| line.text().contains("前缀")));
+    assert!(
+        grid.visible_links()
+            .iter()
+            .any(|link| link.uri == "https://example.com")
+    );
+    assert_eq!(
+        grid.take_responses(),
+        vec![
+            "\x1b]10;rgb:f8f8/f8f8/f2f2\x07",
+            "\x1b]7501;?:states=idle,working,done,blocked,error:kinds=permission,question,auth\x07",
+        ]
+    );
+    assert_eq!(grid.program_activity(), Some(ProgramActivity::Working));
+}
+
+#[test]
+fn program_status_pty_replies_keep_order_and_are_cleared_together() {
+    let mut grid = TerminalGrid::new(2, 12);
+    grid.process(b"\x1b[?u\x1b]7501;?\x07\x1b[?u");
+
+    assert_eq!(
+        grid.take_responses(),
+        vec![
+            "\x1b[?0u",
+            "\x1b]7501;?:states=idle,working,done,blocked,error:kinds=permission,question,auth\x07",
+            "\x1b[?0u",
+        ]
+    );
+    assert!(grid.take_responses().is_empty());
+}
+
+#[test]
+fn program_status_prompt_start_drops_active_records_but_keeps_results() {
+    let mut grid = TerminalGrid::new(2, 12);
+    grid.process(
+        b"\x1b]7501;state=done:id=previous\x07\
+          \x1b]7501;state=error:id=failed\x07\
+          \x1b]7501;state=working:id=current\x07\
+          \x1b]7501;state=blocked:id=question:kind=question\x07\
+          \x1b]133;A\x07",
+    );
+
+    assert_eq!(grid.program_activity(), Some(ProgramActivity::Error));
+    assert!(!grid.is_working());
+
+    grid.process(b"\x1b]7501;state=clear:id=failed\x07");
+    assert_eq!(grid.program_activity(), Some(ProgramActivity::Done));
+}
+
+#[test]
+fn clear_program_activity_explicitly_drops_all_records() {
+    let mut grid = TerminalGrid::new(2, 12);
+    grid.process(b"\x1b]7501;state=error:id=failed\x07\x1b]7501;state=working:id=build\x07");
+    grid.clear_program_activity();
+    assert_eq!(grid.program_activity(), None);
+    assert!(!grid.is_working());
+}
+
+#[test]
+fn program_status_full_reset_clears_activity_and_starts_new_lifecycle() {
+    let mut grid = TerminalGrid::new(2, 12);
+    grid.process(b"\x1b]7501;state=working\x07\x1bc");
+    assert_eq!(grid.program_activity(), None);
+
+    // Reset also clears rio-vt's “status seen” lifecycle flag: this prompt is silent,
+    // while a later report starts a fresh lifecycle that the next prompt clears.
+    grid.process(b"\x1b]133;A\x07");
+    assert_eq!(grid.program_activity(), None);
+    grid.process(b"\x1b]7501;state=blocked:kind=permission\x07");
+    assert_eq!(grid.program_activity(), Some(ProgramActivity::Blocked));
+    grid.process(b"\x1b]133;N\x07");
+    assert_eq!(grid.program_activity(), None);
 }
 
 #[test]
@@ -183,6 +426,23 @@ fn maps_text_navigation_control_and_paste_shortcuts_to_terminal_bytes() {
         None,
         "平台粘贴快捷键由剪贴板路径处理"
     );
+}
+
+#[test]
+fn control_new_and_resume_shortcuts_submit_pi_commands() {
+    for (key, command) in [("n", b"/new\r".as_slice()), ("r", b"/resume\r".as_slice())] {
+        assert_eq!(
+            terminal_input(&KeyInput::new(
+                key,
+                None,
+                Modifiers {
+                    control: true,
+                    ..Default::default()
+                }
+            )),
+            Some(command.to_vec())
+        );
+    }
 }
 
 #[test]
@@ -870,4 +1130,117 @@ fn mouse_drag_supports_legacy_encoding_and_its_coordinate_limit() {
     grid.process(b"\x1b[?1002h");
     assert_eq!(grid.mouse_drag_sequence(1, 2), Some(b"\x1b[M@#\"".to_vec()));
     assert_eq!(grid.mouse_drag_sequence(1, 223), None);
+}
+
+// OSC 8 超链接：终端内核解析元数据，展示层只按单元格命中，不解析输出文字。
+const OSC8_HOSTS: &str = "\x1b]8;;file:///etc/hosts\x1b\\hosts\x1b]8;;\x1b\\";
+const OSC8_DOCS: &str = "\x1b]8;;https://example.dev/docs\x1b\\docs\x1b]8;;\x1b\\";
+
+#[test]
+fn osc8_hyperlink_spans_are_reported_per_visible_row() {
+    let mut grid = TerminalGrid::new(3, 20);
+    grid.process(format!("open {OSC8_HOSTS} and {OSC8_DOCS}").as_bytes());
+
+    let links = grid.visible_links();
+    assert_eq!(links.len(), 2);
+    assert_eq!(links[0].row, 0);
+    assert_eq!(links[0].column, 5);
+    assert_eq!(links[0].columns, 5);
+    assert_eq!(links[0].uri, "file:///etc/hosts");
+    assert_eq!(links[1].row, 0);
+    assert_eq!(links[1].column, 15);
+    assert_eq!(links[1].columns, 4);
+    assert_eq!(links[1].uri, "https://example.dev/docs");
+
+    assert_eq!(grid.link_at((0, 5)).unwrap().uri, "file:///etc/hosts");
+    assert_eq!(grid.link_at((0, 9)).unwrap().uri, "file:///etc/hosts");
+    assert!(grid.link_at((0, 10)).is_none(), "链接外的空白不应命中");
+    assert!(grid.link_at((0, 4)).is_none(), "链接前的文字不应命中");
+    assert!(grid.link_at((1, 5)).is_none(), "其他行不应命中");
+    assert!(grid.link_at((5, 5)).is_none(), "网格外的行不应 panic");
+}
+
+#[test]
+fn osc8_hyperlinks_stay_linked_across_wide_characters() {
+    let mut grid = TerminalGrid::new(2, 12);
+    // 宽字符占位单元格同样属于链接区间，否则中文路径只能点中左半边。
+    grid.process("\x1b]8;;file:///tmp/日志\x1b\\日志文件\x1b]8;;\x1b\\".as_bytes());
+
+    let links = grid.visible_links();
+    assert_eq!(links.len(), 1);
+    assert_eq!(links[0].uri, "file:///tmp/日志");
+    assert_eq!(links[0].columns, 8);
+    for column in 0..8 {
+        assert_eq!(grid.link_at((0, column)).unwrap().uri, "file:///tmp/日志");
+    }
+    assert!(grid.link_at((0, 8)).is_none());
+}
+
+#[test]
+fn osc8_hyperlink_state_does_not_leak_after_close() {
+    let mut grid = TerminalGrid::new(2, 16);
+    grid.process(format!("{OSC8_DOCS} tail").as_bytes());
+
+    let links = grid.visible_links();
+    assert_eq!(links.len(), 1);
+    assert!(grid.link_at((0, 3)).is_some(), "最后一个链接单元格仍应命中");
+    assert!(
+        grid.link_at((0, 4)).is_none(),
+        "关闭序列之后的文字不继承链接"
+    );
+}
+
+#[test]
+fn hyperlinks_track_scrollback_and_alternate_screen() {
+    let mut grid = TerminalGrid::new(2, 16);
+    for _ in 0..4 {
+        grid.process(b"plain\r\n");
+    }
+    grid.process(OSC8_HOSTS.as_bytes());
+
+    // 链接位于实时输出区，尚未滚动时命中行号稳定。
+    let links = grid.visible_links();
+    assert_eq!(links.len(), 1);
+    assert_eq!(links[0].row, 1);
+
+    // 滚动历史后链接随所在行移动或移出视口，不应残留在原坐标。
+    grid.scroll_by(3);
+    for link in grid.visible_links() {
+        assert_eq!(grid.link_at((link.row, link.column)).unwrap().uri, link.uri);
+    }
+
+    // alternate screen 持有独立的 extras 表，切换后不保留主屏链接。
+    grid.process(b"\x1b[?1049h");
+    assert!(grid.visible_links().is_empty());
+    grid.process(b"\x1b[?1049l");
+    grid.scroll_to_bottom();
+    assert_eq!(grid.visible_links().len(), 1);
+}
+
+#[test]
+fn terminal_geometry_matches_viewport_origin_and_rejects_outside_cells() {
+    let geometry = TerminalGeometry::new(220.0, 20, 80);
+    // 侧栏 220 + 终端内边距 8；标题栏 48 + 终端内边距 8。
+    assert_eq!(geometry.cell_at(228.0, 56.0), Some((0, 0)));
+    assert_eq!(geometry.cell_at(235.9, 71.9), Some((0, 0)));
+    assert_eq!(geometry.cell_at(236.0, 72.0), Some((1, 1)));
+    assert_eq!(geometry.cell_at(227.9, 56.0), None, "内边距内不属于网格");
+    assert_eq!(geometry.cell_at(228.0, 55.9), None, "标题栏不属于网格");
+
+    // 展开的侧栏区域、网格右侧与下方都返回 None，光标样式不会被误改。
+    assert_eq!(geometry.cell_at(100.0, 200.0), None);
+    assert_eq!(geometry.cell_at(228.0 + 8.0 * 80.0, 56.0), None);
+    assert_eq!(geometry.cell_at(228.0, 56.0 + 16.0 * 20.0), None);
+    assert_eq!(geometry.cell_at(f32::NAN, 56.0), None);
+
+    // 拖选沿用夹取语义：越界位置收敛到最近边界单元格。
+    assert_eq!(geometry.cell_at_or_clamped(0.0, 0.0), (0, 0));
+    assert_eq!(geometry.cell_at_or_clamped(10_000.0, 10_000.0), (19, 79));
+}
+
+#[test]
+fn terminal_geometry_collapsed_sidebar_uses_full_width() {
+    let geometry = TerminalGeometry::new(0.0, 20, 80);
+    assert_eq!(geometry.cell_at(8.0, 56.0), Some((0, 0)));
+    assert_eq!(geometry.cell_at(100.0, 200.0), Some((9, 11)));
 }

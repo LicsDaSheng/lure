@@ -14,7 +14,7 @@ use std::thread;
 use portable_pty::{ChildKiller, CommandBuilder, MasterPty, PtySize, native_pty_system};
 use thiserror::Error;
 
-pub use env::{EnvVars, SpawnEnvResolver};
+pub use env::{EnvVars, SpawnEnvResolver, prune_host_terminal_marks};
 
 /// 定位 Pi 可执行文件；`LURE_PI_PATH` 具有最高优先级。
 #[must_use]

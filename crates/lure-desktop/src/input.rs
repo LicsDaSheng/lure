@@ -38,6 +38,16 @@ pub fn terminal_input(input: &KeyInput) -> Option<Vec<u8>> {
     if input.modifiers.platform {
         return None;
     }
+    if input.modifiers.control && !input.modifiers.alt && !input.modifiers.shift {
+        let command = match key.as_str() {
+            "n" => Some("/new\r"),
+            "r" => Some("/resume\r"),
+            _ => None,
+        };
+        if let Some(command) = command {
+            return Some(command.as_bytes().to_vec());
+        }
+    }
     if input.modifiers.control
         && let Some(byte) = control_byte(&key)
     {

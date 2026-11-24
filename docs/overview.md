@@ -9,9 +9,11 @@ Lure 是已安装 Pi 的原生桌面终端客户端。应用不实现 Pi 的认�
 ## Rust crate 职责
 
 - `lure-pty`：检测 Pi 可执行文件、合成登录 shell 环境、校验工作目录、创建和管理 PTY 与子进程、转发字节并同步终端尺寸。不依赖 GPUI，也不解析终端或 Pi 业务语义。
-- `lure-desktop`：管理 GPUI 窗口、项目列表、侧栏、每项目独立的终端会话及故障恢复；将原始 PTY 输出交给 rio-vt，绘制其可见网格和图片，编码输入并向 PTY 转发终端查询回复。
+- `lure-desktop`：管理 GPUI 窗口、项目列表、侧栏、每项目独立的终端会话及故障恢复；将原始 PTY 输出交给 rio-vt，绘制其可见网格和图片，编码输入并向 PTY 转发终端查询回复；基于 rio-vt 的 OSC 8 单元格元数据与可见文本的路径／网址形态识别做链接命中与打开，不重建 Pi 的 Agent、工具或会话语义。
 
 应用不使用 WebView、Tauri 或前端运行时。同一项目目录只对应一个已打开的 Pi 子进程；不并发启动该会话的 RPC 子进程。
+
+启动 Pi 时，Lure 先清除从宿主终端继承的能力探测变量（`KITTY_WINDOW_ID`、`ITERM_SESSION_ID`、`GHOSTTY_RESOURCES_DIR` 等），再通过 `PI_HYPERLINKS` 显式声明已支持 OSC 8 超链接渲染。这样从 iTerm2 与从 Finder 启动 Lure 时，Pi 的超链接输出形态保持一致。
 
 ## 页面与会话生命周期
 
