@@ -163,7 +163,7 @@ fn project_cards_constrain_both_text_lines_inside_the_card() {
         .split("    fn project_card(")
         .nth(1)
         .unwrap()
-        .split("    fn project_draft_panel(")
+        .split("    fn project_name_input(")
         .next()
         .unwrap();
     assert!(card.contains(".flex_col()"));
