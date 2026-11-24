@@ -2953,7 +2953,7 @@ dependencies = [
 
 [[package]]
 name = "lure-desktop"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "async-channel",
  "gpui-ce",
@@ -2971,7 +2971,7 @@ dependencies = [
 
 [[package]]
 name = "lure-pty"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "portable-pty",
  "thiserror 2.0.20",

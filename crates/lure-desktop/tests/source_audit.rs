@@ -282,7 +282,7 @@ fn titlebar_actions_share_spacing_and_visual_geometry() {
 }
 
 #[test]
-fn sidebar_status_dot_has_fixed_geometry_instead_of_font_sizing() {
+fn sidebar_status_badge_matches_fixed_three_state_design() {
     let main = include_str!("../src/main.rs");
     let sidebar = main
         .split("    fn project_sidebar(")
@@ -292,15 +292,24 @@ fn sidebar_status_dot_has_fixed_geometry_instead_of_font_sizing() {
         .next()
         .unwrap();
     assert!(!sidebar.contains(".child(\"●\")"));
-    let dot = sidebar
+    let status = sidebar
         .split(".id((\"sidebar-project-status\", index))")
         .nth(1)
         .unwrap();
-    assert!(dot.contains(".w(px(6.0))"));
-    assert!(dot.contains(".h(px(6.0))"));
-    assert!(dot.contains(".flex_none()"));
-    assert!(dot.contains(".rounded_full()"));
-    assert!(dot.contains("palette.status_running") && dot.contains("palette.status_idle"));
+    assert!(status.contains(".w(px(12.0))") && status.contains(".h(px(12.0))"));
+    assert!(status.contains(".w(px(8.0))") && status.contains(".h(px(8.0))"));
+    assert!(status.contains(".w(px(6.0))") && status.contains(".h(px(6.0))"));
+    assert!(status.contains(".flex_none()") && status.contains(".rounded_full()"));
+    assert!(status.contains("palette.status_working"));
+    assert!(status.contains("palette.status_running"));
+    assert!(status.contains("palette.status_idle"));
+    assert!(status.contains("Duration::from_millis(800)"));
+    assert!(status.contains(".repeat_synced()"));
+    assert!(status.contains(".with_max_fps(12.0)"));
+    assert!(status.contains("0.35 + 0.65 * flash"));
+    for label in ["Pi 正在工作", "Pi 已打开", "未打开"] {
+        assert!(status.contains(label), "缺少状态无障碍标签：{label}");
+    }
 }
 
 #[test]

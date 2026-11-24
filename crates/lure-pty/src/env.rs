@@ -288,11 +288,11 @@ const PROXY_KEYS: [&str; 8] = [
     "no_proxy",
 ];
 
-/// 宿主终端泄露给 Pi 的能力探测标记。
+/// 宿主终端泄露给 Pi 的能力探测标记与协议覆盖项。
 ///
 /// 从 iTerm2、Ghostty、kitty 等终端内启动 Lure 时，这些变量会经由当前进程
-/// 继承到 PTY 子进程，令 Pi 误判外层终端具备 OSC 8 或内联图片能力。
-const HOST_TERMINAL_KEYS: [&str; 10] = [
+/// 继承到 PTY 子进程，令 Pi 误判外层终端能力，或绕过 Lure 的协议协商。
+const HOST_TERMINAL_KEYS: [&str; 11] = [
     "ITERM_SESSION_ID",
     "KITTY_WINDOW_ID",
     "GHOSTTY_RESOURCES_DIR",
@@ -303,6 +303,7 @@ const HOST_TERMINAL_KEYS: [&str; 10] = [
     "WARP_SESSION_ID",
     "ORCA_IMAGE_PROTOCOL",
     "PI_IMAGE_PROTOCOL",
+    "PI_PROGRAM_STATUS",
 ];
 
 /// 清理宿主终端泄露的能力探测标记，只保留 Lure 自身的终端身份。
@@ -637,6 +638,22 @@ mod tests {
             .map(|(name, _)| name.to_str().unwrap_or_default())
             .collect();
         assert_eq!(keys, ["HOME", "PATH"], "宿主终端标记必须被清除");
+    }
+
+    #[test]
+    fn prune_host_terminal_marks_drops_program_status_for_every_value() {
+        for value in ["0", "1", "enabled"] {
+            let pruned = prune_host_terminal_marks(vars(&[
+                ("HOME", "/Users/me"),
+                ("PI_PROGRAM_STATUS", value),
+                ("PATH", "/usr/bin"),
+            ]));
+            assert_eq!(
+                pruned,
+                vars(&[("HOME", "/Users/me"), ("PATH", "/usr/bin")]),
+                "PI_PROGRAM_STATUS={value} 必须被清除"
+            );
+        }
     }
 
     #[test]

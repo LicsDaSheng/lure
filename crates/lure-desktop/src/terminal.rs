@@ -350,6 +350,19 @@ impl std::fmt::Debug for TerminalGraphic {
     }
 }
 
+/// OSC 7501 单条记录的程序活动状态。
+///
+/// `TerminalGrid::program_activity` 返回当前仍存在的最近更新记录，
+/// `TerminalGrid::is_working` 则聚合全部记录，只要任一记录为 `Working` 即为真。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProgramActivity {
+    Idle,
+    Working,
+    Blocked,
+    Done,
+    Error,
+}
+
 /// ANSI/VT 网格由 rio-vt 终端内核维护，展示层只读取可见单元格与图片 placement。
 pub struct TerminalGrid {
     theme: Theme,
@@ -367,6 +380,77 @@ struct TerminalEvents(std::rc::Rc<std::cell::RefCell<TerminalQueues>>);
 struct TerminalQueues {
     responses: Vec<TerminalResponse>,
     textures: TextureStore,
+    program_statuses: std::collections::HashMap<Option<String>, ProgramStatusRecord>,
+    program_status_sequence: u64,
+}
+
+#[derive(Clone, Copy)]
+struct ProgramStatusRecord {
+    activity: ProgramActivity,
+    sequence: u64,
+}
+
+impl TerminalQueues {
+    fn update_program_status(&mut self, status: rio_vt::event::ProgramStatus) {
+        use rio_vt::event::ProgramState;
+
+        if status.state == ProgramState::Clear {
+            if let Some(id) = status.id {
+                let descendant_prefix = format!("{id}/");
+                self.program_statuses.retain(|record_id, _| {
+                    record_id.as_ref().is_none_or(|record_id| {
+                        record_id != &id && !record_id.starts_with(&descendant_prefix)
+                    })
+                });
+            } else {
+                self.program_statuses.clear();
+            }
+            return;
+        }
+
+        let activity = match status.state {
+            ProgramState::Idle => ProgramActivity::Idle,
+            ProgramState::Working => ProgramActivity::Working,
+            ProgramState::Blocked => ProgramActivity::Blocked,
+            ProgramState::Done => ProgramActivity::Done,
+            ProgramState::Error => ProgramActivity::Error,
+            ProgramState::Clear => unreachable!("clear 已在前面处理"),
+        };
+        self.program_status_sequence = self.program_status_sequence.wrapping_add(1);
+        self.program_statuses.insert(
+            status.id,
+            ProgramStatusRecord {
+                activity,
+                sequence: self.program_status_sequence,
+            },
+        );
+    }
+
+    fn prompt_started(&mut self) {
+        self.program_statuses.retain(|_, record| {
+            !matches!(
+                record.activity,
+                ProgramActivity::Working | ProgramActivity::Blocked
+            )
+        });
+    }
+
+    fn clear_program_statuses(&mut self) {
+        self.program_statuses.clear();
+    }
+
+    fn program_activity(&self) -> Option<ProgramActivity> {
+        self.program_statuses
+            .values()
+            .max_by_key(|record| record.sequence)
+            .map(|record| record.activity)
+    }
+
+    fn is_working(&self) -> bool {
+        self.program_statuses
+            .values()
+            .any(|record| record.activity == ProgramActivity::Working)
+    }
 }
 
 // 颜色查询直到取回复时才按当前主题求值，避免输出分块期间切换主题后回复旧色板。
@@ -537,6 +621,16 @@ impl rio_vt::event::EventListener for TerminalEvents {
                     .responses
                     .push(TerminalResponse::Color(index, formatter));
             }
+            rio_vt::event::RioEvent::ProgramStatus(event) => {
+                use rio_vt::event::ProgramStatusEvent;
+
+                let mut queues = self.0.borrow_mut();
+                match event {
+                    ProgramStatusEvent::Report(status) => queues.update_program_status(status),
+                    ProgramStatusEvent::PromptStart => queues.prompt_started(),
+                    ProgramStatusEvent::Reset => queues.clear_program_statuses(),
+                }
+            }
             rio_vt::event::RioEvent::UpdateGraphics { mut queues, .. } => {
                 let mut queues_ref = self.0.borrow_mut();
                 for (image_id, graphic) in queues.pending_images.drain(..) {
@@ -589,6 +683,7 @@ impl TerminalGrid {
             0,
             10_000,
         );
+        term.set_program_status_enabled(true);
         term.graphics.total_limit = GRAPHICS_MEMORY_LIMIT;
         Self {
             term,
@@ -604,6 +699,23 @@ impl TerminalGrid {
     pub fn process(&mut self, bytes: &[u8]) {
         self.processor.advance(&mut self.term, bytes);
         self.enforce_graphics_limits();
+    }
+
+    /// 当前仍存在的 OSC 7501 记录中，最近更新记录的活动状态。
+    #[must_use]
+    pub fn program_activity(&self) -> Option<ProgramActivity> {
+        self.events.0.borrow().program_activity()
+    }
+
+    /// 全部有效 OSC 7501 记录中是否至少有一条报告为工作中。
+    #[must_use]
+    pub fn is_working(&self) -> bool {
+        self.events.0.borrow().is_working()
+    }
+
+    /// 清除当前保存的全部程序活动记录。
+    pub fn clear_program_activity(&mut self) {
+        self.events.0.borrow_mut().clear_program_statuses();
     }
 
     fn enforce_graphics_limits(&mut self) {

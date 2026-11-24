@@ -79,6 +79,7 @@ pub struct Palette {
     pub secondary: u32,
     pub hint: u32,
     pub success: u32,
+    pub status_working: u32,
     pub status_running: u32,
     pub status_idle: u32,
     pub success_border: u32,
@@ -121,6 +122,7 @@ impl Theme {
                 secondary: 0x00A8_B6C7,
                 hint: 0x0074_899E,
                 success: 0x002A_D7A5,
+                status_working: 0x00FF_5555,
                 status_running: 0x004A_DE80,
                 status_idle: 0x0052_5252,
                 success_border: 0x001B_5145,
@@ -150,6 +152,7 @@ impl Theme {
                 secondary: 0x0047_5569,
                 hint: 0x0064_748B,
                 success: 0x0004_7857,
+                status_working: 0x00DC_2626,
                 status_running: 0x0016_A34A,
                 status_idle: 0x00A3_A3A3,
                 success_border: 0x00A7_F3D0,
@@ -227,17 +230,31 @@ mod status_tests {
     use super::Theme;
 
     #[test]
-    fn project_status_uses_vivid_green_and_neutral_gray() {
+    fn project_status_uses_red_green_and_neutral_gray() {
+        assert_eq!(Theme::Dark.palette().status_working, 0x00FF_5555);
+        assert_eq!(Theme::Light.palette().status_working, 0x00DC_2626);
+        assert_eq!(Theme::Dark.palette().status_running, 0x004A_DE80);
+        assert_eq!(Theme::Light.palette().status_running, 0x0016_A34A);
+        assert_eq!(Theme::Dark.palette().status_idle, 0x0052_5252);
+        assert_eq!(Theme::Light.palette().status_idle, 0x00A3_A3A3);
+
         for theme in [Theme::Dark, Theme::Light] {
             let palette = theme.palette();
+            let working = palette.status_working;
             let running = palette.status_running;
             let idle = palette.status_idle;
+            let working_red = (working >> 16) & 255;
+            let working_green = (working >> 8) & 255;
+            let working_blue = working & 255;
+            assert!(working_red > working_green + 80 && working_red > working_blue + 80);
             let red = (running >> 16) & 255;
             let green = (running >> 8) & 255;
             let blue = running & 255;
             assert!(green > red + 80 && green > blue + 40);
             assert_eq!((idle >> 16) & 255, (idle >> 8) & 255);
             assert_eq!((idle >> 8) & 255, idle & 255);
+            assert_ne!(working, running);
+            assert_ne!(working, idle);
             assert_ne!(running, idle);
         }
     }

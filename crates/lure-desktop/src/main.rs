@@ -11,15 +11,16 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::thread;
+use std::time::Duration;
 
 use async_channel::{Receiver, Sender};
 use gpui::{
-    App, AppContext, Bounds, ClipboardItem, Context, Corners, ElementInputHandler,
-    EntityInputHandler, FocusHandle, FontStyle, FontWeight, IntoElement, KeyDownEvent, MouseButton,
-    MouseDownEvent, MouseMoveEvent, MouseUpEvent, PaintQuad, PathPromptOptions, Render, Role,
-    SharedString, TextAlign, TextRun, TitlebarOptions, UTF16Selection, UnderlineStyle, Window,
-    WindowBounds, WindowOptions, canvas, div, point, prelude::*, px, rgb, rgb_to_hsla, rgba, size,
-    svg,
+    Animation, AnimationExt, App, AppContext, Bounds, ClipboardItem, Context, Corners,
+    ElementInputHandler, EntityInputHandler, FocusHandle, FontStyle, FontWeight, IntoElement,
+    KeyDownEvent, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, PaintQuad,
+    PathPromptOptions, Render, Role, SharedString, TextAlign, TextRun, TitlebarOptions,
+    UTF16Selection, UnderlineStyle, Window, WindowBounds, WindowOptions, canvas, div, point,
+    prelude::*, px, rgb, rgb_to_hsla, rgba, size, svg,
 };
 use lure_desktop::home::{ProjectFilter, matches_project};
 use lure_desktop::input::{KeyInput, Modifiers};
@@ -76,6 +77,38 @@ enum Route {
 
 const PROJECT_SIDEBAR_WIDTH: f32 = 220.0;
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+struct ProjectSessionSnapshot {
+    process_running: bool,
+    pi_working: bool,
+}
+
+impl ProjectSessionSnapshot {
+    fn from_session(phase: Phase, process_running: bool, reports_working: bool) -> Self {
+        Self {
+            process_running,
+            pi_working: process_running && phase == Phase::Running && reports_working,
+        }
+    }
+}
+
+fn project_session_snapshot_from<'a>(
+    path: &Path,
+    current: Option<(&'a Path, ProjectSessionSnapshot)>,
+    parked: impl IntoIterator<Item = (&'a Path, ProjectSessionSnapshot)>,
+) -> ProjectSessionSnapshot {
+    current
+        .filter(|(directory, _)| *directory == path)
+        .map(|(_, snapshot)| snapshot)
+        .or_else(|| {
+            parked
+                .into_iter()
+                .find(|(directory, _)| *directory == path)
+                .map(|(_, snapshot)| snapshot)
+        })
+        .unwrap_or_default()
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum SidebarVisibility {
     Expanded,
@@ -99,6 +132,36 @@ impl SidebarVisibility {
             Self::Collapsed => Self::Expanded,
         };
     }
+}
+
+#[derive(Clone, Copy)]
+enum TerminalSessionEvent<'a> {
+    Started,
+    Failed,
+    Output(&'a [u8]),
+    Exited,
+}
+
+fn apply_terminal_session_event(
+    terminal: &mut TerminalGrid,
+    theme: Theme,
+    expected_generation: u64,
+    incoming_generation: u64,
+    event: TerminalSessionEvent<'_>,
+) -> bool {
+    if expected_generation != incoming_generation {
+        return false;
+    }
+    match event {
+        TerminalSessionEvent::Started
+        | TerminalSessionEvent::Failed
+        | TerminalSessionEvent::Exited => terminal.clear_program_activity(),
+        TerminalSessionEvent::Output(data) => {
+            terminal.set_theme(theme);
+            terminal.process(data);
+        }
+    }
+    true
 }
 
 enum AppMessage {
@@ -130,6 +193,18 @@ enum AppMessage {
     },
 }
 
+impl AppMessage {
+    fn session(&self) -> SessionId {
+        match self {
+            Self::Started { session, .. }
+            | Self::StartFailed { session, .. }
+            | Self::Output { session, .. }
+            | Self::Exited { session, .. }
+            | Self::ReadFailed { session, .. } => *session,
+        }
+    }
+}
+
 struct SessionState {
     id: SessionId,
     name: String,
@@ -145,6 +220,23 @@ struct SessionState {
     scroll_rows_accumulator: f32,
     selection: Option<TerminalSelection>,
     selection_dragged: bool,
+}
+
+impl SessionState {
+    fn apply_terminal_event(
+        &mut self,
+        theme: Theme,
+        generation: u64,
+        event: TerminalSessionEvent<'_>,
+    ) -> bool {
+        apply_terminal_session_event(
+            &mut self.terminal,
+            theme,
+            self.generation.load(Ordering::Acquire),
+            generation,
+            event,
+        )
+    }
 }
 
 struct ProjectDraft {
@@ -495,14 +587,22 @@ impl LureApp {
         }
     }
 
+    fn apply_current_terminal_event(
+        &mut self,
+        generation: u64,
+        event: TerminalSessionEvent<'_>,
+    ) -> bool {
+        apply_terminal_session_event(
+            &mut self.terminal,
+            self.theme,
+            self.generation.load(Ordering::Acquire),
+            generation,
+            event,
+        )
+    }
+
     fn handle_parked_message(&mut self, message: AppMessage, cx: &mut Context<Self>) {
-        let session_id = match &message {
-            AppMessage::Started { session, .. }
-            | AppMessage::StartFailed { session, .. }
-            | AppMessage::Output { session, .. }
-            | AppMessage::Exited { session, .. }
-            | AppMessage::ReadFailed { session, .. } => *session,
-        };
+        let session_id = message.session();
         let Some(state) = self
             .parked_sessions
             .iter_mut()
@@ -519,7 +619,14 @@ impl LureApp {
                 mut process,
                 directory,
                 ..
-            } if state.generation.load(Ordering::Acquire) == generation => {
+            } => {
+                if !state.apply_terminal_event(
+                    self.theme,
+                    generation,
+                    TerminalSessionEvent::Started,
+                ) {
+                    return;
+                }
                 if let Err(error) = process.resize(pty_size(state.dimensions)) {
                     state.phase = Phase::Error;
                     state.error = error.to_string();
@@ -534,21 +641,31 @@ impl LureApp {
                 generation,
                 message,
                 ..
-            } if state.generation.load(Ordering::Acquire) == generation => {
+            } => {
+                if !state.apply_terminal_event(self.theme, generation, TerminalSessionEvent::Failed)
+                {
+                    return;
+                }
                 state.phase = Phase::Error;
                 state.error = message;
                 state.process = None;
             }
             AppMessage::Output {
                 generation, data, ..
-            } if state.generation.load(Ordering::Acquire) == generation => {
+            } => {
+                if !state.apply_terminal_event(
+                    self.theme,
+                    generation,
+                    TerminalSessionEvent::Output(&data),
+                ) {
+                    return;
+                }
                 state.selection = None;
-                state.terminal.set_theme(self.theme);
-                state.terminal.process(&data);
                 for response in state.terminal.take_responses() {
                     if let Some(process) = state.process.as_mut()
                         && let Err(error) = process.write_all(response.as_bytes())
                     {
+                        state.terminal.clear_program_activity();
                         state.phase = Phase::Error;
                         state.error = error.to_string();
                         break;
@@ -557,7 +674,11 @@ impl LureApp {
             }
             AppMessage::Exited {
                 generation, code, ..
-            } if state.generation.load(Ordering::Acquire) == generation => {
+            } => {
+                if !state.apply_terminal_event(self.theme, generation, TerminalSessionEvent::Exited)
+                {
+                    return;
+                }
                 state.process = None;
                 state.phase = Phase::Exited;
                 state.exit_code = Some(code);
@@ -566,23 +687,20 @@ impl LureApp {
                 generation,
                 message,
                 ..
-            } if state.generation.load(Ordering::Acquire) == generation => {
+            } => {
+                if !state.apply_terminal_event(self.theme, generation, TerminalSessionEvent::Failed)
+                {
+                    return;
+                }
                 state.phase = Phase::Error;
                 state.error = message;
             }
-            _ => {}
         }
         cx.notify();
     }
 
     fn handle_message(&mut self, message: AppMessage, cx: &mut Context<Self>) {
-        let session = match &message {
-            AppMessage::Started { session, .. }
-            | AppMessage::StartFailed { session, .. }
-            | AppMessage::Output { session, .. }
-            | AppMessage::Exited { session, .. }
-            | AppMessage::ReadFailed { session, .. } => *session,
-        };
+        let session = message.session();
         if self.current_id != Some(session) {
             self.handle_parked_message(message, cx);
             return;
@@ -593,7 +711,10 @@ impl LureApp {
                 mut process,
                 directory,
                 ..
-            } if self.is_current(generation) => {
+            } => {
+                if !self.apply_current_terminal_event(generation, TerminalSessionEvent::Started) {
+                    return;
+                }
                 if let Err(error) = process.resize(pty_size(self.dimensions)) {
                     self.phase = Phase::Error;
                     self.error = error.to_string();
@@ -610,7 +731,10 @@ impl LureApp {
                 generation,
                 message,
                 ..
-            } if self.is_current(generation) => {
+            } => {
+                if !self.apply_current_terminal_event(generation, TerminalSessionEvent::Failed) {
+                    return;
+                }
                 self.phase = Phase::Error;
                 self.error = message;
                 self.process = None;
@@ -618,17 +742,21 @@ impl LureApp {
             }
             AppMessage::Output {
                 generation, data, ..
-            } if self.is_current(generation) => {
+            } => {
+                if !self
+                    .apply_current_terminal_event(generation, TerminalSessionEvent::Output(&data))
+                {
+                    return;
+                }
                 trace_selection("PTY 输出清除选区", (data.len(), self.selection_active));
                 self.selection_active = false;
                 self.selection = None;
-                self.terminal.set_theme(self.theme);
-                self.terminal.process(&data);
                 self.links.invalidate();
                 for response in self.terminal.take_responses() {
                     if let Some(process) = self.process.as_mut()
                         && let Err(error) = process.write_all(response.as_bytes())
                     {
+                        self.terminal.clear_program_activity();
                         self.phase = Phase::Error;
                         self.error = error.to_string();
                         break;
@@ -638,7 +766,10 @@ impl LureApp {
             }
             AppMessage::Exited {
                 generation, code, ..
-            } if self.is_current(generation) => {
+            } => {
+                if !self.apply_current_terminal_event(generation, TerminalSessionEvent::Exited) {
+                    return;
+                }
                 self.process = None;
                 self.phase = Phase::Exited;
                 self.exit_code = Some(code);
@@ -648,17 +779,41 @@ impl LureApp {
                 generation,
                 message,
                 ..
-            } if self.is_current(generation) => {
+            } => {
+                if !self.apply_current_terminal_event(generation, TerminalSessionEvent::Failed) {
+                    return;
+                }
                 self.phase = Phase::Error;
                 self.error = message;
                 cx.notify();
             }
-            _ => {}
         }
     }
 
-    fn is_current(&self, generation: u64) -> bool {
-        self.generation.load(Ordering::Acquire) == generation
+    fn project_session_snapshot(&self, path: &Path) -> ProjectSessionSnapshot {
+        let current = self.current_id.map(|_| {
+            let process_running = self.process.is_some();
+            (
+                self.directory.as_path(),
+                ProjectSessionSnapshot::from_session(
+                    self.phase,
+                    process_running,
+                    self.terminal.is_working(),
+                ),
+            )
+        });
+        let parked = self.parked_sessions.iter().map(|session| {
+            let process_running = session.process.is_some();
+            (
+                session.directory.as_path(),
+                ProjectSessionSnapshot::from_session(
+                    session.phase,
+                    process_running,
+                    session.terminal.is_working(),
+                ),
+            )
+        });
+        project_session_snapshot_from(path, current, parked)
     }
 
     fn start(&mut self, cx: &mut Context<Self>) {
@@ -735,6 +890,7 @@ impl LureApp {
         if let Some(mut session) = self.take_current() {
             // 先使启动中或读取中的旧任务失效；迟到的 Started 由消息处理器回收。
             session.generation.fetch_add(1, Ordering::AcqRel);
+            session.terminal.clear_program_activity();
             if let Some(mut process) = session.process.take() {
                 let _ = process.stop();
             }
@@ -756,6 +912,7 @@ impl LureApp {
     fn stop_process(&mut self) {
         self.selection_active = false;
         self.reported_mouse_cell = None;
+        self.terminal.clear_program_activity();
         if let Some(mut process) = self.process.take() {
             let _ = process.stop();
         }
@@ -923,6 +1080,7 @@ impl LureApp {
             return;
         };
         if let Err(error) = process.write_all(bytes) {
+            self.terminal.clear_program_activity();
             self.phase = Phase::Error;
             self.error = error.to_string();
             cx.notify();
@@ -1162,6 +1320,7 @@ impl LureApp {
         };
         for _ in 0..count {
             if let Err(error) = process.write_all(bytes) {
+                self.terminal.clear_program_activity();
                 self.phase = Phase::Error;
                 self.error = error.to_string();
                 cx.notify();
@@ -1538,13 +1697,6 @@ impl LureApp {
     fn project_sidebar(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let palette = self.theme.palette();
         let total = self.projects.projects.len();
-        let running_for = |path: &Path| {
-            (self.current_id.is_some() && self.directory == path && self.phase == Phase::Running)
-                || self
-                    .parked_sessions
-                    .iter()
-                    .any(|session| session.directory == path && session.phase == Phase::Running)
-        };
         div()
             .id("project-sidebar")
             .w(px(PROJECT_SIDEBAR_WIDTH))
@@ -1616,7 +1768,9 @@ impl LureApp {
                     .enumerate()
                     .map(|(index, project)| {
                         let name = project.display_name();
-                        let is_running = running_for(&project.path);
+                        let snapshot = self.project_session_snapshot(&project.path);
+                        let working_animation_id: Arc<Path> =
+                            Arc::from(project.path.clone().into_boxed_path());
                         let opened_id =
                             if self.current_id.is_some() && self.directory == project.path {
                                 self.current_id
@@ -1670,16 +1824,73 @@ impl LureApp {
                             .child(
                                 div()
                                     .id(("sidebar-project-status", index))
-                                    .aria_label(if is_running { "运行中" } else { "未打开" })
-                                    .w(px(6.0))
-                                    .h(px(6.0))
-                                    .flex_none()
-                                    .rounded_full()
-                                    .bg(rgb(if is_running {
-                                        palette.status_running
+                                    .aria_label(if snapshot.pi_working {
+                                        "Pi 正在工作"
+                                    } else if snapshot.process_running {
+                                        "Pi 已打开"
                                     } else {
-                                        palette.status_idle
-                                    })),
+                                        "未打开"
+                                    })
+                                    .w(px(12.0))
+                                    .h(px(12.0))
+                                    .flex_none()
+                                    .relative()
+                                    .flex()
+                                    .items_center()
+                                    .justify_center()
+                                    .when(snapshot.pi_working, |status| {
+                                        status.child(
+                                            div()
+                                                .w(px(12.0))
+                                                .h(px(12.0))
+                                                .relative()
+                                                .flex()
+                                                .items_center()
+                                                .justify_center()
+                                                .with_animation(
+                                                    working_animation_id,
+                                                    Animation::new(Duration::from_millis(800))
+                                                        .repeat_synced()
+                                                        .with_max_fps(12.0),
+                                                    move |indicator, delta| {
+                                                        let flash =
+                                                            (std::f32::consts::PI * delta).sin();
+                                                        indicator.opacity(0.35 + 0.65 * flash)
+                                                    },
+                                                )
+                                                .child(
+                                                    div()
+                                                        .absolute()
+                                                        .w(px(12.0))
+                                                        .h(px(12.0))
+                                                        .rounded_full()
+                                                        .bg(rgb(palette.status_working))
+                                                        .opacity(0.32),
+                                                )
+                                                .child(
+                                                    div()
+                                                        .absolute()
+                                                        .w(px(8.0))
+                                                        .h(px(8.0))
+                                                        .rounded_full()
+                                                        .bg(rgb(palette.status_working)),
+                                                ),
+                                        )
+                                    })
+                                    .when(!snapshot.pi_working, |status| {
+                                        status.child(
+                                            div()
+                                                .absolute()
+                                                .w(px(6.0))
+                                                .h(px(6.0))
+                                                .rounded_full()
+                                                .bg(rgb(if snapshot.process_running {
+                                                    palette.status_running
+                                                } else {
+                                                    palette.status_idle
+                                                })),
+                                        )
+                                    }),
                             )
                     }),
             )
@@ -1689,19 +1900,13 @@ impl LureApp {
     #[allow(clippy::too_many_lines)]
     fn home_page(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let palette = self.theme.palette();
-        let running_for = |path: &Path| {
-            (self.current_id.is_some() && self.directory == path && self.phase == Phase::Running)
-                || self
-                    .parked_sessions
-                    .iter()
-                    .any(|session| session.directory == path && session.phase == Phase::Running)
-        };
+        let process_running_for = |path: &Path| self.project_session_snapshot(path).process_running;
         let total = self.projects.projects.len();
         let active = self
             .projects
             .projects
             .iter()
-            .filter(|p| running_for(&p.path))
+            .filter(|p| process_running_for(&p.path))
             .count();
         let cards = self
             .projects
@@ -1709,10 +1914,21 @@ impl LureApp {
             .iter()
             .enumerate()
             .filter(|(_, project)| {
-                matches_project(project, "", running_for(&project.path), self.home_filter)
+                matches_project(
+                    project,
+                    "",
+                    process_running_for(&project.path),
+                    self.home_filter,
+                )
             })
             .map(|(index, project)| {
-                Self::project_card(palette, index, project, running_for(&project.path), cx)
+                Self::project_card(
+                    palette,
+                    index,
+                    project,
+                    process_running_for(&project.path),
+                    cx,
+                )
             })
             .collect::<Vec<_>>();
         let empty = cards.is_empty();
@@ -2086,13 +2302,14 @@ impl EntityInputHandler for LureApp {
 
 impl Drop for LureApp {
     fn drop(&mut self) {
-        self.stop_process();
         self.generation.fetch_add(1, Ordering::AcqRel);
+        self.stop_process();
         for session in &mut self.parked_sessions {
+            session.generation.fetch_add(1, Ordering::AcqRel);
+            session.terminal.clear_program_activity();
             if let Some(mut process) = session.process.take() {
                 let _ = process.stop();
             }
-            session.generation.fetch_add(1, Ordering::AcqRel);
         }
     }
 }
@@ -3168,5 +3385,130 @@ mod sidebar_tests {
         assert_eq!(sidebar, SidebarVisibility::Collapsed);
         sidebar.toggle();
         assert_eq!(sidebar, SidebarVisibility::Expanded);
+    }
+
+    #[test]
+    fn output_events_update_current_and_parked_terminal_status() {
+        let mut current = TerminalGrid::new(2, 12);
+        let mut parked = TerminalGrid::new(2, 12);
+
+        assert!(apply_terminal_session_event(
+            &mut current,
+            Theme::Dark,
+            3,
+            3,
+            TerminalSessionEvent::Output(b"\x1b]7501;state=working\x07"),
+        ));
+        assert!(apply_terminal_session_event(
+            &mut parked,
+            Theme::Light,
+            8,
+            8,
+            TerminalSessionEvent::Output(
+                b"\x1b]7501;state=working:id=task\x07\x1b]7501;state=done:id=task/child\x07",
+            ),
+        ));
+
+        assert!(current.is_working());
+        assert!(parked.is_working(), "park 后的记录树必须继续接收输出");
+        let restored = parked;
+        assert!(restored.is_working(), "restore 后必须保留 parked 终端状态");
+    }
+
+    #[test]
+    fn stale_started_output_and_exited_events_do_not_mutate_terminal_status() {
+        let mut terminal = TerminalGrid::new(2, 12);
+        terminal.process(b"\x1b]7501;state=working:id=current\x07");
+
+        assert!(!apply_terminal_session_event(
+            &mut terminal,
+            Theme::Dark,
+            5,
+            4,
+            TerminalSessionEvent::Started,
+        ));
+        assert!(!apply_terminal_session_event(
+            &mut terminal,
+            Theme::Dark,
+            5,
+            4,
+            TerminalSessionEvent::Output(b"\x1b]7501;state=done:id=current\x07"),
+        ));
+        assert!(!apply_terminal_session_event(
+            &mut terminal,
+            Theme::Dark,
+            5,
+            4,
+            TerminalSessionEvent::Exited,
+        ));
+        assert!(terminal.is_working());
+
+        assert!(apply_terminal_session_event(
+            &mut terminal,
+            Theme::Dark,
+            5,
+            5,
+            TerminalSessionEvent::Exited,
+        ));
+        assert!(!terminal.is_working());
+        assert_eq!(terminal.program_activity(), None);
+    }
+
+    #[test]
+    fn current_working_session_is_reported() {
+        let current_path = Path::new("/current");
+        let working = ProjectSessionSnapshot::from_session(Phase::Running, true, true);
+        let snapshot =
+            project_session_snapshot_from(current_path, Some((current_path, working)), []);
+
+        assert_eq!(snapshot, working);
+    }
+
+    #[test]
+    fn current_non_working_activity_stays_open_without_working_badge() {
+        let current_path = Path::new("/current");
+        let open = ProjectSessionSnapshot::from_session(Phase::Running, true, false);
+        let snapshot = project_session_snapshot_from(current_path, Some((current_path, open)), []);
+
+        assert_eq!(snapshot, open);
+        assert!(snapshot.process_running);
+        assert!(!snapshot.pi_working);
+    }
+
+    #[test]
+    fn unrelated_current_session_does_not_mark_project_open() {
+        let snapshot = project_session_snapshot_from(
+            Path::new("/target"),
+            Some((
+                Path::new("/other"),
+                ProjectSessionSnapshot::from_session(Phase::Running, true, true),
+            )),
+            [],
+        );
+
+        assert_eq!(snapshot, ProjectSessionSnapshot::default());
+    }
+
+    #[test]
+    fn parked_session_uses_the_same_snapshot_rules() {
+        let target = Path::new("/parked");
+        let parked = ProjectSessionSnapshot::from_session(Phase::Running, true, true);
+        let snapshot = project_session_snapshot_from(
+            target,
+            Some((
+                Path::new("/current"),
+                ProjectSessionSnapshot::from_session(Phase::Running, true, false),
+            )),
+            [(target, parked)],
+        );
+
+        assert_eq!(snapshot, parked);
+    }
+
+    #[test]
+    fn non_running_phase_cannot_be_working_even_while_process_is_present() {
+        let snapshot = ProjectSessionSnapshot::from_session(Phase::Error, true, true);
+        assert!(snapshot.process_running);
+        assert!(!snapshot.pi_working);
     }
 }

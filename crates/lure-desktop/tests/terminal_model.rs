@@ -2,7 +2,7 @@ use lure_desktop::terminal::{TerminalLine, VisibleRowCache};
 
 use lure_desktop::input::{KeyInput, Modifiers, terminal_input};
 use lure_desktop::terminal::{
-    TERMINAL_FONT_FALLBACKS, TERMINAL_FONT_FAMILY, TerminalGeometry, TerminalGrid,
+    ProgramActivity, TERMINAL_FONT_FALLBACKS, TERMINAL_FONT_FAMILY, TerminalGeometry, TerminalGrid,
     TerminalSelection, terminal_size_for_viewport,
 };
 use lure_desktop::theme::{
@@ -151,6 +151,219 @@ fn keyboard_protocol_queries_are_answered_through_the_pty_channel() {
     assert!(grid.take_responses().is_empty());
     grid.process(b"\x1b[>1u\x1b[?u");
     assert_eq!(grid.take_responses(), vec!["\x1b[?1u"]);
+}
+
+#[test]
+fn program_status_queries_reply_through_pty_with_matching_terminators() {
+    let mut grid = TerminalGrid::new(2, 12);
+    grid.process(b"\x1b]7501;?\x07\x1b]7501;?\x1b\\");
+
+    assert_eq!(
+        grid.take_responses(),
+        vec![
+            "\x1b]7501;?:states=idle,working,done,blocked,error:kinds=permission,question,auth\x07",
+            "\x1b]7501;?:states=idle,working,done,blocked,error:kinds=permission,question,auth\x1b\\",
+        ]
+    );
+    assert!(grid.take_responses().is_empty());
+}
+
+#[test]
+fn program_status_maps_every_state_and_clear() {
+    let cases = [
+        ("idle", Some(ProgramActivity::Idle)),
+        ("working", Some(ProgramActivity::Working)),
+        ("blocked", Some(ProgramActivity::Blocked)),
+        ("done", Some(ProgramActivity::Done)),
+        ("error", Some(ProgramActivity::Error)),
+        ("clear", None),
+    ];
+
+    let mut grid = TerminalGrid::new(2, 12);
+    for (state, expected) in cases {
+        grid.process(format!("\x1b]7501;state={state}\x07").as_bytes());
+        assert_eq!(grid.program_activity(), expected, "state={state}");
+        assert_eq!(
+            grid.is_working(),
+            expected == Some(ProgramActivity::Working)
+        );
+    }
+}
+
+#[test]
+fn program_status_parses_reports_one_byte_at_a_time() {
+    let mut grid = TerminalGrid::new(2, 12);
+    for byte in b"\x1b]7501;state=working:app=pi\x1b\\" {
+        grid.process(std::slice::from_ref(byte));
+    }
+
+    assert_eq!(grid.program_activity(), Some(ProgramActivity::Working));
+}
+
+#[test]
+fn program_status_parses_reports_across_arbitrary_chunks() {
+    let mut grid = TerminalGrid::new(2, 12);
+    for chunk in [
+        b"\x1b]75".as_slice(),
+        b"01;state=bloc",
+        b"ked:kind=question",
+        b"\x07",
+    ] {
+        grid.process(chunk);
+    }
+
+    assert_eq!(grid.program_activity(), Some(ProgramActivity::Blocked));
+}
+
+#[test]
+fn program_status_root_record_is_replaced_by_later_root_reports() {
+    let mut grid = TerminalGrid::new(2, 12);
+    grid.process(
+        b"\x1b]7501;state=working\x07\x1b]7501;state=blocked:kind=auth\x07\x1b]7501;state=done\x07",
+    );
+
+    assert_eq!(grid.program_activity(), Some(ProgramActivity::Done));
+    assert!(!grid.is_working());
+}
+
+#[test]
+fn program_status_tracks_independent_records_and_any_working_record() {
+    let mut grid = TerminalGrid::new(2, 12);
+    grid.process(b"\x1b]7501;state=working:id=build\x07\x1b]7501;state=done:id=build/tests\x07");
+
+    assert_eq!(grid.program_activity(), Some(ProgramActivity::Done));
+    assert!(grid.is_working(), "子记录完成不得覆盖仍在工作的父记录");
+}
+
+#[test]
+fn program_status_clear_removes_only_the_addressed_record_subtree() {
+    let mut grid = TerminalGrid::new(2, 12);
+    grid.process(
+        b"\x1b]7501;state=working:id=build\x07\
+          \x1b]7501;state=working:id=build/tests\x07\
+          \x1b]7501;state=working:id=deploy\x07\
+          \x1b]7501;state=clear:id=build\x07",
+    );
+
+    assert!(grid.is_working(), "无关的 deploy 记录必须保留");
+    grid.process(b"\x1b]7501;state=done:id=deploy\x07");
+    assert!(!grid.is_working(), "build 子树必须已被定向 clear 删除");
+}
+
+#[test]
+fn program_status_root_clear_removes_every_record() {
+    let mut grid = TerminalGrid::new(2, 12);
+    grid.process(
+        b"\x1b]7501;state=working:id=build\x07\x1b]7501;state=error:id=deploy\x07\x1b]7501;state=clear\x07",
+    );
+
+    assert_eq!(grid.program_activity(), None);
+    assert!(!grid.is_working());
+}
+
+#[test]
+fn program_status_invalid_reports_do_not_overwrite_activity() {
+    let mut grid = TerminalGrid::new(2, 12);
+    grid.process(b"\x1b]7501;state=working\x07");
+
+    for invalid in [
+        b"\x1b]7501;state=bogus\x07".as_slice(),
+        b"\x1b]7501;app=pi\x07",
+        b"\x1b]7501;state=error:id=bad//path\x07",
+        b"\x1b]7501;state=error:msg=A\x07",
+        b"\x1b]7501;state=work\x01ing\x07",
+    ] {
+        grid.process(invalid);
+        assert_eq!(grid.program_activity(), Some(ProgramActivity::Working));
+    }
+
+    let oversized = format!("\x1b]7501;state=error:title={}\x07", "A".repeat(4096));
+    grid.process(oversized.as_bytes());
+    assert_eq!(grid.program_activity(), Some(ProgramActivity::Working));
+}
+
+#[test]
+fn program_status_does_not_interfere_with_utf8_ansi_osc8_or_color_queries() {
+    let mut grid = TerminalGrid::new(2, 40);
+    grid.process(
+        "前缀 \x1b[31m红色\x1b[0m \x1b]8;;https://example.com\x07链接\x1b]8;;\x07".as_bytes(),
+    );
+    grid.process(b"\x1b]7501;state=working\x07\x1b]10;?\x07\x1b]7501;?\x07");
+
+    assert_eq!(grid.program_activity(), Some(ProgramActivity::Working));
+    assert!(grid.lines().iter().any(|line| line.text().contains("前缀")));
+    assert!(
+        grid.visible_links()
+            .iter()
+            .any(|link| link.uri == "https://example.com")
+    );
+    assert_eq!(
+        grid.take_responses(),
+        vec![
+            "\x1b]10;rgb:f8f8/f8f8/f2f2\x07",
+            "\x1b]7501;?:states=idle,working,done,blocked,error:kinds=permission,question,auth\x07",
+        ]
+    );
+    assert_eq!(grid.program_activity(), Some(ProgramActivity::Working));
+}
+
+#[test]
+fn program_status_pty_replies_keep_order_and_are_cleared_together() {
+    let mut grid = TerminalGrid::new(2, 12);
+    grid.process(b"\x1b[?u\x1b]7501;?\x07\x1b[?u");
+
+    assert_eq!(
+        grid.take_responses(),
+        vec![
+            "\x1b[?0u",
+            "\x1b]7501;?:states=idle,working,done,blocked,error:kinds=permission,question,auth\x07",
+            "\x1b[?0u",
+        ]
+    );
+    assert!(grid.take_responses().is_empty());
+}
+
+#[test]
+fn program_status_prompt_start_drops_active_records_but_keeps_results() {
+    let mut grid = TerminalGrid::new(2, 12);
+    grid.process(
+        b"\x1b]7501;state=done:id=previous\x07\
+          \x1b]7501;state=error:id=failed\x07\
+          \x1b]7501;state=working:id=current\x07\
+          \x1b]7501;state=blocked:id=question:kind=question\x07\
+          \x1b]133;A\x07",
+    );
+
+    assert_eq!(grid.program_activity(), Some(ProgramActivity::Error));
+    assert!(!grid.is_working());
+
+    grid.process(b"\x1b]7501;state=clear:id=failed\x07");
+    assert_eq!(grid.program_activity(), Some(ProgramActivity::Done));
+}
+
+#[test]
+fn clear_program_activity_explicitly_drops_all_records() {
+    let mut grid = TerminalGrid::new(2, 12);
+    grid.process(b"\x1b]7501;state=error:id=failed\x07\x1b]7501;state=working:id=build\x07");
+    grid.clear_program_activity();
+    assert_eq!(grid.program_activity(), None);
+    assert!(!grid.is_working());
+}
+
+#[test]
+fn program_status_full_reset_clears_activity_and_starts_new_lifecycle() {
+    let mut grid = TerminalGrid::new(2, 12);
+    grid.process(b"\x1b]7501;state=working\x07\x1bc");
+    assert_eq!(grid.program_activity(), None);
+
+    // Reset also clears rio-vt's “status seen” lifecycle flag: this prompt is silent,
+    // while a later report starts a fresh lifecycle that the next prompt clears.
+    grid.process(b"\x1b]133;A\x07");
+    assert_eq!(grid.program_activity(), None);
+    grid.process(b"\x1b]7501;state=blocked:kind=permission\x07");
+    assert_eq!(grid.program_activity(), Some(ProgramActivity::Blocked));
+    grid.process(b"\x1b]133;N\x07");
+    assert_eq!(grid.program_activity(), None);
 }
 
 #[test]
