@@ -520,7 +520,11 @@ impl LureApp {
         self.start(cx);
     }
 
-    fn choose_project_directory(open_after_create: bool, cx: &mut Context<Self>) {
+    fn choose_project_directory(
+        open_after_create: bool,
+        window: gpui::AnyWindowHandle,
+        cx: &mut Context<Self>,
+    ) {
         let prompt = cx.prompt_for_paths(PathPromptOptions {
             files: false,
             directories: true,
@@ -531,32 +535,42 @@ impl LureApp {
             if let Ok(Ok(Some(paths))) = prompt.await
                 && let Some(path) = paths.into_iter().next()
             {
-                let _ = this.update(cx, |this, cx| match canonical_directory(&path) {
-                    Ok(path) => {
-                        if this
-                            .projects
-                            .projects
-                            .iter()
-                            .any(|project| project.path == path)
-                        {
-                            this.projects_error = Some("该项目已存在".to_string());
-                            return;
+                let focus = this
+                    .update(cx, |this, cx| match canonical_directory(&path) {
+                        Ok(path) => {
+                            if this
+                                .projects
+                                .projects
+                                .iter()
+                                .any(|project| project.path == path)
+                            {
+                                this.projects_error = Some("该项目已存在".to_string());
+                                return None;
+                            }
+                            let name = path
+                                .file_name()
+                                .and_then(|name| name.to_str())
+                                .unwrap_or_default()
+                                .to_string();
+                            this.project_draft = Some(ProjectDraft {
+                                path,
+                                name,
+                                marked_text: String::new(),
+                                open_after_create,
+                            });
+                            cx.notify();
+                            Some(this.focus.clone())
                         }
-                        let name = path
-                            .file_name()
-                            .and_then(|name| name.to_str())
-                            .unwrap_or_default()
-                            .to_string();
-                        this.project_draft = Some(ProjectDraft {
-                            path,
-                            name,
-                            marked_text: String::new(),
-                            open_after_create,
-                        });
-                        cx.notify();
-                    }
-                    Err(error) => this.projects_error = Some(error),
-                });
+                        Err(error) => {
+                            this.projects_error = Some(error);
+                            None
+                        }
+                    })
+                    .ok()
+                    .flatten();
+                if let Some(focus) = focus {
+                    let _ = window.update(cx, |_, window, cx| focus.focus(window, cx));
+                }
             }
         })
         .detach();
@@ -1590,15 +1604,97 @@ impl LureApp {
             )
     }
 
-    fn project_draft_panel(&self, cx: &mut Context<Self>) -> impl IntoElement {
+    fn project_name_input(
+        &self,
+        name_input_focused: bool,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
         let palette = self.theme.palette();
-        let draft = self.project_draft.as_ref();
-        let name = draft.map_or_else(String::new, |draft| {
-            format!("{}{}", draft.name, draft.marked_text)
-        });
-        let path = draft.map_or_else(String::new, |draft| draft.path.display().to_string());
+        let name = self
+            .project_draft
+            .as_ref()
+            .map_or_else(String::new, |draft| {
+                format!("{}{}", draft.name, draft.marked_text)
+            });
+        let name_is_empty = name.is_empty();
         let draft_entity = cx.entity();
         let focus = self.focus.clone();
+        div()
+            .mt(px(16.0))
+            .h(px(42.0))
+            .relative()
+            .flex()
+            .items_center()
+            .px(px(12.0))
+            .rounded(px(8.0))
+            .border_1()
+            .border_color(rgb(palette.accent))
+            .bg(rgb(palette.titlebar))
+            .child(
+                div()
+                    .min_w_0()
+                    .flex()
+                    .items_center()
+                    .when(!name_is_empty, |content| content.child(name))
+                    .when(name_input_focused, |content| {
+                        content.child(
+                            div()
+                                .id("project-name-caret")
+                                .w(px(1.0))
+                                .h(px(18.0))
+                                .flex_none()
+                                .bg(rgb(palette.accent))
+                                .with_animation(
+                                    "project-name-caret-blink",
+                                    Animation::new(Duration::from_secs(1))
+                                        .repeat_synced()
+                                        .with_max_fps(4.0),
+                                    |caret, delta| {
+                                        let visible = delta < 0.5;
+                                        caret.opacity(if visible { 1.0 } else { 0.0 }).when(
+                                            visible,
+                                            |caret| {
+                                                caret.debug_selector(|| "project-name-caret".into())
+                                            },
+                                        )
+                                    },
+                                ),
+                        )
+                    })
+                    .when(name_is_empty, |content| {
+                        content.child(
+                            div()
+                                .text_color(rgb(palette.muted))
+                                .child("项目名称（可为空）"),
+                        )
+                    }),
+            )
+            .child(
+                canvas(
+                    move |_, _, _| (),
+                    move |bounds, (), window, cx| {
+                        window.handle_input(
+                            &focus,
+                            ElementInputHandler::new(bounds, draft_entity),
+                            cx,
+                        );
+                    },
+                )
+                .absolute()
+                .inset_0(),
+            )
+    }
+
+    fn project_draft_panel(
+        &self,
+        name_input_focused: bool,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        let palette = self.theme.palette();
+        let path = self
+            .project_draft
+            .as_ref()
+            .map_or_else(String::new, |draft| draft.path.display().to_string());
         div()
             .absolute()
             .inset_0()
@@ -1622,38 +1718,7 @@ impl LureApp {
                             .text_color(rgb(palette.muted))
                             .child(path),
                     )
-                    .child(
-                        div()
-                            .mt(px(16.0))
-                            .h(px(42.0))
-                            .relative()
-                            .flex()
-                            .items_center()
-                            .px(px(12.0))
-                            .rounded(px(8.0))
-                            .border_1()
-                            .border_color(rgb(palette.accent))
-                            .bg(rgb(palette.titlebar))
-                            .child(if name.is_empty() {
-                                "项目名称（可为空）".to_string()
-                            } else {
-                                name
-                            })
-                            .child(
-                                canvas(
-                                    move |_, _, _| (),
-                                    move |bounds, (), window, cx| {
-                                        window.handle_input(
-                                            &focus,
-                                            ElementInputHandler::new(bounds, draft_entity),
-                                            cx,
-                                        );
-                                    },
-                                )
-                                .absolute()
-                                .inset_0(),
-                            ),
-                    )
+                    .child(self.project_name_input(name_input_focused, cx))
                     .child(
                         div()
                             .mt(px(16.0))
@@ -1668,6 +1733,12 @@ impl LureApp {
                                     .py(px(8.0))
                                     .rounded(px(8.0))
                                     .cursor_pointer()
+                                    .on_mouse_down(MouseButton::Left, |_, _, cx| {
+                                        cx.stop_propagation();
+                                    })
+                                    .on_mouse_up(MouseButton::Left, |_, _, cx| {
+                                        cx.stop_propagation();
+                                    })
                                     .on_click(cx.listener(|this, _, _, cx| {
                                         this.project_draft = None;
                                         cx.notify();
@@ -1677,6 +1748,7 @@ impl LureApp {
                             .child(
                                 div()
                                     .id("create-project-confirm")
+                                    .debug_selector(|| "create-project-confirm".into())
                                     .role(Role::Button)
                                     .px(px(12.0))
                                     .py(px(8.0))
@@ -1684,6 +1756,12 @@ impl LureApp {
                                     .bg(rgb(palette.foreground))
                                     .text_color(rgb(palette.background))
                                     .cursor_pointer()
+                                    .on_mouse_down(MouseButton::Left, |_, _, cx| {
+                                        cx.stop_propagation();
+                                    })
+                                    .on_mouse_up(MouseButton::Left, |_, _, cx| {
+                                        cx.stop_propagation();
+                                    })
                                     .on_click(cx.listener(|this, _, window, cx| {
                                         this.save_project_draft(window, cx);
                                     }))
@@ -1898,7 +1976,7 @@ impl LureApp {
     }
 
     #[allow(clippy::too_many_lines)]
-    fn home_page(&self, cx: &mut Context<Self>) -> impl IntoElement {
+    fn home_page(&self, name_input_focused: bool, cx: &mut Context<Self>) -> impl IntoElement {
         let palette = self.theme.palette();
         let process_running_for = |path: &Path| self.project_session_snapshot(path).process_running;
         let total = self.projects.projects.len();
@@ -2036,7 +2114,7 @@ impl LureApp {
                             .children(cards),
                     )
                     .when(self.project_draft.is_some(), |page| {
-                        page.child(self.project_draft_panel(cx))
+                        page.child(self.project_draft_panel(name_input_focused, cx))
                     }),
             )
     }
@@ -2440,6 +2518,7 @@ impl Render for LureApp {
         let dimensions = self.dimensions;
         let terminal_entity = cx.entity();
         let input_focus = self.focus.clone();
+        let name_input_focused = self.focus.is_focused(window);
         let route = self.route;
         div()
             .id("lure-application")
@@ -2699,9 +2778,10 @@ impl Render for LureApp {
                                     .on_mouse_down(MouseButton::Left, |_, _, cx| {
                                         cx.stop_propagation();
                                     })
-                                    .on_click(cx.listener(|this, _, _, cx| {
+                                    .on_click(cx.listener(|this, _, window, cx| {
                                         Self::choose_project_directory(
                                             this.route == Route::Terminal,
+                                            window.window_handle(),
                                             cx,
                                         );
                                     }))
@@ -2724,7 +2804,7 @@ impl Render for LureApp {
                             self.sidebar_visibility == SidebarVisibility::Expanded,
                             |body| body.child(self.project_sidebar(cx)),
                         )
-                        .child(self.home_page(cx)),
+                        .child(self.home_page(name_input_focused, cx)),
                 )
             })
             .when(route == Route::Terminal, |app| {
@@ -3196,7 +3276,7 @@ impl Render for LureApp {
             })
             .when(
                 route == Route::Terminal && self.project_draft.is_some(),
-                |app| app.child(self.project_draft_panel(cx)),
+                |app| app.child(self.project_draft_panel(name_input_focused, cx)),
             )
     }
 }
@@ -3366,6 +3446,218 @@ fn main() {
 #[cfg(test)]
 mod sidebar_tests {
     use super::*;
+
+    #[gpui::test]
+    fn directory_selection_restores_focus_to_project_name(cx: &mut gpui::TestAppContext) {
+        let project_root = tempfile::tempdir().unwrap();
+        let project_path = project_root.path().join("selected-project");
+        std::fs::create_dir(&project_path).unwrap();
+        let expected_path = project_path.canonicalize().unwrap();
+
+        let (app, cx) = cx.add_window_view(LureApp::new);
+        let window = cx.update(|window, _| window.window_handle());
+        cx.update_entity(&app, |_app, cx| {
+            LureApp::choose_project_directory(false, window, cx);
+        });
+        assert!(cx.did_prompt_for_paths());
+
+        cx.update(gpui::Window::blur);
+        cx.simulate_path_prompt_response(move |options| {
+            assert!(options.directories);
+            assert!(!options.files);
+            Some(vec![expected_path])
+        });
+        cx.run_until_parked();
+
+        cx.read_entity(&app, |app, _| {
+            assert!(app.project_draft.is_some(), "目录选择后应打开名称确认表单");
+        });
+        let name_input_focused = cx.update(|window, cx| app.read(cx).focus.is_focused(window));
+        assert!(
+            name_input_focused,
+            "原生目录选择器关闭后应显式把焦点恢复到项目名称输入"
+        );
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+        assert!(
+            cx.debug_bounds("project-name-caret").is_some(),
+            "名称输入获得焦点后应绘制可见文本光标"
+        );
+    }
+
+    #[gpui::test]
+    fn focused_project_name_caret_blinks_and_stops_without_focus_or_draft(
+        cx: &mut gpui::TestAppContext,
+    ) {
+        let project_root = tempfile::tempdir().unwrap();
+        let project_path = project_root.path().join("selected-project");
+        std::fs::create_dir(&project_path).unwrap();
+
+        let (app, cx) = cx.add_window_view(LureApp::new);
+        cx.update_entity(&app, |app, cx| {
+            app.project_draft = Some(ProjectDraft {
+                path: project_path,
+                name: "selected-project".to_string(),
+                marked_text: String::new(),
+                open_after_create: false,
+            });
+            cx.notify();
+        });
+        cx.run_until_parked();
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+        assert!(
+            cx.debug_bounds("project-name-caret").is_some(),
+            "聚焦后的 caret 应从可见相位开始"
+        );
+
+        cx.executor().advance_clock(Duration::from_millis(600));
+        cx.refresh().unwrap();
+        cx.run_until_parked();
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+        assert!(
+            cx.debug_bounds("project-name-caret").is_none(),
+            "半个闪烁周期后 caret 应进入隐藏相位"
+        );
+
+        cx.executor().advance_clock(Duration::from_millis(500));
+        cx.refresh().unwrap();
+        cx.run_until_parked();
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+        assert!(
+            cx.debug_bounds("project-name-caret").is_some(),
+            "下一个周期 caret 应重新可见"
+        );
+
+        cx.update(gpui::Window::blur);
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+        assert!(
+            cx.debug_bounds("project-name-caret").is_none(),
+            "名称输入失焦后不应继续显示 caret"
+        );
+
+        cx.update(|window, cx| {
+            let focus = app.read(cx).focus.clone();
+            window.focus(&focus, cx);
+        });
+        cx.update_entity(&app, |app, cx| {
+            app.project_draft = None;
+            cx.notify();
+        });
+        cx.run_until_parked();
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+        assert!(
+            cx.debug_bounds("project-name-caret").is_none(),
+            "名称表单关闭后不应继续显示 caret"
+        );
+
+        cx.update(|_, cx| cx.set_reduce_motion(true));
+        cx.update_entity(&app, |app, cx| {
+            app.project_draft = Some(ProjectDraft {
+                path: project_root.path().join("reduced-motion-project"),
+                name: "reduced-motion-project".to_string(),
+                marked_text: String::new(),
+                open_after_create: false,
+            });
+            cx.notify();
+        });
+        cx.run_until_parked();
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+        assert!(cx.debug_bounds("project-name-caret").is_some());
+        cx.executor().advance_clock(Duration::from_millis(600));
+        cx.refresh().unwrap();
+        cx.run_until_parked();
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+        assert!(
+            cx.debug_bounds("project-name-caret").is_some(),
+            "reduce motion 启用时重复动画应保持起始可见状态"
+        );
+    }
+
+    #[gpui::test]
+    fn confirm_click_triggers_project_creation_from_terminal_modal(cx: &mut gpui::TestAppContext) {
+        let project_root = tempfile::tempdir().unwrap();
+        let project_path = project_root.path().join("selected-project");
+        std::fs::create_dir(&project_path).unwrap();
+        let project_path = project_path.canonicalize().unwrap();
+        let projects_path = project_root.path().join("projects.yaml");
+
+        let (app, cx) = cx.add_window_view(LureApp::new);
+        cx.update_entity(&app, |app, cx| {
+            app.route = Route::Terminal;
+            app.projects = ProjectList::default();
+            app.projects_path = projects_path.clone();
+            app.projects_error = None;
+            app.project_draft = Some(ProjectDraft {
+                path: project_path.clone(),
+                name: "selected-project".to_string(),
+                marked_text: String::new(),
+                open_after_create: true,
+            });
+            cx.notify();
+        });
+        cx.run_until_parked();
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+
+        let confirm_bounds = cx
+            .debug_bounds("create-project-confirm")
+            .expect("确认按钮应参与实际组件布局");
+        cx.simulate_click(confirm_bounds.center(), gpui::Modifiers::none());
+
+        cx.read_entity(&app, |app, _| {
+            assert_eq!(
+                app.projects.projects.len(),
+                1,
+                "点击确认应从终端页弹框实际触发项目创建"
+            );
+            assert_eq!(app.projects.projects[0].path, project_path);
+            assert!(app.project_draft.is_none(), "创建成功后才应关闭名称表单");
+            assert!(app.route == Route::Terminal);
+            assert!(app.current_id.is_some(), "终端页创建后应打开新项目会话");
+            assert_eq!(app.directory, project_path);
+        });
+        assert!(projects_path.is_file(), "确认点击应持久化 projects.yaml");
+    }
+
+    #[gpui::test]
+    fn confirm_click_from_home_saves_project_without_opening_session(
+        cx: &mut gpui::TestAppContext,
+    ) {
+        let project_root = tempfile::tempdir().unwrap();
+        let project_path = project_root.path().join("selected-project");
+        std::fs::create_dir(&project_path).unwrap();
+        let project_path = project_path.canonicalize().unwrap();
+        let projects_path = project_root.path().join("projects.yaml");
+
+        let (app, cx) = cx.add_window_view(LureApp::new);
+        cx.update_entity(&app, |app, cx| {
+            app.route = Route::Home;
+            app.projects = ProjectList::default();
+            app.projects_path = projects_path.clone();
+            app.projects_error = None;
+            app.project_draft = Some(ProjectDraft {
+                path: project_path.clone(),
+                name: "selected-project".to_string(),
+                marked_text: String::new(),
+                open_after_create: false,
+            });
+            cx.notify();
+        });
+        cx.run_until_parked();
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+
+        let confirm_bounds = cx
+            .debug_bounds("create-project-confirm")
+            .expect("首页确认按钮应参与实际组件布局");
+        cx.simulate_click(confirm_bounds.center(), gpui::Modifiers::none());
+
+        cx.read_entity(&app, |app, _| {
+            assert_eq!(app.projects.projects.len(), 1);
+            assert_eq!(app.projects.projects[0].path, project_path);
+            assert!(app.project_draft.is_none());
+            assert!(app.route == Route::Home, "首页创建后应留在首页");
+            assert!(app.current_id.is_none(), "首页创建不应启动项目会话");
+        });
+        assert!(projects_path.is_file());
+    }
 
     #[test]
     fn terminal_viewport_tracks_sidebar_visibility() {
